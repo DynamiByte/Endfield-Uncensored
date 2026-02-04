@@ -1,0 +1,11 @@
+﻿<Application x:Class="UnGate11.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:UnGate11"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+        <Style TargetType="Image">
+            <Setter Property="RenderOptions.BitmapScalingMode" Value="HighQuality" />
+        </Style>
+    </Application.Resources>
+</Application>

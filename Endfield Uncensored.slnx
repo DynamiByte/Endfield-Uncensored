@@ -1,0 +1,9 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+  </Configurations>
+  <Project Path="Endfield Uncensored/Endfield Uncensored.csproj" Id="1a4480b4-2b7b-431e-aca5-f9b77140c1b2">
+    <Platform Solution="Debug|x64" Project="x64" />
+    <Platform Solution="Release|x64" Project="x64" />
+  </Project>
+</Solution>
