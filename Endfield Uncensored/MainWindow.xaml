@@ -291,7 +291,6 @@ Background="White">
 
         <!-- Version Label -->
         <Label
-            MouseLeftButtonDown="DragWindow"
             MouseLeftButtonUp="VersionLabel_Click"
             FontFamily="Bahnschrift"
             Foreground="#333333"
@@ -299,7 +298,6 @@ Background="White">
             HorizontalAlignment="Left"
             VerticalAlignment="Bottom"
             Margin="5"
-            Cursor="Hand"
             Panel.ZIndex="2">
             <Label.Style>
                 <Style TargetType="Label">

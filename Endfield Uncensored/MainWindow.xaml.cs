@@ -324,12 +324,20 @@ namespace UnGate11
             storyboard.Begin(this);
         }
 
-        private void Info(object sender, MouseButtonEventArgs e) => Process.Start(new ProcessStartInfo { FileName = "https://github.com/DynamiByte/UnGate11/blob/master/README.md" });
+        private void Info(object sender, MouseButtonEventArgs e) => Process.Start(new ProcessStartInfo
+        {
+            FileName = "https://github.com/DynamiByte/Endfield-Uncensored/blob/master/README.md",
+            UseShellExecute = true
+        });
 
         private void VersionLabel_Click(object sender, MouseButtonEventArgs e)
         {
-            string version = VersionLabel.Tag?.ToString() ?? "v1.1.0";
-            Process.Start(new ProcessStartInfo { FileName = $"https://github.com/DynamiByte/UnGate11/releases/tag/{version}" });
+            string version = VersionLabel.Tag?.ToString() ?? "v1.0.0";
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = $"https://github.com/DynamiByte/Endfield-Uncensored/releases/tag/{version}",
+                UseShellExecute = true
+            });
         }
 
         private void DragWindow(object sender, MouseButtonEventArgs e) => DragMove();

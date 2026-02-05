@@ -3,6 +3,18 @@
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
 
   <PropertyGroup>
+    <ApplicationIcon>EFU.ico</ApplicationIcon>
+    <Authors>DynamiByte</Authors>
+    <Copyright>©2026</Copyright>
+    <PackageId>Endfield Uncensored</PackageId>
+    <Product>Endfield Uncensored</Product>
+    <PackageProjectUrl>https://github.com/DynamiByte/Endfield-Uncensored</PackageProjectUrl>
+    <RepositoryType>GitHub</RepositoryType>
+    <RepositoryUrl>https://github.com/DynamiByte/Endfield-Uncensored</RepositoryUrl>
+    <Description>An app that removes the transparency filter in endfeild in DX12.</Description>
+    <SignAssembly>false</SignAssembly>
+    <Version>1.0.0</Version>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
     <ProjectGuid>{1A4480B4-2B7B-431E-ACA5-F9B77140C1B2}</ProjectGuid>
@@ -15,6 +27,9 @@
     <WarningLevel>4</WarningLevel>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <Deterministic>true</Deterministic>
+    <PackageIcon></PackageIcon>
+    <PackageIconUrl />
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <PlatformTarget>x64</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>
@@ -112,8 +127,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Native blobs embedded in the assembly. Resource names will be
-         <DefaultNamespace>.d3d12.dll and <DefaultNamespace>.loader.dll -->
     <EmbeddedResource Include="d3d12.dll" />
     <EmbeddedResource Include="loader.dll" />
   </ItemGroup>
