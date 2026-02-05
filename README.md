@@ -8,9 +8,14 @@ A DirectX 12 proxy injector that removes transparency-based censorship filters f
 
 ## Disclaimer
 
-This tool modifies game files at runtime. Use at your own risk.
-Dont be a dumbass and share screenshots with your UID that could only look that way with this mod.
-Getting banned for using this like a dumbass is YOUR fault, not mine.
+**THIS SOFTWARE IS NOT AFFILIATED WITH, ENDORSED BY, OR SPONSORED BY HYPERGRYPH, GRYPHLINE, OR ANY OTHER ENTITY ASSOCIATED WITH ARKNIGHTS: ENDFIELD.**
+
+- This project is an **independent, community-driven tool** created for educational and research purposes only.
+- **I (DynamiByte) do not own, claim ownership of, or have any rights to Arknights: Endfield or any of its assets.**
+- This tool **modifies game files at runtime** which may violate the game's Terms of Service.
+- I am not responsible for your misuse of this project leading to bans, or anything of the sort. **Use at your own risk.**
+
+This comes with the same risk as anything regarding this kind of game modding, such as anything 3DMigoto (ZZMI, GIMI, WWMI, SRMI, XXMI, etc.)
 
 ## How-to
 1. Download the latest release from the [Releases](https://github.com/DynamiByte/Endfield-Uncensored/releases) page
@@ -19,4 +24,4 @@ Getting banned for using this like a dumbass is YOUR fault, not mine.
 
 ### Notes
 If you dont wan't to use the GUI application, you can build the [d3d12.dll from source](https://github.com/DynamiByte/Endfield-Uncensored/blob/master/dll%20src/d3d12.c).
-With minor modification, you can just use a 3dmigoto loader to inject this.
+With minor modification, you can just use a 3DMigoto loader to inject this.
