@@ -24,7 +24,7 @@ namespace UnGate11
         // Constants
         private const int INVALID_CLICK_THRESHOLD = 3;
         private const string TARGET_EXE = "Endfield.exe";
-        private const string DLL_NAME = "d3d12.dll";
+        private const string DLL_NAME = "EFU.dll";
 
         // Fields
         private DispatcherTimer _delayTimer;
@@ -333,11 +333,7 @@ namespace UnGate11
         private void VersionLabel_Click(object sender, MouseButtonEventArgs e)
         {
             string version = VersionLabel.Tag?.ToString() ?? "v1.0.0";
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = $"https://github.com/DynamiByte/Endfield-Uncensored/releases/tag/{version}",
-                UseShellExecute = true
-            });
+            Process.Start(new ProcessStartInfo { FileName = $"https://github.com/DynamiByte/Endfield-Uncensored/releases/tag/{version}" });
         }
 
         private void DragWindow(object sender, MouseButtonEventArgs e) => DragMove();
@@ -379,8 +375,8 @@ namespace UnGate11
                 _tempDirectory = Path.Combine(Path.GetTempPath(), "EndfieldUncensored_" + Guid.NewGuid().ToString("N").Substring(0, 8));
                 Directory.CreateDirectory(_tempDirectory);
 
-                // Extract d3d12.dll
-                var dllResource = "Endfield_Uncensored.d3d12.dll";
+                // Extract EFU.dll
+                var dllResource = "Endfield_Uncensored.EFU.dll";
                 using (Stream stream = assembly.GetManifestResourceStream(dllResource))
                 {
                     if (stream != null)
