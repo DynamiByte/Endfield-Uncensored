@@ -3,6 +3,7 @@
 A small Vulkan focused mod that removes transparency-based censorship filters from Arknights: Endfield
 
 Why? Endfield runs like shit in DX11.
+
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.8-purple)
 ![License](https://img.shields.io/badge/license-GPL--3.0-green)
@@ -22,7 +23,7 @@ If this concerns you, do note that ANY OTHER similar programs, like 3DMigoto loa
 
 ## How-to
 1. Download the latest release from the [Releases](https://github.com/DynamiByte/Endfield-Uncensored/releases) page
-3. Run `Endfield Uncensored.exe` **It requires Administrator** 
+3. Run `Endfield.Uncensored.exe` **It requires Administrator** 
 4. Launch Endfield as you normally would, the program will inject and close automatically.
 
 ### Notes
