@@ -23,7 +23,7 @@ If this concerns you, do note that ANY OTHER similar programs, like 3DMigoto loa
 
 ## How-to
 1. Download the latest release from the [Releases](https://github.com/DynamiByte/Endfield-Uncensored/releases) page
-3. Run `Endfield Uncensored.exe` **It requires Administrator** 
+3. Run `Endfield-Uncensored.exe` **It requires Administrator** 
 4. Launch Endfield as you normally would, the program will inject and close automatically.
 
 ### Notes
