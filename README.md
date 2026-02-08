@@ -2,7 +2,11 @@
 
 A small Vulkan focused mod that removes transparency-based censorship filters from Arknights: Endfield
 
-Why? Endfield runs like shit in DX11.
+Why? Endfield runs worse DX11.
+At the time of creating this, Endfield was nearly unplayable in DX11.
+I'm not sure if they actually implemented optimizations, or it's just me, but DX11 isn't that bad anymore.
+Though it is, and will always be worse, as Vulkan is a lower level api and blah blah, search it up.
+Unless Hypergryph decides to take advantage of the detection logic within ACE to prevent this mod from working (they could do the same with 3DMigoto too y'know), it still serves a purpose.
 
 ![Version](https://img.shields.io/badge/version-1.0.1-blue)
 ![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.8-purple)
