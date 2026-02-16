@@ -27,7 +27,6 @@ using namespace Gdiplus;
 #define CORNER_RADIUS 15
 #define TARGET_EXE L"Endfield.exe"
 #define DLL_NAME L"EFU.dll"
-#define VERSION L"v2.0.0.2"
 
 // Global Variables
 HINSTANCE g_hInst = nullptr;
@@ -98,7 +97,7 @@ DWORD FindTargetProcess(const wchar_t* name);
 BOOL InjectDll(DWORD pid, const wchar_t* dllPath);
 bool ExtractEmbeddedDll();
 bool IsAdmin();
-void AppendOutput(const std::wstring& text);
+void AppendOutput(const std::wstring& text, bool replaceClosing = false);
 void CleanupTempFiles();
 void RenderContent(HWND hWnd);
 void PresentWindow(HWND hWnd, const POINT* pNewPos = nullptr);
@@ -215,7 +214,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
     // Create main window (layered for smooth rounded corners)
     g_hWnd = CreateWindowExW(
-        WS_EX_LAYERED | WS_EX_TOPMOST,
+        WS_EX_LAYERED,
         L"EndfieldUncensoredClass",
         L"Endfield Uncensored",
         WS_POPUP,
@@ -460,6 +459,7 @@ void RenderContent(HWND hWnd)
     RectF versionRectF((REAL)g_versionRect.left, (REAL)g_versionRect.top,
                        (REAL)(g_versionRect.right - g_versionRect.left),
                        (REAL)(g_versionRect.bottom - g_versionRect.top));
+    // VERSION comes from the shared header
     std::wstring ver = VERSION;
     if (!ver.empty() && (ver[0] == L'v' || ver[0] == L'V'))
         ver = ver.substr(1);
@@ -775,10 +775,49 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
     case WM_APPEND_OUTPUT:
     {
-        // Append text to output buffer
+        // Append text to output buffer (replacing the previous "Closing in ..." line)
         wchar_t* pText = (wchar_t*)lParam;
-        g_outputText += pText;
+        std::wstring incoming = pText;
         delete[] pText;
+
+        bool replace = (wParam != 0);
+        if (replace)
+        {
+            // Look for last occurrence of the closing countdown marker and replace that entire line
+            const std::wstring marker = L"Closing in ";
+            size_t pos = g_outputText.rfind(marker);
+            if (pos != std::wstring::npos)
+            {
+                // find start of that line
+                size_t lineStart = g_outputText.rfind(L"\r\n", pos);
+                if (lineStart == std::wstring::npos)
+                    lineStart = 0;
+                else
+                    lineStart += 2; // move past CRLF
+
+                // find end of that line (include the trailing CRLF when present)
+                size_t lineEnd = g_outputText.find(L"\r\n", pos);
+                if (lineEnd == std::wstring::npos)
+                    lineEnd = g_outputText.size();
+                else
+                    lineEnd += 2; // include CRLF
+
+                // erase the old line (including terminating CRLF if it existed)
+                g_outputText.erase(lineStart, lineEnd - lineStart);
+
+                // Collapse any accidental double-CRLF sequences left behind so we don't get
+                // an extra empty line before the replacement text.
+                while (g_outputText.size() >= 4 &&
+                       g_outputText.compare(g_outputText.size() - 4, 4, L"\r\n\r\n") == 0)
+                {
+                    // remove one CRLF (2 chars)
+                    g_outputText.erase(g_outputText.size() - 2, 2);
+                }
+            }
+        }
+
+        // Append incoming text (which already includes CRLF)
+        g_outputText += incoming;
 
         // Content changed, need full re-render
         g_contentDirty = true;
@@ -812,14 +851,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 // INJECTION AND HELPER FUNCTIONS
 // ============================================================================
 
-void AppendOutput(const std::wstring& text)
+void AppendOutput(const std::wstring& text, bool replaceClosing)
 {
     if (g_hWnd)
     {
         std::wstring fullText = text + L"\r\n";
         wchar_t* pText = new wchar_t[fullText.length() + 1];
         wcscpy_s(pText, fullText.length() + 1, fullText.c_str());
-        PostMessage(g_hWnd, WM_APPEND_OUTPUT, 0, (LPARAM)pText);
+        PostMessage(g_hWnd, WM_APPEND_OUTPUT, replaceClosing ? 1 : 0, (LPARAM)pText);
     }
 }
 
@@ -854,8 +893,9 @@ bool ExtractEmbeddedDll()
 
     g_tempDllPath = std::wstring(uniqueDir) + DLL_NAME;
 
+
     // Extract DLL from resources
-    HRSRC hRes = FindResource(g_hInst, MAKEINTRESOURCE(IDR_DLL_PAYLOAD), L"DLL");
+    HRSRC hRes = FindResource(g_hInst, MAKEINTRESOURCE(IDR_GAME_MOD), L"DLL");
     if (!hRes) return false;
 
     HGLOBAL hResData = LoadResource(g_hInst, hRes);
@@ -985,7 +1025,7 @@ void InjectionThreadProc()
         {
             wchar_t countText[64];
             swprintf_s(countText, L"Closing in %d...", i);
-            AppendOutput(countText);
+            AppendOutput(countText, true);
             Sleep(1000);
         }
 
