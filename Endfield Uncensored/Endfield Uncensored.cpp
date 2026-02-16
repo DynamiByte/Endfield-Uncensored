@@ -1,13 +1,16 @@
-#include "framework.h"
 #include "Endfield Uncensored.h"
 #include <string>
+#include <vector>
 #include <thread>
+#include <memory>
 #include <tlhelp32.h>
 #include <shlwapi.h>
 #include <shellapi.h>
 #include <gdiplus.h>
 #include <dwmapi.h>
 #include <mmsystem.h>
+#include <cmath>
+#include <algorithm>
 
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "gdiplus.lib")
@@ -24,7 +27,7 @@ using namespace Gdiplus;
 #define CORNER_RADIUS 15
 #define TARGET_EXE L"Endfield.exe"
 #define DLL_NAME L"EFU.dll"
-#define VERSION L"v2.0.0.1"
+#define VERSION L"v2.0.0.2"
 
 // Global Variables
 HINSTANCE g_hInst = nullptr;
@@ -41,6 +44,15 @@ HBITMAP g_cachedBitmap = nullptr;
 HBITMAP g_cachedOldBitmap = nullptr;
 bool g_contentDirty = true;
 
+// GDI+ resources (managed via smart pointers)
+static std::unique_ptr<Gdiplus::GraphicsPath> g_pLogoPath;
+static std::unique_ptr<Gdiplus::GraphicsPath> g_pTextPath;
+static std::unique_ptr<Gdiplus::Font> g_pButtonFont;
+static std::unique_ptr<Gdiplus::Font> g_pMinButtonFont;
+static std::unique_ptr<Gdiplus::Font> g_pInfoButtonFont;
+static std::unique_ptr<Gdiplus::Font> g_pConsoleFont;
+static std::unique_ptr<Gdiplus::Font> g_pVersionFont;
+
 // High-precision timing
 LARGE_INTEGER g_qpcFrequency;
 
@@ -55,10 +67,10 @@ inline double GetPreciseTimeMs()
 int g_hoveredButton = 0; // 0=none, 1=close, 2=minimize, 3=info
 bool g_mouseTracking = false;
 RECT g_closeBtn = { 465, 5, 495, 35 };
-RECT g_minBtn = { 430, 5, 460, 35 };
-RECT g_infoBtn = { 5, 5, 35, 35 };
+RECT g_minBtn = { 443, 1.15, 460, 35 };
+RECT g_infoBtn = { 7, 7, 27, 27 };
 RECT g_outputRect = { 252, 42, 476, 157 };
-RECT g_versionRect = { 5, 175, 100, 195 };
+RECT g_versionRect = { 10, 175, 250, 195 };
 
 // Animation state
 #define TIMER_ANIMATION 1
@@ -69,7 +81,7 @@ struct ButtonColorAnim {
     Color target;
     double startTime;
     bool animating;
-} g_buttonAnims[4] = {}; // 0=unused, 1=close, 2=minimize, 3=info
+} g_buttonAnims[5] = {}; // 0=unused, 1=close, 2=minimize, 3=info, 4=version
 
 struct WindowAnim {
     enum Type { None, SlideIn, SlideOutClose, FadeOutMinimize, FadeInRestore } type = None;
@@ -102,7 +114,7 @@ void FreeCachedBitmap();
 inline bool IsAnimating()
 {
     if (g_windowAnim.type != WindowAnim::None) return true;
-    for (int i = 1; i <= 3; i++)
+    for (int i = 1; i <= 4; i++)
         if (g_buttonAnims[i].animating) return true;
     return false;
 }
@@ -279,6 +291,18 @@ void FreeCachedBitmap()
     }
 }
 
+void FreeGdiResources()
+{
+    // Release GDI+ heap objects
+    g_pLogoPath.reset();
+    g_pTextPath.reset();
+    g_pButtonFont.reset();
+    g_pMinButtonFont.reset();
+    g_pInfoButtonFont.reset();
+    g_pConsoleFont.reset();
+    g_pVersionFont.reset();
+}
+
 void RenderContent(HWND hWnd)
 {
     HDC hdcScreen = GetDC(nullptr);
@@ -372,18 +396,16 @@ void RenderContent(HWND hWnd)
         graphics.FillPath(&blackBrush, pTextPath);
     }
 
-    static Font* pButtonFont = nullptr;
-    static Font* pMinButtonFont = nullptr;
-    static Font* pConsoleFont = nullptr;
-    static Font* pVersionFont = nullptr;
-
-    if (!pButtonFont)
-    {
-        pButtonFont = new Font(L"Segoe UI", 20, FontStyleBold, UnitPixel);
-        pMinButtonFont = new Font(L"Segoe UI", 18, FontStyleBold, UnitPixel);
-        pConsoleFont = new Font(L"Consolas", 13, FontStyleRegular, UnitPixel);
-        pVersionFont = new Font(L"Segoe UI", 12, FontStyleRegular, UnitPixel);
-    }
+    if (!g_pButtonFont)
+        g_pButtonFont = std::make_unique<Font>(L"Segoe UI", 20, FontStyleBold, UnitPixel);
+    if (!g_pMinButtonFont)
+        g_pMinButtonFont = std::make_unique<Font>(L"Segoe UI", 22, FontStyleBold, UnitPixel);
+    if (!g_pInfoButtonFont)
+        g_pInfoButtonFont = std::make_unique<Font>(L"Segoe UI", 13, FontStyleBold, UnitPixel);
+    if (!g_pConsoleFont)
+        g_pConsoleFont = std::make_unique<Font>(L"Consolas", 13, FontStyleRegular, UnitPixel);
+    if (!g_pVersionFont)
+        g_pVersionFont = std::make_unique<Font>(L"Segoe UI", 12, FontStyleRegular, UnitPixel);
 
     StringFormat centerFormat;
     centerFormat.SetAlignment(StringAlignmentCenter);
@@ -395,6 +417,7 @@ void RenderContent(HWND hWnd)
         g_buttonAnims[1].current = Color(255, 51, 51, 51);
         g_buttonAnims[2].current = Color(255, 51, 51, 51);
         g_buttonAnims[3].current = Color(255, 51, 51, 51);
+        g_buttonAnims[4].current = Color(255, 51, 51, 51);
         initialized = true;
     }
 
@@ -403,34 +426,82 @@ void RenderContent(HWND hWnd)
     RectF closeRectF((REAL)g_closeBtn.left, (REAL)g_closeBtn.top, 
                      (REAL)(g_closeBtn.right - g_closeBtn.left), 
                      (REAL)(g_closeBtn.bottom - g_closeBtn.top));
-    graphics.DrawString(L"\u2715", -1, pButtonFont, closeRectF, &centerFormat, &closeBrush);
+    graphics.DrawString(L"\u2715", -1, g_pButtonFont.get(), closeRectF, &centerFormat, &closeBrush);
 
     SolidBrush minBrush(g_buttonAnims[2].current);
     RectF minRectF((REAL)g_minBtn.left, (REAL)g_minBtn.top, 
                    (REAL)(g_minBtn.right - g_minBtn.left), 
                    (REAL)(g_minBtn.bottom - g_minBtn.top));
-    graphics.DrawString(L"\u2014", -1, pMinButtonFont, minRectF, &centerFormat, &minBrush);
+    graphics.DrawString(L"\u2014", -1, g_pMinButtonFont.get(), minRectF, &centerFormat, &minBrush);
 
     SolidBrush infoBrush(g_buttonAnims[3].current);
     RectF infoRectF((REAL)g_infoBtn.left, (REAL)g_infoBtn.top, 
                     (REAL)(g_infoBtn.right - g_infoBtn.left), 
                     (REAL)(g_infoBtn.bottom - g_infoBtn.top));
-    graphics.DrawString(L"\u24D8", -1, pButtonFont, infoRectF, &centerFormat, &infoBrush);
+    graphics.DrawString(L"\u24D8", -1, g_pInfoButtonFont.get(), infoRectF, &centerFormat, &infoBrush);
 
     StringFormat leftFormat;
     leftFormat.SetAlignment(StringAlignmentNear);
     leftFormat.SetLineAlignment(StringAlignmentNear);
 
+    // Version text should not wrap or be trimmed — draw full string on one line
+    StringFormat verFormat;
+    verFormat.SetAlignment(StringAlignmentNear);
+    verFormat.SetLineAlignment(StringAlignmentNear);
+    verFormat.SetFormatFlags(StringFormatFlagsNoWrap);
+    verFormat.SetTrimming(StringTrimmingNone);
+
     RectF outputRectF((REAL)g_outputRect.left, (REAL)g_outputRect.top,
                       (REAL)(g_outputRect.right - g_outputRect.left),
                       (REAL)(g_outputRect.bottom - g_outputRect.top));
     SolidBrush textBrush(Color(255, 0, 0, 0));
-    graphics.DrawString(g_outputText.c_str(), -1, pConsoleFont, outputRectF, &leftFormat, &textBrush);
+    graphics.DrawString(g_outputText.c_str(), -1, g_pConsoleFont.get(), outputRectF, &leftFormat, &textBrush);
 
     RectF versionRectF((REAL)g_versionRect.left, (REAL)g_versionRect.top,
                        (REAL)(g_versionRect.right - g_versionRect.left),
                        (REAL)(g_versionRect.bottom - g_versionRect.top));
-    graphics.DrawString(VERSION, -1, pVersionFont, versionRectF, &leftFormat, &textBrush);
+    std::wstring ver = VERSION;
+    if (!ver.empty() && (ver[0] == L'v' || ver[0] == L'V'))
+        ver = ver.substr(1);
+    std::vector<std::wstring> parts;
+    size_t pos = 0;
+    while (pos < ver.size()) {
+        size_t dot = ver.find(L'.', pos);
+        if (dot == std::wstring::npos) dot = ver.size();
+        parts.push_back(ver.substr(pos, dot - pos));
+        pos = dot + 1;
+    }
+    std::wstring displayVersion;
+    if (parts.size() >= 4) {
+        // Format: "vMajor.Minor.Patch PREVIEW Build" using the 4th component as the preview/build
+        displayVersion = L"v" + parts[0] + L"." + parts[1] + L"." + parts[2] + L" PREVIEW " + parts[3];
+    } else if (parts.size() == 3) {
+        displayVersion = L"v" + parts[0] + L"." + parts[1] + L"." + parts[2];
+    } else {
+        displayVersion = std::wstring(VERSION);
+    }
+    // Measure and expand the layout rect if the text is wider than the allocated space
+    // Note: Graphics has a scale transform applied (g_dpiScale), so MeasureString
+    // returns sizes in device-scaled units. Convert back to logical coordinates
+    // before updating versionRectF so hit-testing (which uses logical coords)
+    // remains consistent.
+    RectF measuredRect;
+    graphics.MeasureString(displayVersion.c_str(), -1, g_pVersionFont.get(), PointF(0, 0), &measuredRect);
+    float measuredLogicalWidth = measuredRect.Width / g_dpiScale;
+    if (measuredLogicalWidth + 4.0f > versionRectF.Width) // small padding (logical coords)
+        versionRectF.Width = measuredLogicalWidth + 4.0f;
+
+    // Draw version text; also record its clickable region in logical coords (for hit-testing)
+    SolidBrush versionBrush(g_buttonAnims[4].current);
+    graphics.DrawString(displayVersion.c_str(), -1, g_pVersionFont.get(), versionRectF, &verFormat, &versionBrush);
+
+    // Update g_versionRect to tightly fit the measured text (in logical coords)
+    // (versionRectF was potentially expanded above to measured width)
+    // Convert back to integer RECT for hit-testing
+    g_versionRect.left = (int)ceilf(versionRectF.X);
+    g_versionRect.top = (int)ceilf(versionRectF.Y);
+    g_versionRect.right = (int)ceilf(versionRectF.X + versionRectF.Width);
+    g_versionRect.bottom = (int)ceilf(versionRectF.Y + versionRectF.Height);
 
     // Apply rounded-rect alpha mask for smooth AA edges
     // (avoids jagged corners from hard SetClip boundaries)
@@ -484,6 +555,16 @@ void PresentWindow(HWND hWnd, const POINT* pNewPos)
     if (!g_cachedDC) return;
 
     HDC hdcScreen = GetDC(nullptr);
+    if (!g_pButtonFont)
+        g_pButtonFont = std::make_unique<Font>(L"Segoe UI", 20, FontStyleBold, UnitPixel);
+    if (!g_pMinButtonFont)
+        g_pMinButtonFont = std::make_unique<Font>(L"Segoe UI", 18, FontStyleBold, UnitPixel);
+    if (!g_pInfoButtonFont)
+        g_pInfoButtonFont = std::make_unique<Font>(L"Segoe UI", 13, FontStyleBold, UnitPixel);
+    if (!g_pConsoleFont)
+        g_pConsoleFont = std::make_unique<Font>(L"Consolas", 13, FontStyleRegular, UnitPixel);
+    if (!g_pVersionFont)
+        g_pVersionFont = std::make_unique<Font>(L"Segoe UI", 12, FontStyleRegular, UnitPixel);
     int scaledWidth = (int)(WINDOW_WIDTH * g_dpiScale);
     int scaledHeight = (int)(WINDOW_HEIGHT * g_dpiScale);
 
@@ -554,6 +635,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 nullptr, nullptr, SW_SHOWNORMAL);
             break;
         }
+        else if (PtInRect(&g_versionRect, pt))
+        {
+            // Open release tag for current VERSION macro
+            std::wstring tag = VERSION;
+            // Ensure tag starts with 'v'
+            if (tag.empty() || (tag[0] != L'v' && tag[0] != L'V'))
+                tag = std::wstring(L"v") + tag;
+
+            std::wstring url = L"https://github.com/DynamiByte/Endfield-Uncensored/releases/tag/" + tag;
+            ShellExecute(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            break;
+        }
 
         // Start dragging if not clicking a button
         s_isDragging = true;
@@ -603,12 +696,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 g_hoveredButton = 2;
             else if (PtInRect(&g_infoBtn, pt))
                 g_hoveredButton = 3;
+            else if (PtInRect(&g_versionRect, pt))
+                g_hoveredButton = 4;
 
-            // Update cursor
-            if (g_hoveredButton != 0)
-                SetCursor(LoadCursor(nullptr, IDC_HAND));
-            else
-                SetCursor(LoadCursor(nullptr, IDC_ARROW));
+            // Update cursor: never use hand cursor on any button; always show arrow
+            SetCursor(LoadCursor(nullptr, IDC_ARROW));
 
             // Start color animations if hover changed
             if (prevHover != g_hoveredButton)
@@ -624,6 +716,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     StartButtonColorAnim(2, Color(255, 218, 165, 32)); // Goldenrod
                 else if (g_hoveredButton == 3)
                     StartButtonColorAnim(3, Color(255, 100, 149, 237)); // CornflowerBlue
+                else if (g_hoveredButton == 4)
+                    StartButtonColorAnim(4, Color(255, 100, 149, 237)); // Same as info (CornflowerBlue)
             }
         }
         break;
@@ -704,6 +798,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_DESTROY:
         KillTimer(hWnd, TIMER_CLOSE_DELAY);
         FreeCachedBitmap();
+        FreeGdiResources();
         PostQuitMessage(0);
         break;
 
@@ -1305,7 +1400,7 @@ float EaseInQuad(float t)
 
 void StartButtonColorAnim(int buttonId, const Color& target)
 {
-    if (buttonId < 1 || buttonId > 3) return;
+    if (buttonId < 1 || buttonId > 4) return;
 
     g_buttonAnims[buttonId].start = g_buttonAnims[buttonId].current;
     g_buttonAnims[buttonId].target = target;
@@ -1353,7 +1448,7 @@ void UpdateAnimations(HWND hWnd)
     double currentTime = GetPreciseTimeMs();
 
     // Update button color animations (require content re-render)
-    for (int i = 1; i <= 3; i++)
+    for (int i = 1; i <= 4; i++)
     {
         if (g_buttonAnims[i].animating)
         {

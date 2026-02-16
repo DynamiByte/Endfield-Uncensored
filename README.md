@@ -8,9 +8,12 @@ I'm not sure if they actually implemented optimizations, or it's just me, but DX
 Though it is, and will always be worse, as Vulkan is a lower level api and blah blah, search it up.
 Unless Hypergryph decides to take advantage of the detection logic within ACE to prevent this mod from working (they could do the same with 3DMigoto too y'know), it still serves a purpose.
 
-![Version](https://img.shields.io/badge/version-1.0.1-blue)
-![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.8-purple)
+![Version](https://img.shields.io/badge/version-2.0.0.2-orange)
+![Build](https://img.shields.io/badge/preview-orange)
 ![License](https://img.shields.io/badge/license-GPL--3.0-green)
+
+In the newest preview release, the codebase was rewritten (terribly) in C++, in hopes of improving virus detection.
+It uses a tenth of the ram too!
 
 ## Disclaimer
 
@@ -31,5 +34,5 @@ If this concerns you, do note that ANY OTHER similar programs, like 3DMigoto loa
 4. Launch Endfield as you normally would, the program will inject and close automatically.
 
 ### Notes
-If you dont wan't to use the GUI application, you can build EFU.dll from [source](https://github.com/DynamiByte/Endfield-Uncensored/blob/master/dll%20src/d3d12.c).
+If you dont wan't to use the GUI application, you can build EFU.dll from [source](https://github.com/DynamiByte/Endfield-Uncensored/blob/master/Endfield%20Uncensored/EFU.c).
 With minor modification, you can just use a 3DMigoto loader to inject this.
