@@ -8,12 +8,12 @@ I'm not sure if they actually implemented optimizations, or it's just me, but DX
 Though it is, and will always be worse, as Vulkan is a lower level api and blah blah, search it up.
 Unless Hypergryph decides to take advantage of the detection logic within ACE to prevent this mod from working (they could do the same with 3DMigoto too y'know), it still serves a purpose.
 
-![Version](https://img.shields.io/badge/version-2.0.0.2-orange)
-![Build](https://img.shields.io/badge/preview-orange)
+![Version](https://img.shields.io/badge/version-2.0.0-blue)
 ![License](https://img.shields.io/badge/license-GPL--3.0-green)
 
-In the newest preview release, the codebase was rewritten (terribly) in C++, in hopes of improving virus detection.
-It uses a tenth of the ram too!
+In the newest release, the codebase was rewritten in C++, in hopes of improving virus detection.
+It worked well, the program gets only 3 hits now!
+The program also uses 10x LESS ram! (~3.5MB)
 
 ## Disclaimer
 
