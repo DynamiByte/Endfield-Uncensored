@@ -4,10 +4,10 @@
 #include <SDKDDKVer.h>
 
 //////////////////////////////////////////////////////////////////
-// Display version (Majow.Minor.Patch.Preview)                  //
-#define VERSION_STR "v2.0.0"                                    //
+// Display version ([Very]Major.Feature.Patch.Preview)          //
+#define VERSION_STR "v2.1.0"                                    //
 // Numeric file version for resource compiler (comma-separated) //
-#define VERSION_FILEVERSION 2,0,0,0                             //
+#define VERSION_FILEVERSION 2,1,0,0                             //
 //////////////////////////////////////////////////////////////////
 
 // Helper to create a wide-string literal from a narrow string literal macro

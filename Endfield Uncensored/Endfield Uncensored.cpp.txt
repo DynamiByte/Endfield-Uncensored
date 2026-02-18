@@ -18,95 +18,15 @@
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "winmm.lib")
 
-#include <fstream>
-#include <regex>
-#include <sstream>
-
-// Helper: returns true if path contains Endfield.exe (case-insensitive)
-static bool ContainsEndfieldExe(const std::wstring& dir) {
-    WIN32_FIND_DATAW findData;
-    std::wstring pattern = dir + L"\\*";
-    HANDLE hFind = FindFirstFileW(pattern.c_str(), &findData);
-    if (hFind == INVALID_HANDLE_VALUE) return false;
-    do {
-        if (!(findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-            std::wstring name = findData.cFileName;
-            std::transform(name.begin(), name.end(), name.begin(), ::towlower);
-            if (name == L"endfield.exe")
-            {
-                FindClose(hFind);
-                return true;
-            }
-        }
-    } while (FindNextFileW(hFind, &findData));
-    FindClose(hFind);
-    return false;
-}
-
-// Try to find the game exe path, returns empty string if not found
-static std::wstring DetectGameExe() {
-    // 1. Try Player.log
-    wchar_t* appdata = nullptr;
-    size_t len = 0;
-    _wdupenv_s(&appdata, &len, L"APPDATA");
-    if (appdata) {
-        std::wstring logPath = std::wstring(appdata);
-        free(appdata);
-        size_t pos = logPath.find_last_of(L"\\/");
-        if (pos != std::wstring::npos) logPath = logPath.substr(0, pos);
-        logPath += L"\\LocalLow\\Gryphline\\Endfield\\Player.log";
-        std::wifstream fin(logPath);
-        if (fin) {
-            std::wregex re(L"([a-zA-Z]:[\\\\/][^\r\n]*?EndField[^\r\n]*)", std::regex_constants::icase);
-            std::wstring line, match;
-            while (std::getline(fin, line)) {
-                std::wsmatch m;
-                if (std::regex_search(line, m, re)) {
-                    match = m[1].str();
-                    // Trim at Endfield_Data if present
-                    std::wstring low = match;
-                    std::transform(low.begin(), low.end(), low.begin(), ::towlower);
-                    size_t pos = low.rfind(L"endfield_data");
-                    if (pos != std::wstring::npos) {
-                        match = match.substr(0, pos);
-                    }
-                    match.erase(match.find_last_not_of(L"\\/") + 1);
-                    if (ContainsEndfieldExe(match)) {
-                        return match + L"\\Endfield.exe";
-                    }
-                }
-            }
-        }
-    }
-
-    // 2. Known install locations
-    std::vector<std::wstring> knownPaths = {
-        L"C:\\Program Files\\GRYPHLINK\\games\\EndField Game"
-    };
-    for (wchar_t d = L'D'; d <= L'Z'; ++d)
-        knownPaths.push_back(std::wstring(1, d) + L":\\GRYPHLINK\\games\\EndField Game");
-    knownPaths.push_back(L"A:\\GRYPHLINK\\games\\EndField Game");
-    knownPaths.push_back(L"B:\\GRYPHLINK\\games\\EndField Game");
-
-    for (const auto& dir : knownPaths) {
-        if (ContainsEndfieldExe(dir)) {
-            return dir + L"\\Endfield.exe";
-        }
-    }
-    return L"";
-}
-
 using namespace Gdiplus;
 
-
 // Constants
-constexpr UINT WM_APPEND_OUTPUT = WM_USER + 1;
-constexpr UINT WM_CLEAR_OUTPUT = WM_USER + 2;
-constexpr int WINDOW_WIDTH = 500;
-constexpr int WINDOW_HEIGHT = 200;
-constexpr int CORNER_RADIUS = 15;
-constexpr wchar_t TARGET_EXE[] = L"Endfield.exe";
-constexpr wchar_t DLL_NAME[] = L"EFU.dll";
+#define WM_APPEND_OUTPUT (WM_USER + 1)
+#define WINDOW_WIDTH 500
+#define WINDOW_HEIGHT 200
+#define CORNER_RADIUS 15
+#define TARGET_EXE L"Endfield.exe"
+#define DLL_NAME L"EFU.dll"
 
 // Global Variables
 HINSTANCE g_hInst = nullptr;
@@ -116,28 +36,6 @@ std::wstring g_outputText;
 bool g_isClosing = false;
 float g_windowOpacity = 1.0f;
 float g_dpiScale = 1.0f;
-
-// Game autodetect globals
-std::wstring g_gameExePath; // game exe path (empty if not found)
-RECT g_launchBtn = { 350, 150, 480, 185 };
-RECT g_minInjectBtn = { 260, 10, 430, 32 };
-bool g_launchBtnEnabled = false;
-float g_launchBtnAnim = 0.0f; // Launch button animation state 0.0 = normal, 1.0 = expanded
-float g_launchBtnAnimTarget = 0.0f;
-double g_launchBtnAnimStartTime = 0.0;
-float g_launchBtnAnimStartValue = 0.0f;
-bool g_launchBtnAnimating = false;
-
-// Minimize on injection button state
-float g_minInjectBtnAnim = 0.0f; // 0.0 = normal, 1.0 = expanded
-float g_minInjectBtnAnimTarget = 0.0f;
-double g_minInjectBtnAnimStartTime = 0.0;
-float g_minInjectBtnAnimStartValue = 0.0f;
-bool g_minInjectBtnAnimating = false;
-Color g_minInjectBtnColor = Color(255, 220, 220, 220); // Light gray
-Color g_minInjectBtnTargetColor = Color(255, 255, 250, 0); // Yellow
-Color g_minInjectBtnCurrentColor = Color(255, 220, 220, 220);
-bool g_minimizeOnInject = false;
 
 // Cached bitmap for layered window (avoids full GDI+ re-render on every frame)
 HDC g_cachedDC = nullptr;
@@ -157,7 +55,7 @@ static std::unique_ptr<Gdiplus::Font> g_pVersionFont;
 // High-precision timing
 LARGE_INTEGER g_qpcFrequency;
 
-static inline double GetPreciseTimeMs()
+inline double GetPreciseTimeMs()
 {
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
@@ -165,17 +63,17 @@ static inline double GetPreciseTimeMs()
 }
 
 // Custom rendering state
-int g_hoveredButton = 0; // 0=none, 1=close, 2=minimize, 3=info, 6=minimize on inject
+int g_hoveredButton = 0; // 0=none, 1=close, 2=minimize, 3=info
 bool g_mouseTracking = false;
 RECT g_closeBtn = { 465, 5, 495, 35 };
-RECT g_minBtn = { 443, 1, 460, 35 };
+RECT g_minBtn = { 443, 1.15, 460, 35 };
 RECT g_infoBtn = { 7, 7, 27, 27 };
 RECT g_outputRect = { 252, 42, 476, 157 };
 RECT g_versionRect = { 10, 175, 250, 195 };
 
 // Animation state
-constexpr int TIMER_ANIMATION = 1;
-constexpr int TIMER_CLOSE_DELAY = 2;
+#define TIMER_ANIMATION 1
+#define TIMER_CLOSE_DELAY 2
 struct ButtonColorAnim {
     Color start;
     Color current;
@@ -184,20 +82,19 @@ struct ButtonColorAnim {
     bool animating;
 } g_buttonAnims[5] = {}; // 0=unused, 1=close, 2=minimize, 3=info, 4=version
 
-
 struct WindowAnim {
     enum Type { None, SlideIn, SlideOutClose, FadeOutMinimize, FadeInRestore } type = None;
-    double startTime = 0.0;
-    int startX = 0;
-    int startY = 0;
-    double startOpacity = 0.0;
+    double startTime;
+    int startX;
+    int startY;
+    double startOpacity;
 } g_windowAnim;
 
 // Forward declarations
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
-void StartLoaderThread();
+void StartInjectionThread();
 DWORD FindTargetProcess(const wchar_t* name);
-BOOL LoadDll(DWORD pid, const wchar_t* dllPath);
+BOOL InjectDll(DWORD pid, const wchar_t* dllPath);
 bool ExtractEmbeddedDll();
 bool IsAdmin();
 void AppendOutput(const std::wstring& text, bool replaceClosing = false);
@@ -205,7 +102,7 @@ void CleanupTempFiles();
 void RenderContent(HWND hWnd);
 void PresentWindow(HWND hWnd, const POINT* pNewPos = nullptr);
 void UpdateWindowGraphics(HWND hWnd);
-// Removed forward declaration for LerpColor; will mark as static in definition
+Color LerpColor(const Color& a, const Color& b, float t);
 float EaseOutQuad(float t);
 void StartButtonColorAnim(int buttonId, const Color& target);
 void UpdateAnimations(HWND hWnd);
@@ -213,23 +110,11 @@ void StartWindowAnimation(WindowAnim::Type type, HWND hWnd);
 void ParseSVGPathToGDIPlus(const char* svgPath, GraphicsPath& gdiPath);
 void FreeCachedBitmap();
 
-// Helper: returns true if any UI animation is running
-static bool AnyUIAnimating()
+inline bool IsAnimating()
 {
     if (g_windowAnim.type != WindowAnim::None) return true;
     for (int i = 1; i <= 4; i++)
         if (g_buttonAnims[i].animating) return true;
-    if (g_launchBtnAnimating) return true;
-    if (g_minInjectBtnAnimating) return true;
-    return false;
-}
-
-static inline bool IsAnimating()
-{
-    if (g_windowAnim.type != WindowAnim::None) return true;
-    for (int i = 1; i <= 4; i++)
-        if (g_buttonAnims[i].animating) return true;
-    if (g_launchBtnAnimating) return true;
     return false;
 }
 
@@ -294,18 +179,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         return 1;
     }
 
-
-    // detect game exe
-    g_gameExePath = DetectGameExe();
-    g_launchBtnEnabled = !g_gameExePath.empty();
-    if (g_launchBtnEnabled) {
-        AppendOutput(L"Game found!");
-        AppendOutput(L"You can now launch the game here or from the official launcher.");
-    } else {
-        AppendOutput(L"Game not found.");
-        AppendOutput(L"Please launch the game from the official launcher.");
-    }
-
     // Register window class
     WNDCLASSEXW wcex = {};
     wcex.cbSize = sizeof(WNDCLASSEX);
@@ -365,33 +238,34 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     // Start slide-in animation
     StartWindowAnimation(WindowAnim::SlideIn, g_hWnd);
 
-    // Start loader thread
-    StartLoaderThread();
+    // Start injection thread
+    StartInjectionThread();
 
     // Main message loop — V-Sync'd animation via DwmFlush()
     MSG msg = {};
-    bool timerActive = false;
     while (msg.message != WM_QUIT)
     {
-        if (AnyUIAnimating())
+        if (IsAnimating())
         {
-            if (!timerActive) {
-                SetTimer(g_hWnd, TIMER_ANIMATION, 16, NULL); // ~60Hz
-                timerActive = true;
+            // Animation active: drain messages, update, sync to compositor
+            while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
+            {
+                if (msg.message == WM_QUIT) break;
+                TranslateMessage(&msg);
+                DispatchMessage(&msg);
             }
-        } else if (timerActive) {
-            KillTimer(g_hWnd, TIMER_ANIMATION);
-            timerActive = false;
-        }
-        if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
-        {
             if (msg.message == WM_QUIT) break;
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
+
+            UpdateAnimations(g_hWnd);
+            DwmFlush(); // V-Sync with desktop compositor (~60 Hz)
         }
         else
         {
-            Sleep(1); // Idle
+            // Idle: block until a message arrives (zero CPU)
+            BOOL ret = GetMessage(&msg, nullptr, 0, 0);
+            if (ret <= 0) break;
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
         }
     }
 
@@ -403,7 +277,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     return (int)msg.wParam;
 }
 
-static void FreeCachedBitmap()
+void FreeCachedBitmap()
 {
     if (g_cachedDC)
     {
@@ -416,7 +290,7 @@ static void FreeCachedBitmap()
     }
 }
 
-static void FreeGdiResources()
+void FreeGdiResources()
 {
     // Release GDI+ heap objects
     g_pLogoPath.reset();
@@ -428,7 +302,7 @@ static void FreeGdiResources()
     g_pVersionFont.reset();
 }
 
-static void RenderContent(HWND hWnd)
+void RenderContent(HWND hWnd)
 {
     HDC hdcScreen = GetDC(nullptr);
 
@@ -447,15 +321,8 @@ static void RenderContent(HWND hWnd)
     bmi.bmiHeader.biCompression = BI_RGB;
 
     void* pBits = nullptr;
-
     g_cachedDC = CreateCompatibleDC(hdcScreen);
     g_cachedBitmap = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pBits, nullptr, 0);
-    if (!g_cachedBitmap) {
-        DeleteDC(g_cachedDC);
-        g_cachedDC = nullptr;
-        ReleaseDC(nullptr, hdcScreen);
-        return;
-    }
     g_cachedOldBitmap = (HBITMAP)SelectObject(g_cachedDC, g_cachedBitmap);
 
     Graphics graphics(g_cachedDC);
@@ -537,9 +404,7 @@ static void RenderContent(HWND hWnd)
     if (!g_pConsoleFont)
         g_pConsoleFont = std::make_unique<Font>(L"Consolas", 13, FontStyleRegular, UnitPixel);
     if (!g_pVersionFont)
-        // Use a monospaced font for predictable character spacing which
-        // helps compute a robust padding on high-DPI displays.
-        g_pVersionFont = std::make_unique<Font>(L"Consolas", 12, FontStyleRegular, UnitPixel);
+        g_pVersionFont = std::make_unique<Font>(L"Segoe UI", 12, FontStyleRegular, UnitPixel);
 
     StringFormat centerFormat;
     centerFormat.SetAlignment(StringAlignmentCenter);
@@ -556,29 +421,22 @@ static void RenderContent(HWND hWnd)
     }
 
     // Draw buttons at full alpha
-
     SolidBrush closeBrush(g_buttonAnims[1].current);
-    RectF closeRectF(
-        static_cast<REAL>(g_closeBtn.left),
-        static_cast<REAL>(g_closeBtn.top),
-        static_cast<REAL>(g_closeBtn.right - g_closeBtn.left),
-        static_cast<REAL>(g_closeBtn.bottom - g_closeBtn.top));
+    RectF closeRectF((REAL)g_closeBtn.left, (REAL)g_closeBtn.top, 
+                     (REAL)(g_closeBtn.right - g_closeBtn.left), 
+                     (REAL)(g_closeBtn.bottom - g_closeBtn.top));
     graphics.DrawString(L"\u2715", -1, g_pButtonFont.get(), closeRectF, &centerFormat, &closeBrush);
 
     SolidBrush minBrush(g_buttonAnims[2].current);
-    RectF minRectF(
-        static_cast<REAL>(g_minBtn.left),
-        static_cast<REAL>(g_minBtn.top),
-        static_cast<REAL>(g_minBtn.right - g_minBtn.left),
-        static_cast<REAL>(g_minBtn.bottom - g_minBtn.top));
+    RectF minRectF((REAL)g_minBtn.left, (REAL)g_minBtn.top, 
+                   (REAL)(g_minBtn.right - g_minBtn.left), 
+                   (REAL)(g_minBtn.bottom - g_minBtn.top));
     graphics.DrawString(L"\u2014", -1, g_pMinButtonFont.get(), minRectF, &centerFormat, &minBrush);
 
     SolidBrush infoBrush(g_buttonAnims[3].current);
-    RectF infoRectF(
-        static_cast<REAL>(g_infoBtn.left),
-        static_cast<REAL>(g_infoBtn.top),
-        static_cast<REAL>(g_infoBtn.right - g_infoBtn.left),
-        static_cast<REAL>(g_infoBtn.bottom - g_infoBtn.top));
+    RectF infoRectF((REAL)g_infoBtn.left, (REAL)g_infoBtn.top, 
+                    (REAL)(g_infoBtn.right - g_infoBtn.left), 
+                    (REAL)(g_infoBtn.bottom - g_infoBtn.top));
     graphics.DrawString(L"\u24D8", -1, g_pInfoButtonFont.get(), infoRectF, &centerFormat, &infoBrush);
 
     StringFormat leftFormat;
@@ -592,19 +450,15 @@ static void RenderContent(HWND hWnd)
     verFormat.SetFormatFlags(StringFormatFlagsNoWrap);
     verFormat.SetTrimming(StringTrimmingNone);
 
-    RectF outputRectF(
-        static_cast<REAL>(g_outputRect.left),
-        static_cast<REAL>(g_outputRect.top),
-        static_cast<REAL>(g_outputRect.right - g_outputRect.left),
-        static_cast<REAL>(g_outputRect.bottom - g_outputRect.top));
+    RectF outputRectF((REAL)g_outputRect.left, (REAL)g_outputRect.top,
+                      (REAL)(g_outputRect.right - g_outputRect.left),
+                      (REAL)(g_outputRect.bottom - g_outputRect.top));
     SolidBrush textBrush(Color(255, 0, 0, 0));
     graphics.DrawString(g_outputText.c_str(), -1, g_pConsoleFont.get(), outputRectF, &leftFormat, &textBrush);
 
-    RectF versionRectF(
-        static_cast<REAL>(g_versionRect.left),
-        static_cast<REAL>(g_versionRect.top),
-        static_cast<REAL>(g_versionRect.right - g_versionRect.left),
-        static_cast<REAL>(g_versionRect.bottom - g_versionRect.top));
+    RectF versionRectF((REAL)g_versionRect.left, (REAL)g_versionRect.top,
+                       (REAL)(g_versionRect.right - g_versionRect.left),
+                       (REAL)(g_versionRect.bottom - g_versionRect.top));
     // VERSION comes from the shared header
     std::wstring ver = VERSION;
     if (!ver.empty() && (ver[0] == L'v' || ver[0] == L'V'))
@@ -619,260 +473,84 @@ static void RenderContent(HWND hWnd)
     }
     std::wstring displayVersion;
     if (parts.size() >= 4) {
+        // Format: "vMajor.Minor.Patch PREVIEW Build" using the 4th component as the preview/build
         displayVersion = L"v" + parts[0] + L"." + parts[1] + L"." + parts[2] + L" PREVIEW " + parts[3];
     } else if (parts.size() == 3) {
         displayVersion = L"v" + parts[0] + L"." + parts[1] + L"." + parts[2];
     } else {
         displayVersion = std::wstring(VERSION);
     }
-    
-	// Extremely shitty DPI-"aware" text measurement
+    // Measure and expand the layout rect if the text is wider than the allocated space
+    // Note: Graphics has a scale transform applied (g_dpiScale), so MeasureString
+    // returns sizes in device-scaled units. Convert back to logical coordinates
+    // before updating versionRectF so hit-testing (which uses logical coords)
+    // remains consistent.
     RectF measuredRect;
-    bool measuredByGdi = false;
-    if (hdcScreen)
-    {
-        // try to match the GDI+ font size (12 UnitPixel) to device pixels
-        int fontPixelHeight = (int)ceilf(12.0f * g_dpiScale);
-        HFONT hFont = CreateFontW(-fontPixelHeight, 0, 0, 0, FW_NORMAL,
-            FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-            CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Consolas");
-        if (hFont)
-        {
-            HFONT hOldFont = (HFONT)SelectObject(hdcScreen, hFont);
-            SIZE sz = { 0, 0 };
-            if (GetTextExtentPoint32W(hdcScreen, displayVersion.c_str(), (int)displayVersion.size(), &sz))
-            {
-                measuredRect.Width = (REAL)sz.cx;
-                measuredRect.Height = (REAL)sz.cy;
-                measuredByGdi = true;
-            }
-            SelectObject(hdcScreen, hOldFont);
-            DeleteObject(hFont);
-        }
-    }
-
-    if (!measuredByGdi)
-    {
-        // Fallback to GDI+ MeasureCharacterRanges for a tight bound
-        try {
-            StringFormat mf;
-            mf.SetFormatFlags(StringFormatFlagsNoWrap | StringFormatFlagsMeasureTrailingSpaces);
-            CharacterRange cr(0, (INT)displayVersion.size());
-            mf.SetMeasurableCharacterRanges(1, &cr);
-            RectF layoutRect(0.0f, 0.0f, (REAL)WINDOW_WIDTH, (REAL)WINDOW_HEIGHT);
-            Region ranges[1] = { Region() };
-            graphics.MeasureCharacterRanges(displayVersion.c_str(), -1, g_pVersionFont.get(), layoutRect, &mf, 1, ranges);
-            ranges[0].GetBounds(&measuredRect, &graphics);
-        }
-        catch (...) {
-            graphics.MeasureString(displayVersion.c_str(), -1, g_pVersionFont.get(), PointF(0, 0), &measuredRect);
-        }
-    }
-
-    // Convert to logical (unscaled) coordinates used elsewhere by dividing to DPI scale
+    graphics.MeasureString(displayVersion.c_str(), -1, g_pVersionFont.get(), PointF(0, 0), &measuredRect);
     float measuredLogicalWidth = measuredRect.Width / g_dpiScale;
-    float measuredLogicalHeight = measuredRect.Height / g_dpiScale;
-
-    // Shitty padding
-
-    float maxAvailable = (float)WINDOW_WIDTH - versionRectF.X - 6.0f;
-    const float basePadding = 6.0f;
-    const float maxPadding = 60.0f;
-
-    // Compute character width using the monospaced font cuz im lazy
-    RectF charRect;
-    try {
-        StringFormat cf;
-        cf.SetFormatFlags(StringFormatFlagsNoWrap | StringFormatFlagsMeasureTrailingSpaces);
-        CharacterRange crc(0, 1);
-        cf.SetMeasurableCharacterRanges(1, &crc);
-        RectF layoutCharRect(0.0f, 0.0f, 64.0f, 64.0f);
-        Region cranges[1] = { Region() };
-        graphics.MeasureCharacterRanges(L"0", -1, g_pVersionFont.get(), layoutCharRect, &cf, 1, cranges);
-        cranges[0].GetBounds(&charRect, &graphics);
-    }
-    catch (...) {
-        graphics.MeasureString(L"0", -1, g_pVersionFont.get(), PointF(0, 0), &charRect);
-    }
-    float charLogicalWidth = charRect.Width / g_dpiScale;
-
-    // Estimated width from monospaced char
-    float estimatedWidth = charLogicalWidth * static_cast<float>(displayVersion.size());
-
-    // Use the larger of glyph-tight measured width and estimated width
-    if (estimatedWidth > measuredLogicalWidth)
-        measuredLogicalWidth = estimatedWidth;
-
-    // Dynamic horizontal padding that kinda scales with DPI and string length.
-    float originalWidth = (float)(g_versionRect.right - g_versionRect.left);
-    float paddingX = basePadding * g_dpiScale;
-    float lengthFactor = static_cast<float>(displayVersion.size()) * 0.02f;
-    paddingX += charLogicalWidth * lengthFactor * g_dpiScale;
-    if (paddingX > maxPadding) paddingX = maxPadding;
-
-    // Desired width = glyph width + horizontal padding, clamped to available space
-    float desiredWidth = measuredLogicalWidth + paddingX;
-    desiredWidth = min(desiredWidth, maxAvailable);
-    // Ensure we don't shrink below the estimated text width + a base padding
-    float minWidth = estimatedWidth + basePadding;
-    if (desiredWidth < minWidth) desiredWidth = minWidth;
-    // higher dpi allow expansion
-    if (g_dpiScale <= 1.25f)
-    {
-        if (desiredWidth > originalWidth) desiredWidth = originalWidth;
-    }
-
-    versionRectF.Width = max(16.0f, desiredWidth); // minimum width
-
-    // Compute vertical padding from font metrics so height matches glyph bounds
-    float fontHeightLogical = (g_pVersionFont->GetHeight(&graphics) / g_dpiScale);
-    float paddingY = max(2.0f, fontHeightLogical * 0.15f); // 15% of font height or min 2px
-    float desiredHeight = measuredLogicalHeight + paddingY * 2.0f;
-    float maxHeight = (float)WINDOW_HEIGHT - versionRectF.Y - 6.0f;
-    if (desiredHeight > maxHeight) desiredHeight = maxHeight;
-    // Minimum height should be at least the font height + small padding
-    float minHeight = fontHeightLogical + 2.0f;
-    if (desiredHeight < minHeight) desiredHeight = minHeight;
-    versionRectF.Height = desiredHeight;
+    if (measuredLogicalWidth + 4.0f > versionRectF.Width) // small padding (logical coords)
+        versionRectF.Width = measuredLogicalWidth + 4.0f;
 
     // Draw version text; also record its clickable region in logical coords (for hit-testing)
     SolidBrush versionBrush(g_buttonAnims[4].current);
     graphics.DrawString(displayVersion.c_str(), -1, g_pVersionFont.get(), versionRectF, &verFormat, &versionBrush);
 
-    // Update g_versionRect to fit the measured text (in logical coords)
+    // Update g_versionRect to tightly fit the measured text (in logical coords)
+    // (versionRectF was potentially expanded above to measured width)
+    // Convert back to integer RECT for hit-testing
     g_versionRect.left = (int)ceilf(versionRectF.X);
     g_versionRect.top = (int)ceilf(versionRectF.Y);
     g_versionRect.right = (int)ceilf(versionRectF.X + versionRectF.Width);
     g_versionRect.bottom = (int)ceilf(versionRectF.Y + versionRectF.Height);
 
     // Apply rounded-rect alpha mask for smooth AA edges
+    // (avoids jagged corners from hard SetClip boundaries)
     {
         void* pMaskBits = nullptr;
         HDC maskDC = CreateCompatibleDC(hdcScreen);
         HBITMAP maskBitmap = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pMaskBits, nullptr, 0);
-        if (!maskBitmap) {
-            DeleteDC(maskDC);
-            // If mask allocation fails, skip mask operation
-        } else {
-            HBITMAP maskOldBitmap = (HBITMAP)SelectObject(maskDC, maskBitmap);
+        HBITMAP maskOldBitmap = (HBITMAP)SelectObject(maskDC, maskBitmap);
 
-            Graphics maskGraphics(maskDC);
-            maskGraphics.SetSmoothingMode(SmoothingModeAntiAlias);
-            maskGraphics.ScaleTransform(g_dpiScale, g_dpiScale);
-            maskGraphics.Clear(Color(0, 0, 0, 0));
+        Graphics maskGraphics(maskDC);
+        maskGraphics.SetSmoothingMode(SmoothingModeAntiAlias);
+        maskGraphics.ScaleTransform(g_dpiScale, g_dpiScale);
+        maskGraphics.Clear(Color(0, 0, 0, 0));
 
-            GraphicsPath roundedRect;
-            int radius = CORNER_RADIUS;
-            roundedRect.AddArc(0, 0, radius * 2, radius * 2, 180, 90);
-            roundedRect.AddArc(WINDOW_WIDTH - radius * 2 - 1, 0, radius * 2, radius * 2, 270, 90);
-            roundedRect.AddArc(WINDOW_WIDTH - radius * 2 - 1, WINDOW_HEIGHT - radius * 2 - 1, radius * 2, radius * 2, 0, 90);
-            roundedRect.AddArc(0, WINDOW_HEIGHT - radius * 2 - 1, radius * 2, radius * 2, 90, 90);
-            roundedRect.CloseFigure();
+        GraphicsPath roundedRect;
+        int radius = CORNER_RADIUS;
+        roundedRect.AddArc(0, 0, radius * 2, radius * 2, 180, 90);
+        roundedRect.AddArc(WINDOW_WIDTH - radius * 2 - 1, 0, radius * 2, radius * 2, 270, 90);
+        roundedRect.AddArc(WINDOW_WIDTH - radius * 2 - 1, WINDOW_HEIGHT - radius * 2 - 1, radius * 2, radius * 2, 0, 90);
+        roundedRect.AddArc(0, WINDOW_HEIGHT - radius * 2 - 1, radius * 2, radius * 2, 90, 90);
+        roundedRect.CloseFigure();
 
-            SolidBrush maskBrush(Color(255, 255, 255, 255));
-            maskGraphics.FillPath(&maskBrush, &roundedRect);
+        SolidBrush maskBrush(Color(255, 255, 255, 255));
+        maskGraphics.FillPath(&maskBrush, &roundedRect);
 
-            // Multiply all channels by mask alpha (premultiplied-alpha safe)
-            BYTE* content = (BYTE*)pBits;
-            BYTE* mask = (BYTE*)pMaskBits;
-            int count = scaledWidth * scaledHeight;
-            for (int i = 0; i < count; i++)
-            {
-                BYTE ma = mask[i * 4 + 3];
-                if (ma == 255) continue;
-                content[i * 4 + 0] = (BYTE)((content[i * 4 + 0] * ma + 127) / 255);
-                content[i * 4 + 1] = (BYTE)((content[i * 4 + 1] * ma + 127) / 255);
-                content[i * 4 + 2] = (BYTE)((content[i * 4 + 2] * ma + 127) / 255);
-                content[i * 4 + 3] = (BYTE)((content[i * 4 + 3] * ma + 127) / 255);
-            }
-
-            SelectObject(maskDC, maskOldBitmap);
-            DeleteObject(maskBitmap);
-            DeleteDC(maskDC);
+        // Multiply all channels by mask alpha (premultiplied-alpha safe)
+        BYTE* content = (BYTE*)pBits;
+        BYTE* mask = (BYTE*)pMaskBits;
+        int count = scaledWidth * scaledHeight;
+        for (int i = 0; i < count; i++)
+        {
+            BYTE ma = mask[i * 4 + 3];
+            if (ma == 255) continue;
+            content[i * 4 + 0] = (BYTE)((content[i * 4 + 0] * ma + 127) / 255);
+            content[i * 4 + 1] = (BYTE)((content[i * 4 + 1] * ma + 127) / 255);
+            content[i * 4 + 2] = (BYTE)((content[i * 4 + 2] * ma + 127) / 255);
+            content[i * 4 + 3] = (BYTE)((content[i * 4 + 3] * ma + 127) / 255);
         }
+
+        SelectObject(maskDC, maskOldBitmap);
+        DeleteObject(maskBitmap);
+        DeleteDC(maskDC);
     }
 
-    // Draw "Launch Game" button (rounded, animated expand)
-    {
-        float anim = g_launchBtnAnim;
-        float baseW = (float)(g_launchBtn.right - g_launchBtn.left);
-        float baseH = (float)(g_launchBtn.bottom - g_launchBtn.top);
-        float expandW = 12.0f;
-        float expandH = 4.0f;
-        float w = baseW + expandW * anim;
-        float h = baseH + expandH * anim;
-        float cx = (g_launchBtn.left + g_launchBtn.right) * 0.5f;
-        float cy = (g_launchBtn.top + g_launchBtn.bottom) * 0.5f;
-        float x = cx - w * 0.5f;
-        float y = cy - h * 0.5f;
-        float radius = 16.0f + 8.0f * anim;
-        RectF launchRectF(x, y, w, h);
-
-        // Draw rounded rectangle
-        GraphicsPath path;
-        path.AddArc(x, y, radius, radius, 180, 90);
-        path.AddArc(x + w - radius, y, radius, radius, 270, 90);
-        path.AddArc(x + w - radius, y + h - radius, radius, radius, 0, 90);
-        path.AddArc(x, y + h - radius, radius, radius, 90, 90);
-        path.CloseFigure();
-
-        SolidBrush btnBrush(g_launchBtnEnabled ? Color(255, 255, 250, 0) : Color(255, 180, 180, 180));
-        graphics.FillPath(&btnBrush, &path);
-
-        // Draw text
-        StringFormat centerFmt;
-        centerFmt.SetAlignment(StringAlignmentCenter);
-        centerFmt.SetLineAlignment(StringAlignmentCenter);
-        Font launchFont(L"Segoe UI", 16 + 2 * anim, FontStyleBold, UnitPixel);
-        SolidBrush textBrush(Color(255, 0, 0, 0));
-        graphics.DrawString(L"Launch Game", -1, &launchFont, launchRectF, &centerFmt, &textBrush);
-    }
-
-    // Draw Minimize on injection button (compact, border only on hover/active)
-    float animBtn = g_minInjectBtnAnim;
-    float baseWBtn = (float)(g_minInjectBtn.right - g_minInjectBtn.left);
-    float baseHBtn = (float)(g_minInjectBtn.bottom - g_minInjectBtn.top);
-    float expandWBtn = 12.0f;
-    float expandHBtn = 3.0f;
-    float wBtn = baseWBtn + expandWBtn * animBtn;
-    float hBtn = baseHBtn + expandHBtn * animBtn;
-    float cxBtn = (g_minInjectBtn.left + g_minInjectBtn.right) * 0.5f;
-    float cyBtn = (g_minInjectBtn.top + g_minInjectBtn.bottom) * 0.5f;
-    float xBtn = cxBtn - wBtn * 0.5f;
-    float yBtn = cyBtn - hBtn * 0.5f;
-    float radiusBtn = 10.0f + 4.0f * animBtn;
-    RectF btnRectF(xBtn, yBtn, wBtn, hBtn);
-    Color offColor(255, 220, 220, 220);
-    Color onColor(255, 255, 250, 0);
-    Color btnColor;
-    if (g_minInjectBtnAnimating) {
-        // Use animated color during toggle animation
-        btnColor = g_minInjectBtnCurrentColor;
-    } else if (g_minimizeOnInject) {
-        btnColor = onColor;
-    } else {
-        btnColor = offColor;
-    }
-    SolidBrush btnBrush(btnColor);
-    GraphicsPath pathBtn;
-    pathBtn.AddArc(xBtn, yBtn, radiusBtn, radiusBtn, 180, 90);
-    pathBtn.AddArc(xBtn + wBtn - radiusBtn, yBtn, radiusBtn, radiusBtn, 270, 90);
-    pathBtn.AddArc(xBtn + wBtn - radiusBtn, yBtn + hBtn - radiusBtn, radiusBtn, radiusBtn, 0, 90);
-    pathBtn.AddArc(xBtn, yBtn + hBtn - radiusBtn, radiusBtn, radiusBtn, 90, 90);
-    pathBtn.CloseFigure();
-    graphics.FillPath(&btnBrush, &pathBtn);
-    // No border/highlight on hover or enabled
-    StringFormat centerFmtBtn;
-    centerFmtBtn.SetAlignment(StringAlignmentCenter);
-    centerFmtBtn.SetLineAlignment(StringAlignmentCenter);
-    Font btnFont(L"Segoe UI", 13 + 2 * animBtn, FontStyleBold, UnitPixel);
-    SolidBrush textBrushBtn(Color(255, 0, 0, 0));
-    graphics.DrawString(L"Minimize on injection", -1, &btnFont, btnRectF, &centerFmtBtn, &textBrushBtn);
     ReleaseDC(nullptr, hdcScreen);
     g_contentDirty = false;
 }
 
-static void PresentWindow(HWND hWnd, const POINT* pNewPos)
+void PresentWindow(HWND hWnd, const POINT* pNewPos)
 {
     if (!g_cachedDC) return;
 
@@ -906,24 +584,17 @@ static void PresentWindow(HWND hWnd, const POINT* pNewPos)
     ReleaseDC(nullptr, hdcScreen);
 }
 
-static void UpdateWindowGraphics(HWND hWnd)
+void UpdateWindowGraphics(HWND hWnd)
 {
     RenderContent(hWnd);
     PresentWindow(hWnd);
 }
-
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     static POINT s_dragPoint;
     static bool s_isDragging = false;
     static bool s_wasMinimized = false;
-
-    // Handle custom minimize-on-injection animation message
-    if (message == WM_USER + 100) {
-        StartWindowAnimation(WindowAnim::FadeOutMinimize, hWnd);
-        return 0;
-    }
 
     switch (message)
     {
@@ -934,77 +605,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         break;
     }
 
-    case WM_DPICHANGED:
-    {
-        // Per-monitor DPI changed (window moved between displays)
-        int dpiX = LOWORD(wParam);
-        // update scale and recreate all DPI-dependent resources
-        float newScale = dpiX / 96.0f;
-        if (fabs(newScale - g_dpiScale) > 0.001f)
-        {
-            float oldScale = g_dpiScale;
-            g_dpiScale = newScale;
-
-            // Suggested new window rect is in lParam
-            RECT* prc = (RECT*)lParam;
-            if (prc)
-            {
-                SetWindowPos(hWnd, nullptr, prc->left, prc->top, prc->right - prc->left, prc->bottom - prc->top,
-                    SWP_NOZORDER | SWP_NOACTIVATE);
-            }
-            else
-            {
-                int scaledWidth = (int)(WINDOW_WIDTH * g_dpiScale);
-                int scaledHeight = (int)(WINDOW_HEIGHT * g_dpiScale);
-                RECT rect;
-                GetWindowRect(hWnd, &rect);
-                SetWindowPos(hWnd, nullptr, rect.left, rect.top, scaledWidth, scaledHeight, SWP_NOZORDER | SWP_NOACTIVATE);
-            }
-
-            // If user is dragging, scale the drag offset so drag remains smooth
-            if (s_isDragging)
-            {
-                s_dragPoint.x = (LONG)ceilf(s_dragPoint.x * (g_dpiScale / oldScale));
-                s_dragPoint.y = (LONG)ceilf(s_dragPoint.y * (g_dpiScale / oldScale));
-            }
-
-            // Recreate cached content and fonts on the new DPI
-            FreeCachedBitmap();
-            FreeGdiResources();
-            UpdateWindowGraphics(hWnd);
-        }
-        return 0;
-    }
-
     case WM_LBUTTONDOWN:
     {
         POINT pt = { LOWORD(lParam), HIWORD(lParam) };
+
+        // Scale mouse coordinates to logical coordinates
         pt.x = (LONG)(pt.x / g_dpiScale);
         pt.y = (LONG)(pt.y / g_dpiScale);
-
-        // Minimize on injection button
-        float anim = g_minInjectBtnAnim;
-        float baseW = (float)(g_minInjectBtn.right - g_minInjectBtn.left);
-        float baseH = (float)(g_minInjectBtn.bottom - g_minInjectBtn.top);
-        float expandW = 16.0f;
-        float expandH = 4.0f;
-        float w = baseW + expandW * anim;
-        float h = baseH + expandH * anim;
-        float cx = (g_minInjectBtn.left + g_minInjectBtn.right) * 0.5f;
-        float cy = (g_minInjectBtn.top + g_minInjectBtn.bottom) * 0.5f;
-        float x = cx - w * 0.5f;
-        float y = cy - h * 0.5f;
-        RECT minBtnRect = { (int)x, (int)y, (int)(x + w), (int)(y + h) };
-    if (PtInRect(&minBtnRect, pt)) {
-        // Store the current color as the animation start color
-        g_minInjectBtnTargetColor = g_minInjectBtnCurrentColor;
-        g_minimizeOnInject = !g_minimizeOnInject;
-        g_minInjectBtnAnimStartValue = g_minInjectBtnAnim;
-        g_minInjectBtnAnimTarget = (g_hoveredButton == 6) ? 1.0f : 0.0f;
-        g_minInjectBtnAnimStartTime = GetPreciseTimeMs();
-        g_minInjectBtnAnimating = true;
-        break;
-        }
 
         // Check button clicks
         if (PtInRect(&g_closeBtn, pt))
@@ -1030,17 +637,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         else if (PtInRect(&g_versionRect, pt))
         {
+            // Open release tag for current VERSION macro
             std::wstring tag = VERSION;
+            // Ensure tag starts with 'v'
             if (tag.empty() || (tag[0] != L'v' && tag[0] != L'V'))
                 tag = std::wstring(L"v") + tag;
+
             std::wstring url = L"https://github.com/DynamiByte/Endfield-Uncensored/releases/tag/" + tag;
             ShellExecute(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-            break;
-        }
-        else if (PtInRect(&g_launchBtn, pt) && g_launchBtnEnabled)
-        {
-            ShellExecuteW(nullptr, L"open", g_gameExePath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-            AppendOutput(L"Launching game...");
             break;
         }
 
@@ -1055,6 +659,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_MOUSEMOVE:
     {
         POINT pt = { LOWORD(lParam), HIWORD(lParam) };
+
         if (s_isDragging)
         {
             POINT cursorPt;
@@ -1066,6 +671,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         else
         {
+            // Enable mouse tracking for hover
             if (!g_mouseTracking)
             {
                 TRACKMOUSEEVENT tme = {};
@@ -1075,28 +681,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 TrackMouseEvent(&tme);
                 g_mouseTracking = true;
             }
+
+            // Scale mouse coordinates to logical coordinates
             pt.x = (LONG)(pt.x / g_dpiScale);
             pt.y = (LONG)(pt.y / g_dpiScale);
+
+            // Update hover state
             int prevHover = g_hoveredButton;
             g_hoveredButton = 0;
-            // Minimize on injection button hover
-            float animMin = g_minInjectBtnAnim;
-            float baseWMin = (float)(g_minInjectBtn.right - g_minInjectBtn.left);
-            float baseHMin = (float)(g_minInjectBtn.bottom - g_minInjectBtn.top);
-            float expandWMin = 12.0f;
-            float expandHMin = 3.0f;
-            float wMin = baseWMin + expandWMin * animMin;
-            float hMin = baseHMin + expandHMin * animMin;
-            float cxMin = (g_minInjectBtn.left + g_minInjectBtn.right) * 0.5f;
-            float cyMin = (g_minInjectBtn.top + g_minInjectBtn.bottom) * 0.5f;
-            float xMin = cxMin - wMin * 0.5f;
-            float yMin = cyMin - hMin * 0.5f;
-            RECT minBtnRect = { (int)xMin, (int)yMin, (int)(xMin + wMin), (int)(yMin + hMin) };
-            bool minBtnWasHovered = (prevHover == 6);
-            bool minBtnNowHovered = PtInRect(&minBtnRect, pt);
-            if (minBtnNowHovered)
-                g_hoveredButton = 6;
-            else if (PtInRect(&g_closeBtn, pt))
+
+            if (PtInRect(&g_closeBtn, pt))
                 g_hoveredButton = 1;
             else if (PtInRect(&g_minBtn, pt))
                 g_hoveredButton = 2;
@@ -1104,57 +698,26 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 g_hoveredButton = 3;
             else if (PtInRect(&g_versionRect, pt))
                 g_hoveredButton = 4;
-            // Launch button hover
-            float animL = g_launchBtnAnim;
-            float baseWL = (float)(g_launchBtn.right - g_launchBtn.left);
-            float baseHL = (float)(g_launchBtn.bottom - g_launchBtn.top);
-            float expandWL = 24.0f;
-            float expandHL = 8.0f;
-            float wL = baseWL + expandWL * animL;
-            float hL = baseHL + expandHL * animL;
-            float cxL = (g_launchBtn.left + g_launchBtn.right) * 0.5f;
-            float cyL = (g_launchBtn.top + g_launchBtn.bottom) * 0.5f;
-            float xL = cxL - wL * 0.5f;
-            float yL = cyL - hL * 0.5f;
-            RECT launchRect = { (int)xL, (int)yL, (int)(xL + wL), (int)(yL + hL) };
-            bool launchBtnWasHovered = (prevHover == 5);
-            bool launchBtnNowHovered = PtInRect(&launchRect, pt);
-            if (launchBtnNowHovered)
-                g_hoveredButton = 5;
-            // Show hand cursor on hover for clickable buttons
-            HCURSOR hCur = LoadCursor(nullptr, (g_hoveredButton == 5 || g_hoveredButton == 6) ? IDC_HAND : IDC_ARROW);
-            SetCursor(hCur);
-            // Only trigger expand/collapse for each button independently
-            if (minBtnWasHovered != minBtnNowHovered) {
-                // Animate expand/collapse on hover
-                g_minInjectBtnAnimStartValue = g_minInjectBtnAnim;
-                g_minInjectBtnAnimTarget = minBtnNowHovered ? 1.0f : 0.0f;
-                g_minInjectBtnAnimStartTime = GetPreciseTimeMs();
-                g_minInjectBtnAnimating = true;
-                // On hover, set color state directly (no fade)
-                Color stateColor = g_minimizeOnInject ? Color(255, 255, 250, 0) : Color(255, 220, 220, 220);
-                g_minInjectBtnTargetColor = stateColor;
-                g_minInjectBtnCurrentColor = stateColor;
-                // Do NOT disable expand/collapse animation
-            }
-            if (launchBtnWasHovered != launchBtnNowHovered) {
-                g_launchBtnAnimStartValue = g_launchBtnAnim;
-                g_launchBtnAnimTarget = launchBtnNowHovered ? 1.0f : 0.0f;
-                g_launchBtnAnimStartTime = GetPreciseTimeMs();
-                g_launchBtnAnimating = true;
-            }
-            // Color animation for toolbar buttons
-            if (prevHover != g_hoveredButton) {
-                if (prevHover != 0 && prevHover <= 4)
+
+            // Update cursor: never use hand cursor on any button; always show arrow
+            SetCursor(LoadCursor(nullptr, IDC_ARROW));
+
+            // Start color animations if hover changed
+            if (prevHover != g_hoveredButton)
+            {
+                // Animate old button back to default
+                if (prevHover != 0)
                     StartButtonColorAnim(prevHover, Color(255, 51, 51, 51));
+
+                // Animate new button to hover color
                 if (g_hoveredButton == 1)
-                    StartButtonColorAnim(1, Color(255, 255, 127, 80));
+                    StartButtonColorAnim(1, Color(255, 255, 127, 80)); // Coral
                 else if (g_hoveredButton == 2)
-                    StartButtonColorAnim(2, Color(255, 218, 165, 32));
+                    StartButtonColorAnim(2, Color(255, 218, 165, 32)); // Goldenrod
                 else if (g_hoveredButton == 3)
-                    StartButtonColorAnim(3, Color(255, 100, 149, 237));
+                    StartButtonColorAnim(3, Color(255, 100, 149, 237)); // CornflowerBlue
                 else if (g_hoveredButton == 4)
-                    StartButtonColorAnim(4, Color(255, 100, 149, 237));
+                    StartButtonColorAnim(4, Color(255, 100, 149, 237)); // Same as info (CornflowerBlue)
             }
         }
         break;
@@ -1173,36 +736,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_MOUSELEAVE:
     {
         g_mouseTracking = false;
-        if (g_hoveredButton >= 1 && g_hoveredButton <= 4)
-            StartButtonColorAnim(g_hoveredButton, Color(255, 51, 51, 51));
-        // Collapse launch button
-        if (g_launchBtnAnim > 0.001f || g_launchBtnAnimating || g_launchBtnAnimTarget != 0.0f)
+        if (g_hoveredButton != 0)
         {
-            g_launchBtnAnimStartValue = g_launchBtnAnim;
-            g_launchBtnAnimTarget = 0.0f;
-            g_launchBtnAnimStartTime = GetPreciseTimeMs();
-            g_launchBtnAnimating = true;
+            StartButtonColorAnim(g_hoveredButton, Color(255, 51, 51, 51));
+            g_hoveredButton = 0;
         }
-        // Only collapse minimize on injection button if it was hovered or expanded
-        if (g_minInjectBtnAnim > 0.0f || g_hoveredButton == 6) {
-            g_minInjectBtnAnimStartValue = g_minInjectBtnAnim;
-            g_minInjectBtnAnimTarget = 0.0f;
-            g_minInjectBtnAnimStartTime = GetPreciseTimeMs();
-            g_minInjectBtnAnimating = true;
-        }
-        g_hoveredButton = 0;
         break;
     }
 
     case WM_TIMER:
     {
-        if (wParam == TIMER_ANIMATION)
-        {
-            UpdateAnimations(hWnd);
-            if (!AnyUIAnimating())
-                KillTimer(hWnd, TIMER_ANIMATION);
-        }
-        else if (wParam == TIMER_CLOSE_DELAY)
+        if (wParam == TIMER_CLOSE_DELAY)
         {
             KillTimer(hWnd, TIMER_CLOSE_DELAY);
             DestroyWindow(hWnd);
@@ -1239,39 +783,35 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         bool replace = (wParam != 0);
         if (replace)
         {
-            // Try both markers
-            const std::wstring markers[2] = { L"Closing in ", L"Minimizing in " };
-            for (const auto& marker : markers) {
-                size_t pos = g_outputText.rfind(marker);
-                if (pos != std::wstring::npos)
+            // Look for last occurrence of the closing countdown marker and replace that entire line
+            const std::wstring marker = L"Closing in ";
+            size_t pos = g_outputText.rfind(marker);
+            if (pos != std::wstring::npos)
+            {
+                // find start of that line
+                size_t lineStart = g_outputText.rfind(L"\r\n", pos);
+                if (lineStart == std::wstring::npos)
+                    lineStart = 0;
+                else
+                    lineStart += 2; // move past CRLF
+
+                // find end of that line (include the trailing CRLF when present)
+                size_t lineEnd = g_outputText.find(L"\r\n", pos);
+                if (lineEnd == std::wstring::npos)
+                    lineEnd = g_outputText.size();
+                else
+                    lineEnd += 2; // include CRLF
+
+                // erase the old line (including terminating CRLF if it existed)
+                g_outputText.erase(lineStart, lineEnd - lineStart);
+
+                // Collapse any accidental double-CRLF sequences left behind so we don't get
+                // an extra empty line before the replacement text.
+                while (g_outputText.size() >= 4 &&
+                       g_outputText.compare(g_outputText.size() - 4, 4, L"\r\n\r\n") == 0)
                 {
-                    // find start of that line
-                    size_t lineStart = g_outputText.rfind(L"\r\n", pos);
-                    if (lineStart == std::wstring::npos)
-                        lineStart = 0;
-                    else
-                        lineStart += 2; // move past CRLF
-
-                    // find end of that line (include the trailing CRLF when present)
-                    size_t lineEnd = g_outputText.find(L"\r\n", pos);
-                    if (lineEnd == std::wstring::npos)
-                        lineEnd = g_outputText.size();
-                    else
-                        lineEnd += 2; // include CRLF
-
-                    // erase the old line (including terminating CRLF if it existed)
-                    g_outputText.erase(lineStart, lineEnd - lineStart);
-
-                    // Collapse any accidental double-CRLF sequences left behind so we don't get
-                    // an extra empty line before the replacement text.
-                    while (g_outputText.size() >= 4 &&
-                           g_outputText.compare(g_outputText.size() - 4, 4, L"\r\n\r\n") == 0)
-                    {
-                        // remove one CRLF (2 chars)
-                        g_outputText.erase(g_outputText.size() - 2, 2);
-                    }
-                    // Only replace one marker per call
-                    break;
+                    // remove one CRLF (2 chars)
+                    g_outputText.erase(g_outputText.size() - 2, 2);
                 }
             }
         }
@@ -1280,15 +820,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         g_outputText += incoming;
 
         // Content changed, need full re-render
-        g_contentDirty = true;
-        RenderContent(hWnd);
-        PresentWindow(hWnd);
-        break;
-    }
-
-    case WM_CLEAR_OUTPUT:
-    {
-        g_outputText.clear();
         g_contentDirty = true;
         RenderContent(hWnd);
         PresentWindow(hWnd);
@@ -1317,56 +848,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 }
 
 // ============================================================================
-// LOADER AND HELPER FUNCTIONS
+// INJECTION AND HELPER FUNCTIONS
 // ============================================================================
 
 void AppendOutput(const std::wstring& text, bool replaceClosing)
 {
-    std::wstring fullText = text + L"\r\n";
-
-    // If window hasn't been created yet, append to buffer
-    // the window thread handles replacement logic for the closing/minimizing countdown.
-    if (!g_hWnd)
+    if (g_hWnd)
     {
-        if (replaceClosing)
-        {
-            const std::wstring markers[2] = { L"Closing in ", L"Minimizing in " };
-            for (const auto& marker : markers) {
-                size_t pos = g_outputText.rfind(marker);
-                if (pos != std::wstring::npos)
-                {
-                    size_t lineStart = g_outputText.rfind(L"\r\n", pos);
-                    if (lineStart == std::wstring::npos)
-                        lineStart = 0;
-                    else
-                        lineStart += 2;
-
-                    size_t lineEnd = g_outputText.find(L"\r\n", pos);
-                    if (lineEnd == std::wstring::npos)
-                        lineEnd = g_outputText.size();
-                    else
-                        lineEnd += 2;
-
-                    g_outputText.erase(lineStart, lineEnd - lineStart);
-
-                    while (g_outputText.size() >= 4 &&
-                           g_outputText.compare(g_outputText.size() - 4, 4, L"\r\n\r\n") == 0)
-                    {
-                        g_outputText.erase(g_outputText.size() - 2, 2);
-                    }
-                    break;
-                }
-            }
-        }
-
-        g_outputText += fullText;
-        g_contentDirty = true;
-        return;
+        std::wstring fullText = text + L"\r\n";
+        wchar_t* pText = new wchar_t[fullText.length() + 1];
+        wcscpy_s(pText, fullText.length() + 1, fullText.c_str());
+        PostMessage(g_hWnd, WM_APPEND_OUTPUT, replaceClosing ? 1 : 0, (LPARAM)pText);
     }
-
-    wchar_t* pText = new wchar_t[fullText.length() + 1];
-    wcscpy_s(pText, fullText.length() + 1, fullText.c_str());
-    PostMessage(g_hWnd, WM_APPEND_OUTPUT, replaceClosing ? 1 : 0, (LPARAM)pText);
 }
 
 bool IsAdmin()
@@ -1394,10 +887,8 @@ bool ExtractEmbeddedDll()
     wchar_t tempPath[MAX_PATH];
     GetTempPath(MAX_PATH, tempPath);
 
-
     wchar_t uniqueDir[MAX_PATH];
-    unsigned long long tick = GetTickCount64();
-    swprintf_s(uniqueDir, L"%sEndfieldUncensored_%016llX\\", tempPath, tick);
+    swprintf_s(uniqueDir, L"%sEndfieldUncensored_%08X\\", tempPath, GetTickCount());
     CreateDirectory(uniqueDir, nullptr);
 
     g_tempDllPath = std::wstring(uniqueDir) + DLL_NAME;
@@ -1466,7 +957,7 @@ DWORD FindTargetProcess(const wchar_t* name)
     return pid;
 }
 
-BOOL LoadDll(DWORD pid, const wchar_t* dllPath)
+BOOL InjectDll(DWORD pid, const wchar_t* dllPath)
 {
     HANDLE hProcess = OpenProcess(
         PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
@@ -1492,35 +983,23 @@ BOOL LoadDll(DWORD pid, const wchar_t* dllPath)
         return FALSE;
     }
 
-    HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll");
-    if (!hKernel32) {
-        VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
-        CloseHandle(hProcess);
-        return FALSE;
-    }
-    LPVOID loadLibAddr = (LPVOID)GetProcAddress(hKernel32, "LoadLibraryW");
-    if (!loadLibAddr) {
-        VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
-        CloseHandle(hProcess);
-        return FALSE;
-    }
+    LPVOID loadLibAddr = (LPVOID)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryW");
     HANDLE hThread = CreateRemoteThread(hProcess, nullptr, 0,
         (LPTHREAD_START_ROUTINE)loadLibAddr, remoteMem, 0, nullptr);
 
-    BOOL result = FALSE;
     if (hThread)
     {
         WaitForSingleObject(hThread, 5000);
         CloseHandle(hThread);
-        result = TRUE;
     }
 
     VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
     CloseHandle(hProcess);
-    return result;
+
+    return hThread != nullptr;
 }
 
-static void LoaderThreadProc()
+void InjectionThreadProc()
 {
     AppendOutput(L"Waiting for " + std::wstring(TARGET_EXE) + L"...");
 
@@ -1530,12 +1009,6 @@ static void LoaderThreadProc()
         Sleep(100);
     }
 
-    // Clear the log
-    if (g_hWnd)
-    {
-        SendMessage(g_hWnd, WM_CLEAR_OUTPUT, 0, 0);
-    }
-    
     wchar_t pidText[64];
     swprintf_s(pidText, L"Process found (PID: %d)", pid);
     AppendOutput(pidText);
@@ -1544,43 +1017,19 @@ static void LoaderThreadProc()
 
     AppendOutput(L"Attempting injection...");
 
-    if (LoadDll(pid, g_tempDllPath.c_str()))
+    if (InjectDll(pid, g_tempDllPath.c_str()))
     {
         AppendOutput(L"[OK] Injection successful!");
-        if (g_minimizeOnInject) {
-            for (int i = 5; i > 0; i--) {
-                wchar_t countText[64];
-                swprintf_s(countText, L"Minimizing in %d...", i);
-                AppendOutput(countText, true);
-                Sleep(1000);
-            }
-            PostMessage(g_hWnd, WM_USER + 100, 0, 0);
-            AppendOutput(L"Waiting for " + std::wstring(TARGET_EXE) + L" to close...");
-            // Wait
-            while (FindTargetProcess(TARGET_EXE) != 0) {
-                Sleep(500);
-            }
 
-            // Clear the log
-            if (g_hWnd)
-            {
-                SendMessage(g_hWnd, WM_CLEAR_OUTPUT, 0, 0);
-            }
-
-            // Restore window and reset state
-            PostMessage(g_hWnd, WM_SYSCOMMAND, SC_RESTORE, 0);
-            AppendOutput(L"Ready for injection again.");
-            StartLoaderThread();
-        } else {
-            for (int i = 5; i > 0; i--)
-            {
-                wchar_t countText[64];
-                swprintf_s(countText, L"Closing in %d...", i);
-                AppendOutput(countText, true);
-                Sleep(1000);
-            }
-            PostMessage(g_hWnd, WM_CLOSE, 0, 0);
+        for (int i = 5; i > 0; i--)
+        {
+            wchar_t countText[64];
+            swprintf_s(countText, L"Closing in %d...", i);
+            AppendOutput(countText, true);
+            Sleep(1000);
         }
+
+        PostMessage(g_hWnd, WM_CLOSE, 0, 0);
     }
     else
     {
@@ -1588,10 +1037,10 @@ static void LoaderThreadProc()
     }
 }
 
-void StartLoaderThread()
+void StartInjectionThread()
 {
-    std::thread loaderThread(LoaderThreadProc);
-    loaderThread.detach();
+    std::thread injectionThread(InjectionThreadProc);
+    injectionThread.detach();
 }
 
 // ============================================================================
@@ -1968,9 +1417,8 @@ void ParseSVGPathToGDIPlus(const char* svgPath, GraphicsPath& gdiPath)
 // ANIMATION SYSTEM
 // ============================================================================
 
-static Color LerpColor(const Color& a, const Color& b, float t)
+Color LerpColor(const Color& a, const Color& b, float t)
 {
-
     t = max(0.0f, min(1.0f, t));
     return Color(
         (BYTE)(a.GetA() + (b.GetA() - a.GetA()) * t),
@@ -1980,17 +1428,12 @@ static Color LerpColor(const Color& a, const Color& b, float t)
     );
 }
 
-// Helper: compare two Gdiplus::Color values by ARGB
-static bool ColorEquals(const Color& a, const Color& b) {
-    return a.GetValue() == b.GetValue();
-}
-
-static float EaseOutQuad(float t)
+float EaseOutQuad(float t)
 {
     return 1.0f - (1.0f - t) * (1.0f - t);
 }
 
-static float EaseInQuad(float t)
+float EaseInQuad(float t)
 {
     return t * t;
 }
@@ -2036,7 +1479,7 @@ void StartWindowAnimation(WindowAnim::Type type, HWND hWnd)
     }
 }
 
-static void UpdateAnimations(HWND hWnd)
+void UpdateAnimations(HWND hWnd)
 {
     bool needsContentRender = false;
     bool needsPresent = false;
@@ -2063,54 +1506,6 @@ static void UpdateAnimations(HWND hWnd)
             }
             needsContentRender = true;
         }
-    }
-
-    // Update launch button expand/collapse animation
-    if (g_launchBtnAnimating)
-    {
-        float animDuration = 0.18f; // seconds (180ms)
-        float elapsed = (float)(currentTime - g_launchBtnAnimStartTime) / (animDuration * 1000.0f);
-        if (elapsed >= 1.0f)
-        {
-            g_launchBtnAnim = g_launchBtnAnimTarget;
-            g_launchBtnAnimating = false;
-        }
-        else
-        {
-            float t = EaseOutQuad(elapsed);
-            g_launchBtnAnim = g_launchBtnAnimStartValue + (g_launchBtnAnimTarget - g_launchBtnAnimStartValue) * t;
-        }
-        needsContentRender = true;
-    }
-
-    // Update minimize on injection button animation
-    if (g_minInjectBtnAnimating)
-    {
-        float animDuration = 0.18f;
-        float elapsed = (float)(currentTime - g_minInjectBtnAnimStartTime) / (animDuration * 1000.0f);
-        if (elapsed >= 1.0f)
-        {
-            g_minInjectBtnAnim = g_minInjectBtnAnimTarget;
-            g_minInjectBtnAnimating = false;
-            // If a toggle just finished, set color to final state
-            g_minInjectBtnCurrentColor = g_minimizeOnInject ? Color(255, 255, 250, 0) : Color(255, 220, 220, 220);
-        }
-        else
-        {
-            float t = EaseOutQuad(elapsed);
-            g_minInjectBtnAnim = g_minInjectBtnAnimStartValue + (g_minInjectBtnAnimTarget - g_minInjectBtnAnimStartValue) * t;
-            // Only animate color if a toggle is in progress (targetColor != current state)
-            // If animating due to hover, keep color fixed
-            Color targetColor = g_minimizeOnInject ? Color(255, 255, 250, 0) : Color(255, 220, 220, 220);
-            if (!ColorEquals(g_minInjectBtnTargetColor, targetColor)) {
-                Color from = g_minInjectBtnTargetColor;
-                Color to = targetColor;
-                g_minInjectBtnCurrentColor = LerpColor(from, to, t);
-            } else {
-                g_minInjectBtnCurrentColor = targetColor;
-            }
-        }
-        needsContentRender = true;
     }
 
     // Update window animations (only need cheap PresentWindow for opacity/position)

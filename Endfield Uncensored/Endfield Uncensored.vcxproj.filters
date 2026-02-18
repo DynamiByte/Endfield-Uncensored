@@ -14,7 +14,6 @@
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
   </ItemGroup>
-
   <ItemGroup>
     <ClCompile Include="Endfield Uncensored.cpp">
       <Filter>Source Files</Filter>
@@ -28,5 +27,8 @@
     <Image Include="EFU.ico">
       <Filter>Resource Files</Filter>
     </Image>
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="Endfield Uncensored.cpp.txt" />
   </ItemGroup>
 </Project>

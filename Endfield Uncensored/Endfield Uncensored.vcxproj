@@ -75,5 +75,8 @@
     <ResourceCompile Include="Endfield Uncensored.rc" />
     <Image Include="EFU.ico" />
   </ItemGroup>
+  <ItemGroup>
+    <Text Include="Endfield Uncensored.cpp.txt" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
