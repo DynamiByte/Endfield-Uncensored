@@ -28,7 +28,4 @@
       <Filter>Resource Files</Filter>
     </Image>
   </ItemGroup>
-  <ItemGroup>
-    <Text Include="Endfield Uncensored.cpp.txt" />
-  </ItemGroup>
 </Project>
