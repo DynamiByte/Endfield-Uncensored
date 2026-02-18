@@ -11,8 +11,8 @@ Unless Hypergryph decides to take advantage of the detection logic within ACE to
 ![Version](https://img.shields.io/badge/version-2.1.0-blue)
 ![License](https://img.shields.io/badge/license-GPL--3.0-green)
 
-In the newest release, the codebase was rewritten in C++, in hopes of improving virus detection.
-It worked well, the program gets only 3 hits now!
+The codebase was recently rewritten in C++, in hopes of improving virus detection. 
+It worked well, the program gets only 3 hits now! 
 The program also uses around 10x LESS RAM! (~3.8MB)
 
 ## Disclaimer
