@@ -36,4 +36,5 @@ If this concerns you, do note that ANY OTHER similar programs, like 3DMigoto loa
 ### Notes
 If you dont wan't to use the GUI application, you can build EFU.dll from [source](https://github.com/DynamiByte/Endfield-Uncensored/blob/master/Endfield%20Uncensored/EFU.c).
 With minor modification, you can just use a 3DMigoto loader to inject this.
+
 If you have any issues or ideas on what to add to the program, please submit it to the issue [issue tracker](https://github.com/DynamiByte/Endfield-Uncensored/issues), I want your input!
