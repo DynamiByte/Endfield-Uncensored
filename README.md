@@ -2,18 +2,18 @@
 
 A small Vulkan focused mod that removes transparency-based censorship filters from Arknights: Endfield
 
-Why? Endfield runs worse DX11.
-At the time of creating this, Endfield was nearly unplayable in DX11.
-I'm not sure if they actually implemented optimizations, or it's just me, but DX11 isn't that bad anymore.
-Though it is, and will always be worse, as Vulkan is a lower level api and blah blah, search it up.
-Unless Hypergryph decides to take advantage of the detection logic within ACE to prevent this mod from working (they could do the same with 3DMigoto too y'know), it still serves a purpose.
+Why? Endfield can run like shit on DX11.
+Even reported memory leaks on 50 Series Nvidia GPUs.
+Some people may have it better on DX11 (they're using ancient GPUS that barely support Vulkan)
+Just test the game on both API's and see which you like better! Either way, this mod can serve you. It works with either API.
+It was just made with Vulkan in mind, since 3DMigoto is not made for Vulkan.
 
-![Version](https://img.shields.io/badge/version-2.1.0-blue)
+![Version](https://img.shields.io/badge/version-2.1.1-blue)
 ![License](https://img.shields.io/badge/license-GPL--3.0-green)
 
-In the newest release, the codebase was rewritten in C++, in hopes of improving virus detection.
-It worked well, the program gets only 3 hits now!
-The program also uses around 10x LESS RAM! (~3.8MB)
+The codebase was recently rewritten in C++, in hopes of improving virus detection. 
+It worked well, the program gets only 3 hits now! 
+The program also uses around 10x LESS RAM! (~2.5-4MB)
 
 ## Disclaimer
 
@@ -31,8 +31,12 @@ If this concerns you, do note that ANY OTHER similar programs, like 3DMigoto loa
 ## How-to
 1. Download the latest release from the [Releases](https://github.com/DynamiByte/Endfield-Uncensored/releases) page
 3. Run `Endfield-Uncensored.exe` **It requires Administrator** 
-4. Launch Endfield as you normally would, the program will inject and close automatically.
+4. It will likely find the game for you, allowing you to press the "Launch Game" button in the program. It will launch the game with the mod.
+5. If it does not find the game, or you dont feel like pressing the "Launch Game" button, you can launch the game as you normally would and it will inject the mod automatically.
+6. Press the "Minimize on injection" button to stop the program from closing after injection, instead, minimizing. When the game closes, the program's window will restore, and be ready to auto inject again. You may want to do this in case Endfield updates in game and needs to restart.
 
 ### Notes
 If you dont wan't to use the GUI application, you can build EFU.dll from [source](https://github.com/DynamiByte/Endfield-Uncensored/blob/master/Endfield%20Uncensored/EFU.c).
 With minor modification, you can just use a 3DMigoto loader to inject this.
+
+If you have any issues or ideas on what to add to the program, please submit it to the issue [issue tracker](https://github.com/DynamiByte/Endfield-Uncensored/issues), I want your input!

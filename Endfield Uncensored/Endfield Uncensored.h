@@ -1,13 +1,12 @@
-// Single shared header for both C++ and resource compiler
 #pragma once
 
 #include <SDKDDKVer.h>
 
 //////////////////////////////////////////////////////////////////
 // Display version ([Very]Major.Feature.Patch.Preview)          //
-#define VERSION_STR "v2.1.0"                                    //
+#define VERSION_STR "v2.1.1"                                    //
 // Numeric file version for resource compiler (comma-separated) //
-#define VERSION_FILEVERSION 2,1,0,0                             //
+#define VERSION_FILEVERSION 2,1,1,0                             //
 //////////////////////////////////////////////////////////////////
 
 // Helper to create a wide-string literal from a narrow string literal macro
