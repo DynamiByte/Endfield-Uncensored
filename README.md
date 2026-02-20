@@ -31,7 +31,9 @@ If this concerns you, do note that ANY OTHER similar programs, like 3DMigoto loa
 ## How-to
 1. Download the latest release from the [Releases](https://github.com/DynamiByte/Endfield-Uncensored/releases) page
 3. Run `Endfield-Uncensored.exe` **It requires Administrator** 
-4. Launch Endfield as you normally would, the program will inject and close automatically.
+4. It will likely find the game for you, allowing you to press the "Launch Game" button in the program. It will launch the game with the mod.
+5. If it does not find the game, or you dont feel like pressing the "Launch Game" button, you can launch the game as you normally would and it will inject the mod automatically.
+6. Press the "Minimize on injection" button to stop the program from closing after injection, instead, minimizing. When the game closes, the program's window will restore, and be ready to auto inject again. You may want to do this in case Endfield updates in game and needs to restart.
 
 ### Notes
 If you dont wan't to use the GUI application, you can build EFU.dll from [source](https://github.com/DynamiByte/Endfield-Uncensored/blob/master/Endfield%20Uncensored/EFU.c).
