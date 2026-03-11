@@ -11,7 +11,7 @@ It was just made with Vulkan in mind, since 3DMigoto is not made for Vulkan.
 ![Version](https://img.shields.io/badge/version-3.0.0-blue)
 ![License](https://img.shields.io/badge/license-GPL--3.0-green)
 
-Rewritten again, this time in ZIG. Again, in hopes of improving virus detection...again.
+Rewritten again, this time in Zig. Again, in hopes of improving virus detection...again.
 Ideally I figure out how to have a full GUI and this kinda minimal detection. Then again, the program is super tiny now.
 
 ---
@@ -38,6 +38,9 @@ If this concerns you, do note that **ANY OTHER similar programs, like 3DMigoto l
 3. Launch Endfield as you normally would, that could be EFMI, the official launcher, anything. So long as the terminal window is open
 
 ### Notes
+
+If you want to build it yourself, you'll need Zig [`0.16.0-dev.2736`](https://ziglang.org/builds/zig-x86_64-windows-0.16.0-dev.2736+3b515fbed.zip)
+The command I use to build is `zig build -Doptimize=ReleaseSmall`
 
 The DLL file does not have to be loaded with EFULoader.exe, any DLL injector should work.
 
