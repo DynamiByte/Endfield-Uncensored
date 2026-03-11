@@ -26,7 +26,7 @@ Ideally I figure out how to have a full GUI and this kinda minimal detection. Th
 - I am not responsible for your misuse of this project leading to bans, or anything of the sort. **Use at your own risk.**
 
 This comes with the same risk as anything regarding this kind of game modding, such as anything 3DMigoto (ZZMI, GIMI, WWMI, SRMI, XXMI, etc.)  
-If your antivirus flags this, that’s fine. For Windows Defender/Security, select "Allow on device."
+If your antivirus flags this, I'm trying to avoid that, so do tell! For Windows Defender/Security, select "Allow on device."
 
 ---
 
