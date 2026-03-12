@@ -2,7 +2,7 @@
 
 A small Vulkan focused mod that removes transparency-based censorship filters from *Arknights: Endfield*.
 
-It also works with 1.1, unlike [every other at the moment](https://gamebanana.com/news/21957)!
+It also works with 1.1!
 
 Why? Endfield can run like shit on DX11.
 Even reported memory leaks on 50 Series Nvidia GPUs.
