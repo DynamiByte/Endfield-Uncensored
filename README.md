@@ -2,6 +2,8 @@
 
 A small Vulkan focused mod that removes transparency-based censorship filters from *Arknights: Endfield*.
 
+It also works with 1.1, unlike [every other at the moment](https://gamebanana.com/news/21957)!
+
 Why? Endfield can run like shit on DX11.
 Even reported memory leaks on 50 Series Nvidia GPUs.
 Some people may have it better on DX11 (they're using ancient GPUs that barely support Vulkan).
@@ -37,6 +39,8 @@ If your antivirus flags this, I'm trying to avoid that, so do tell! For Windows 
 3. Launch Endfield as you normally would, that could be EFMI, the official launcher, anything. So long as the terminal window is open
 
 ### Notes
+
+This is also on GameBanana, [here](https://gamebanana.com/mods/651108).
 
 If you want to build it yourself, you'll need Zig [`0.16.0-dev.2736`](https://ziglang.org/builds/zig-x86_64-windows-0.16.0-dev.2736+3b515fbed.zip)
 The command I use to build is `zig build -Doptimize=ReleaseSmall`
