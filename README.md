@@ -47,4 +47,4 @@ The command I use to build is `zig build -Doptimize=ReleaseSmall`
 
 The DLL file does not have to be loaded with EFULoader.exe, any DLL injector should work.
 
-If you have any issues or ideas on what to add to the program, please submit them to the issue [tracker](https://github.com/DynamiByte/Endfield-Uncensored/issues), or contact me on [Discord](https://discord.com/users/1077491551267213392). I want your input!
+If you have any issues or ideas on what to add to the program, please submit them to the issue [tracker](https://github.com/DynamiByte/Endfield-Uncensored/issues), or contact me on Discord, my username is ["dynamicbyte"](https://discord.com/users/1077491551267213392). I want your input!
