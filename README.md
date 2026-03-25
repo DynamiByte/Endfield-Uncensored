@@ -11,7 +11,7 @@ It was just made with Vulkan in mind, since 3DMigoto is not made for Vulkan.
 ![Version](https://img.shields.io/badge/version-4.0.0-blue)
 ![License](https://img.shields.io/badge/license-GPL--3.0-green)
 
-Full GUI implemented in Zig, better than ever, with a custom graphics library.
+A full GUI was implemented in Zig, better than ever, with a custom graphics library.
 You can also launch this in CLI mode by adding `-cli` as an argument.
 Maybe I'll add something like `-EFMI [PATH_TO_XXMI]` in the future.
 
