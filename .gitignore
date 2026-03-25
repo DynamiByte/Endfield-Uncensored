@@ -1,10 +1,11 @@
 # Zig build outputs
 zig-out/
 .zig-cache/
+.zig-global-cache/
 
 # Executables and libraries
 *.dll
 *.exe
-
+*.pdb
 
 .git/

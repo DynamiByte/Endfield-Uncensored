@@ -1,7 +1,6 @@
 #include <winver.h>
-
-#define VERSION_STR "v3.0.0"
-#define VERSION_FILEVERSION 3,0,0,0
+// Edit src/version.zig to change the application version.
+#include "version_generated.h"
 
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION     VERSION_FILEVERSION
@@ -19,9 +18,9 @@ BEGIN
             VALUE "CompanyName",      "DynamiByte\0"
             VALUE "FileDescription",  "Endfield Uncensored\0"
             VALUE "FileVersion",      VERSION_STR "\0"
-            VALUE "InternalName",     "Endfield Uncensored\0"
+            VALUE "InternalName",     "EFU\0"
             VALUE "LegalCopyright",   "\xA9 2026 DynamiByte\0"
-            VALUE "OriginalFilename", "EFULoader.exe\0"
+            VALUE "OriginalFilename", "EFU.exe\0"
             VALUE "ProductName",      "Endfield Uncensored\0"
             VALUE "ProductVersion",   VERSION_STR "\0"
             VALUE "Comments",         "Author: DynamiByte\0"
@@ -32,3 +31,6 @@ BEGIN
         VALUE "Translation", 0x0409, 1200
     END
 END
+
+1 ICON "EFU.ico"
+1 24 "app.manifest"
