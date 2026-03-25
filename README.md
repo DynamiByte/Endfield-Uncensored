@@ -15,13 +15,6 @@ Full GUI implemented in Zig, better than ever, with a custom graphics library.
 You can also launch this in CLI mode by adding `-cli` as an argument.
 Maybe I'll add something like `-EFMI [PATH_TO_XXMI]` in the future.
 
-## Update on v4 development - 3/23/26:
-I'm in the process of creating a graphics library in Zig for the GUI.
-It'll use DX11 (the rendering for the launcher, not the game), which will run so much smoother than v2 GUI, since it'll be GPU accelerated.
-The v1 GUI was also GPU accelerated (DX9 via .NET4.8 and WPF), so expect similar performance.
-There are little things with the v2 GUI that I find annoying, like AA usage, the shitty DPI scaling or the shitty dynamic hitbox on the version button.
-I already have a perfectly working implementation in C++, though don't want to use C++ for the GUI and Zig for the injection (gross).
-
 ---
 
 ## Disclaimer
