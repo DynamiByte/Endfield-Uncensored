@@ -2,11 +2,6 @@
 
 A small Vulkan focused mod that removes transparency-based censorship filters from *Arknights: Endfield*.
 
-<<<<<<< HEAD
-=======
-It also works with 1.1!
-
->>>>>>> 81fa55b31589e517b66cea13be3c8d5e6f2ac344
 Why? Endfield can run like shit on DX11.
 Even reported memory leaks on 50 Series Nvidia GPUs.
 Some people may have it better on DX11 (they're using ancient GPUs that barely support Vulkan).
@@ -59,8 +54,4 @@ The command I use to build is `zig build -Doptimize=ReleaseSmall`
 
 If you want to use your own injector, you can find a prebuilt DLL from the [zip file here](https://github.com/DynamiByte/Endfield-Uncensored/releases/tag/v3.0.0). To build it yourself you'll need to modify the build script, as of now.
 
-<<<<<<< HEAD
 If you have any issues or ideas on what to add to the program, please submit them to the issue [tracker](https://github.com/DynamiByte/Endfield-Uncensored/issues), or contact me on Discord, my username is ["dynamicbyte"](https://discord.com/users/1077491551267213392). I want your input!
-=======
-If you have any issues or ideas on what to add to the program, please submit them to the issue [tracker](https://github.com/DynamiByte/Endfield-Uncensored/issues), or contact me on Discord, my username is ["dynamicbyte"](https://discord.com/users/1077491551267213392). I want your input!
->>>>>>> 81fa55b31589e517b66cea13be3c8d5e6f2ac344
