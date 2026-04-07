@@ -1,15 +1,38 @@
+const builtin = @import("builtin");
 const std = @import("std");
 
-// Platform Imports
-pub const c = @cImport({
-    @cDefine("WIN32_LEAN_AND_MEAN", {});
-    @cDefine("NOMINMAX", {});
-    @cInclude("windows.h");
-    @cInclude("tlhelp32.h");
-});
+pub const c = @import("win32.zig");
 
 pub const target_exe_name = "Endfield.exe";
-pub const temp_dll_name = "EFU_temp.dll";
+pub const temp_dll_name_prefix = "EFU-";
+
+pub const TempDllError = std.mem.Allocator.Error || error{
+    TempPathUnavailable,
+    TempFileCreateFailed,
+    TempFileWriteFailed,
+};
+
+pub const InjectError = error{
+    InvalidPid,
+    BadDllPath,
+    OpenProcessFailed,
+    AllocateRemoteMemoryFailed,
+    WriteRemoteMemoryFailed,
+    Kernel32NotFound,
+    LoadLibraryNotFound,
+    CreateRemoteThreadFailed,
+    RemoteThreadWaitFailed,
+    RemoteThreadWaitTimedOut,
+    GetRemoteThreadExitCodeFailed,
+    LoadLibraryRemoteFailed,
+};
+
+pub const LaunchError = error{
+    ExecutableNotFound,
+    AccessDenied,
+    InvalidExecutablePath,
+    CreateProcessFailed,
+};
 
 // Process Access Constants
 const process_rights =
@@ -19,13 +42,55 @@ const process_rights =
     c.PROCESS_VM_WRITE |
     c.PROCESS_VM_READ;
 
-// Path And Process Discovery Helpers
-fn utf16SliceZ(buf: []const u16) []const u16 {
-    var len: usize = 0;
-    while (len < buf.len and buf[len] != 0) : (len += 1) {}
-    return buf[0..len];
+const max_path_bytes = std.Io.Dir.max_path_bytes;
+
+pub fn describeTempDllError(err: TempDllError) []const u8 {
+    return switch (err) {
+        error.OutOfMemory => "The loader ran out of memory while preparing the temporary DLL.",
+        error.TempPathUnavailable => "Windows did not provide a usable temp directory.",
+        error.TempFileCreateFailed => "Failed to create the temporary DLL file.",
+        error.TempFileWriteFailed => "Failed to write the temporary DLL file.",
+    };
 }
 
+pub fn describeInjectError(err: InjectError) []const u8 {
+    return switch (err) {
+        error.InvalidPid => "No target process was provided.",
+        error.BadDllPath => "The temporary DLL path could not be encoded for Windows.",
+        error.OpenProcessFailed => "Failed to open the target process.",
+        error.AllocateRemoteMemoryFailed => "Failed to allocate memory inside the target process.",
+        error.WriteRemoteMemoryFailed => "Failed to write the DLL path into the target process.",
+        error.Kernel32NotFound => "Could not find kernel32.dll in the current process.",
+        error.LoadLibraryNotFound => "Could not locate LoadLibraryW.",
+        error.CreateRemoteThreadFailed => "Failed to start the remote loader thread.",
+        error.RemoteThreadWaitFailed => "The remote loader thread could not be waited on.",
+        error.RemoteThreadWaitTimedOut => "The remote loader thread timed out.",
+        error.GetRemoteThreadExitCodeFailed => "Could not read the remote loader thread exit code.",
+        error.LoadLibraryRemoteFailed => "The target process failed to load the DLL.",
+    };
+}
+
+pub fn injectErrorSuggestsElevation(err: InjectError) bool {
+    return switch (err) {
+        error.OpenProcessFailed,
+        error.AllocateRemoteMemoryFailed,
+        error.WriteRemoteMemoryFailed,
+        error.CreateRemoteThreadFailed,
+        => true,
+        else => false,
+    };
+}
+
+pub fn describeLaunchError(err: LaunchError) []const u8 {
+    return switch (err) {
+        error.ExecutableNotFound => "The game executable could not be found.",
+        error.AccessDenied => "Windows denied access to the game executable.",
+        error.InvalidExecutablePath => "The game executable path is not valid.",
+        error.CreateProcessFailed => "Windows failed to start the game process.",
+    };
+}
+
+// Path And Process Discovery Helpers
 fn eqlAsciiWideIgnoreCase(wide: []const u16, ascii: []const u8) bool {
     if (wide.len != ascii.len) return false;
     for (wide, ascii) |w, a| {
@@ -54,29 +119,38 @@ fn trimRightPathNoise(path: []const u8) []const u8 {
     return path[0..end];
 }
 
-fn normalizePathSeparators(path: []u8) void {
-    for (path) |*ch| {
-        if (ch.* == '/') ch.* = '\\';
+fn wtf8ToWtf16LeZ(wtf8: []const u8, buf: []u16) ![:0]u16 {
+    if (buf.len == 0) return error.NoSpaceLeft;
+    const len = try std.unicode.wtf8ToWtf16Le(buf[0 .. buf.len - 1], wtf8);
+    buf[len] = 0;
+    return buf[0..len :0];
+}
+
+fn wtf16LeToWtf8Slice(wtf16le: []const u16, out_buf: []u8) ![]const u8 {
+    const len = std.unicode.calcWtf8Len(wtf16le);
+    if (len > out_buf.len) return error.NoSpaceLeft;
+    return out_buf[0..std.unicode.wtf16LeToWtf8(out_buf, wtf16le)];
+}
+
+fn getEnvironmentVariableWtf8(environ: std.process.Environ, comptime name: []const u8, out_buf: []u8) ?[]const u8 {
+    if (builtin.os.tag == .windows) {
+        const value_w = std.process.Environ.getWindows(environ, std.unicode.wtf8ToWtf16LeStringLiteral(name)) orelse return null;
+        return wtf16LeToWtf8Slice(value_w, out_buf) catch null;
     }
+
+    const value = std.process.Environ.getPosix(environ, name) orelse return null;
+    if (value.len > out_buf.len) return null;
+    @memcpy(out_buf[0..value.len], value);
+    return out_buf[0..value.len];
 }
 
-fn getEnvironmentVariableUtf8(allocator: std.mem.Allocator, comptime name: []const u8) !?[]u8 {
-    const wide_name = std.unicode.utf8ToUtf16LeStringLiteral(name);
-    var buf: [32767]u16 = undefined;
-    const len = c.GetEnvironmentVariableW(wide_name, &buf, buf.len);
-    if (len == 0 or len >= buf.len) return null;
-    return @as(?[]u8, try std.unicode.utf16LeToUtf8Alloc(allocator, buf[0..len]));
+fn pathExistsWtf8(io: std.Io, wtf8_path: []const u8) bool {
+    var file = std.Io.Dir.openFileAbsolute(io, wtf8_path, .{ .allow_directory = false }) catch return false;
+    file.close(io);
+    return true;
 }
 
-fn pathExistsUtf8(allocator: std.mem.Allocator, utf8_path: []const u8) !bool {
-    const wide = try std.unicode.utf8ToUtf16LeAllocZ(allocator, utf8_path);
-    defer allocator.free(wide);
-
-    const attrs = c.GetFileAttributesW(wide.ptr);
-    return attrs != c.INVALID_FILE_ATTRIBUTES and (attrs & c.FILE_ATTRIBUTE_DIRECTORY) == 0;
-}
-
-fn extractInstallDirFromLine(allocator: std.mem.Allocator, line: []const u8) !?[]u8 {
+fn extractInstallDirFromLine(line: []const u8) ?[]const u8 {
     const endfield_idx = indexOfIgnoreCase(line, "EndField") orelse return null;
 
     var start: ?usize = null;
@@ -96,106 +170,101 @@ fn extractInstallDirFromLine(allocator: std.mem.Allocator, line: []const u8) !?[
 
     while (path_end > path_start and (line[path_end - 1] == '\\' or line[path_end - 1] == '/')) : (path_end -= 1) {}
     if (path_end <= path_start) return null;
-
-    const out = try allocator.dupe(u8, line[path_start..path_end]);
-    normalizePathSeparators(out);
-    return out;
+    return line[path_start..path_end];
 }
 
-fn readWholeFileUtf8(allocator: std.mem.Allocator, utf8_path: []const u8) !?[]u8 {
-    const wide_path = try std.unicode.utf8ToUtf16LeAllocZ(allocator, utf8_path);
-    defer allocator.free(wide_path);
+fn appendNormalizedPath(out_buf: []u8, base: []const u8, leaf: []const u8) ![]const u8 {
+    var len: usize = 0;
 
-    const handle = c.CreateFileW(
-        wide_path.ptr,
-        c.GENERIC_READ,
-        c.FILE_SHARE_READ | c.FILE_SHARE_WRITE | c.FILE_SHARE_DELETE,
-        null,
-        c.OPEN_EXISTING,
-        c.FILE_ATTRIBUTE_NORMAL,
-        null,
-    );
-    if (handle == c.INVALID_HANDLE_VALUE) return null;
-    defer _ = c.CloseHandle(handle);
-
-    var size_info: c.LARGE_INTEGER = undefined;
-    if (c.GetFileSizeEx(handle, &size_info) == 0 or size_info.QuadPart <= 0) return null;
-
-    const file_size: usize = @intCast(size_info.QuadPart);
-    var buffer = try allocator.alloc(u8, file_size);
-    errdefer allocator.free(buffer);
-
-    var total_read: usize = 0;
-    while (total_read < buffer.len) {
-        var chunk_read: c.DWORD = 0;
-        const chunk_len: u32 = @intCast(@min(buffer.len - total_read, @as(usize, std.math.maxInt(u32))));
-        if (c.ReadFile(handle, buffer[total_read..].ptr, chunk_len, &chunk_read, null) == 0) {
-            return error.FileReadFailed;
-        }
-        if (chunk_read == 0) break;
-        total_read += chunk_read;
+    for (base) |ch| {
+        if (len >= out_buf.len) return error.NoSpaceLeft;
+        out_buf[len] = if (ch == '/') '\\' else ch;
+        len += 1;
     }
 
-    if (total_read == buffer.len) return buffer;
-    return @as(?[]u8, try allocator.realloc(buffer, total_read));
+    while (len > 0 and (out_buf[len - 1] == '\\' or out_buf[len - 1] == '/')) : (len -= 1) {}
+
+    if (len >= out_buf.len) return error.NoSpaceLeft;
+    out_buf[len] = '\\';
+    len += 1;
+
+    var leaf_start: usize = 0;
+    while (leaf_start < leaf.len and (leaf[leaf_start] == '\\' or leaf[leaf_start] == '/')) : (leaf_start += 1) {}
+
+    for (leaf[leaf_start..]) |ch| {
+        if (len >= out_buf.len) return error.NoSpaceLeft;
+        out_buf[len] = if (ch == '/') '\\' else ch;
+        len += 1;
+    }
+
+    return out_buf[0..len];
 }
 
-fn detectGameExeFromPlayerLog(allocator: std.mem.Allocator) !?[:0]u16 {
-    const appdata = try getEnvironmentVariableUtf8(allocator, "APPDATA") orelse return null;
-    defer allocator.free(appdata);
+fn readWholeFileWtf8(io: std.Io, allocator: std.mem.Allocator, wtf8_path: []const u8) !?[]u8 {
+    var file = std.Io.Dir.openFileAbsolute(io, wtf8_path, .{ .allow_directory = false }) catch return null;
+    defer file.close(io);
 
+    const stat = file.stat(io) catch return null;
+    if (stat.kind != .file or stat.size > 32 * 1024 * 1024) return null;
+
+    var file_reader = file.reader(io, &.{});
+    return try file_reader.interface.readAlloc(allocator, @intCast(stat.size));
+}
+
+fn detectGameExeFromPlayerLog(io: std.Io, environ: std.process.Environ, allocator: std.mem.Allocator) !?[:0]u16 {
+    var appdata_buf: [max_path_bytes]u8 = undefined;
+    const appdata = getEnvironmentVariableWtf8(environ, "APPDATA", &appdata_buf) orelse return null;
     const roaming_parent = std.fs.path.dirname(appdata) orelse return null;
-    const player_log = try std.fs.path.join(allocator, &.{ roaming_parent, "LocalLow", "Gryphline", "Endfield", "Player.log" });
-    defer allocator.free(player_log);
 
-    const contents = try readWholeFileUtf8(allocator, player_log) orelse return null;
+    var player_log_buf: [max_path_bytes]u8 = undefined;
+    const player_log = try appendNormalizedPath(&player_log_buf, roaming_parent, "LocalLow\\Gryphline\\Endfield\\Player.log");
+
+    const contents = try readWholeFileWtf8(io, allocator, player_log) orelse return null;
     defer allocator.free(contents);
 
     var lines = std.mem.splitScalar(u8, contents, '\n');
     while (lines.next()) |line| {
-        const install_dir = try extractInstallDirFromLine(allocator, line) orelse continue;
-        defer allocator.free(install_dir);
+        const install_dir = extractInstallDirFromLine(line) orelse continue;
+        var exe_buf: [max_path_bytes]u8 = undefined;
+        const exe_utf8 = try appendNormalizedPath(&exe_buf, install_dir, target_exe_name);
 
-        const exe_utf8 = try std.fs.path.join(allocator, &.{ install_dir, "Endfield.exe" });
-        defer allocator.free(exe_utf8);
-
-        if (try pathExistsUtf8(allocator, exe_utf8)) {
-            return try std.unicode.utf8ToUtf16LeAllocZ(allocator, exe_utf8);
+        if (pathExistsWtf8(io, exe_utf8)) {
+            return try std.unicode.wtf8ToWtf16LeAllocZ(allocator, exe_utf8);
         }
     }
 
     return null;
 }
 
-fn detectGameExeFromKnownPaths(allocator: std.mem.Allocator) !?[:0]u16 {
-    const fixed = [_][]const u8{
-        "C:\\Program Files\\GRYPHLINK\\games\\EndField Game\\Endfield.exe",
-        "A:\\GRYPHLINK\\games\\EndField Game\\Endfield.exe",
-        "B:\\GRYPHLINK\\games\\EndField Game\\Endfield.exe",
+fn detectGameExeFromKnownPaths(io: std.Io, allocator: std.mem.Allocator) !?[:0]u16 {
+    const fallback_drive_letters = "CDE";
+    const fallback_relative_paths = [_][]const u8{
+        "Program Files\\GRYPHLINK\\games\\EndField Game\\Endfield.exe",
+        "GRYPHLINK\\games\\EndField Game\\Endfield.exe",
     };
 
-    for (fixed) |candidate| {
-        if (try pathExistsUtf8(allocator, candidate)) {
-            return try std.unicode.utf8ToUtf16LeAllocZ(allocator, candidate);
-        }
-    }
+    var buf: [max_path_bytes]u8 = undefined;
 
-    var drive: u8 = 'D';
-    while (drive <= 'Z') : (drive += 1) {
-        const candidate = try std.fmt.allocPrint(allocator, "{c}:\\GRYPHLINK\\games\\EndField Game\\Endfield.exe", .{drive});
-        defer allocator.free(candidate);
+    for (fallback_drive_letters) |drive| {
+        for (fallback_relative_paths) |relative_path| {
+            const candidate = std.fmt.bufPrint(&buf, "{c}:\\{s}", .{ drive, relative_path }) catch unreachable;
 
-        if (try pathExistsUtf8(allocator, candidate)) {
-            return try std.unicode.utf8ToUtf16LeAllocZ(allocator, candidate);
+            if (pathExistsWtf8(io, candidate)) {
+                return try std.unicode.wtf8ToWtf16LeAllocZ(allocator, candidate);
+            }
         }
     }
 
     return null;
 }
 
-pub fn detectGameExe(allocator: std.mem.Allocator) !?[:0]u16 {
-    if (try detectGameExeFromPlayerLog(allocator)) |path| return path;
-    return try detectGameExeFromKnownPaths(allocator);
+pub fn detectGameExe(environ: std.process.Environ, allocator: std.mem.Allocator) !?[:0]u16 {
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    if (try detectGameExeFromPlayerLog(io, environ, allocator)) |path| return path;
+    return try detectGameExeFromKnownPaths(io, allocator);
 }
 
 // Injection And Launch
@@ -204,17 +273,17 @@ pub fn findTargetProcess() u32 {
     if (snapshot == c.INVALID_HANDLE_VALUE) return 0;
     defer _ = c.CloseHandle(snapshot);
 
-    var entry: c.PROCESSENTRY32W = std.mem.zeroInit(c.PROCESSENTRY32W, .{});
+    var entry: c.PROCESSENTRY32W = std.mem.zeroes(c.PROCESSENTRY32W);
     entry.dwSize = @sizeOf(c.PROCESSENTRY32W);
 
-    if (c.Process32FirstW(snapshot, &entry) == 0) return 0;
+    if (c.Process32FirstW(snapshot, &entry) == c.FALSE) return 0;
 
     while (true) {
-        const exe_name = utf16SliceZ(entry.szExeFile[0..]);
+        const exe_name = std.mem.sliceTo(entry.szExeFile[0..], 0);
         if (eqlAsciiWideIgnoreCase(exe_name, target_exe_name)) {
             return entry.th32ProcessID;
         }
-        if (c.Process32NextW(snapshot, &entry) == 0) break;
+        if (c.Process32NextW(snapshot, &entry) == c.FALSE) break;
     }
 
     return 0;
@@ -227,57 +296,85 @@ pub fn isProcessAlive(pid: u32) bool {
     return c.WaitForSingleObject(handle, 0) == c.WAIT_TIMEOUT;
 }
 
-pub fn writeEmbeddedDllToTemp(allocator: std.mem.Allocator, dll_bytes: []const u8) ![:0]u16 {
+fn makeUniqueTempDllName(out_buf: []u8) ![]const u8 {
+    return std.fmt.bufPrint(out_buf, "{s}{x}-{x}.dll", .{
+        temp_dll_name_prefix,
+        c.GetCurrentProcessId(),
+        c.GetTickCount64(),
+    });
+}
+
+pub fn writeEmbeddedDllToTemp(allocator: std.mem.Allocator, dll_bytes: []const u8) TempDllError![]u8 {
     var temp_buf: [c.MAX_PATH]u16 = undefined;
     const temp_len = c.GetTempPathW(temp_buf.len, &temp_buf);
     if (temp_len == 0 or temp_len >= temp_buf.len) return error.TempPathUnavailable;
 
-    const temp_name = std.unicode.utf8ToUtf16LeStringLiteral(temp_dll_name);
-    const path = try allocator.allocSentinel(u16, temp_len + temp_name.len, 0);
-    @memcpy(path[0..temp_len], temp_buf[0..temp_len]);
-    @memcpy(path[temp_len .. temp_len + temp_name.len], temp_name);
+    var temp_name_buf: [32]u8 = undefined;
+    const temp_name = makeUniqueTempDllName(&temp_name_buf) catch return error.TempFileCreateFailed;
 
-    const handle = c.CreateFileW(
-        path.ptr,
-        c.GENERIC_WRITE,
-        c.FILE_SHARE_READ,
-        null,
-        c.CREATE_ALWAYS,
-        c.FILE_ATTRIBUTE_TEMPORARY,
-        null,
-    );
-    if (handle == c.INVALID_HANDLE_VALUE) {
-        allocator.free(path);
+    var temp_name_utf16_buf: [32]u16 = undefined;
+    const temp_name_utf16 = wtf8ToWtf16LeZ(temp_name, &temp_name_utf16_buf) catch return error.TempFileCreateFailed;
+
+    var path_utf16_buf: [c.MAX_PATH + 32]u16 = undefined;
+    if (temp_len + temp_name_utf16.len > path_utf16_buf.len) return error.TempFileCreateFailed;
+    @memcpy(path_utf16_buf[0..temp_len], temp_buf[0..temp_len]);
+    @memcpy(path_utf16_buf[temp_len .. temp_len + temp_name_utf16.len], temp_name_utf16);
+
+    var utf8_path_buf: [max_path_bytes]u8 = undefined;
+    const utf8_path = wtf16LeToWtf8Slice(path_utf16_buf[0 .. temp_len + temp_name_utf16.len], &utf8_path_buf) catch {
         return error.TempFileCreateFailed;
-    }
-    defer _ = c.CloseHandle(handle);
+    };
+    const path = try allocator.dupe(u8, utf8_path);
+    errdefer allocator.free(path);
 
-    var bytes_written: c.DWORD = 0;
-    if (c.WriteFile(handle, dll_bytes.ptr, @intCast(dll_bytes.len), &bytes_written, null) == 0 or bytes_written != dll_bytes.len) {
-        allocator.free(path);
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var file = std.Io.Dir.createFileAbsolute(io, path, .{}) catch {
+        return error.TempFileCreateFailed;
+    };
+    defer file.close(io);
+
+    var file_buffer: [4096]u8 = undefined;
+    var file_writer = file.writer(io, &file_buffer);
+    file_writer.interface.writeAll(dll_bytes) catch {
         return error.TempFileWriteFailed;
-    }
+    };
+    file_writer.interface.flush() catch {
+        return error.TempFileWriteFailed;
+    };
 
     return path;
 }
 
-pub fn injectDll(pid: u32, dll_path: [:0]const u16) bool {
-    if (pid == 0) return false;
+pub fn deleteTempDll(allocator: std.mem.Allocator, temp_dll_path: []const u8) void {
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    std.Io.Dir.deleteFileAbsolute(io, temp_dll_path) catch {};
+}
 
-    const process = c.OpenProcess(process_rights, c.FALSE, pid) orelse return false;
+pub fn injectDll(pid: u32, dll_path: []const u8) InjectError!void {
+    if (pid == 0) return error.InvalidPid;
+
+    var wide_path_buf: [max_path_bytes]u16 = undefined;
+    const dll_path_w = wtf8ToWtf16LeZ(dll_path, &wide_path_buf) catch return error.BadDllPath;
+
+    const process = c.OpenProcess(process_rights, c.FALSE, pid) orelse return error.OpenProcessFailed;
     defer _ = c.CloseHandle(process);
 
-    const path_bytes: usize = (dll_path.len + 1) * @sizeOf(u16);
+    const path_bytes: usize = (dll_path_w.len + 1) * @sizeOf(u16);
     const remote_mem = c.VirtualAllocEx(process, null, path_bytes, c.MEM_COMMIT | c.MEM_RESERVE, c.PAGE_READWRITE);
-    if (remote_mem == null) return false;
-    defer _ = c.VirtualFreeEx(process, remote_mem, 0, c.MEM_RELEASE);
+    if (remote_mem == null) return error.AllocateRemoteMemoryFailed;
+    defer _ = c.VirtualFreeEx(process, remote_mem.?, 0, c.MEM_RELEASE);
 
-    if (c.WriteProcessMemory(process, remote_mem, dll_path.ptr, path_bytes, null) == 0) {
-        return false;
+    if (c.WriteProcessMemory(process, remote_mem.?, dll_path_w.ptr, path_bytes, null) == c.FALSE) {
+        return error.WriteRemoteMemoryFailed;
     }
 
-    const kernel32 = c.GetModuleHandleW(std.unicode.utf8ToUtf16LeStringLiteral("kernel32.dll")) orelse return false;
-    const load_library = c.GetProcAddress(kernel32, "LoadLibraryW") orelse return false;
+    const kernel32 = c.GetModuleHandleW(std.unicode.wtf8ToWtf16LeStringLiteral("kernel32.dll")) orelse return error.Kernel32NotFound;
+    const load_library = c.GetProcAddress(kernel32, "LoadLibraryW") orelse return error.LoadLibraryNotFound;
 
     const thread = c.CreateRemoteThread(
         process,
@@ -287,16 +384,25 @@ pub fn injectDll(pid: u32, dll_path: [:0]const u16) bool {
         remote_mem,
         0,
         null,
-    ) orelse return false;
+    ) orelse return error.CreateRemoteThreadFailed;
     defer _ = c.CloseHandle(thread);
 
-    _ = c.WaitForSingleObject(thread, 5000);
-    return true;
+    switch (c.WaitForSingleObject(thread, 5000)) {
+        c.WAIT_OBJECT_0 => {},
+        c.WAIT_TIMEOUT => return error.RemoteThreadWaitTimedOut,
+        else => return error.RemoteThreadWaitFailed,
+    }
+
+    var exit_code: c.DWORD = 0;
+    if (c.GetExitCodeThread(thread, &exit_code) == c.FALSE) return error.GetRemoteThreadExitCodeFailed;
+    if (exit_code == 0 or exit_code == c.STILL_ACTIVE) return error.LoadLibraryRemoteFailed;
 }
 
-pub fn launchGame(game_exe_path: [:0]const u16) !void {
-    var startup_info: c.STARTUPINFOW = std.mem.zeroInit(c.STARTUPINFOW, .{});
-    var process_info: c.PROCESS_INFORMATION = std.mem.zeroInit(c.PROCESS_INFORMATION, .{});
+pub fn launchGame(game_exe_path: [:0]const u16) LaunchError!void {
+    var startup_info: c.STARTUPINFOW = undefined;
+    var process_info: c.PROCESS_INFORMATION = undefined;
+    @memset(std.mem.asBytes(&startup_info), 0);
+    @memset(std.mem.asBytes(&process_info), 0);
     startup_info.cb = @sizeOf(c.STARTUPINFOW);
 
     if (c.CreateProcessW(
@@ -310,10 +416,31 @@ pub fn launchGame(game_exe_path: [:0]const u16) !void {
         null,
         &startup_info,
         &process_info,
-    ) == 0) {
-        return error.GameLaunchFailed;
+    ) == c.FALSE) {
+        return switch (c.GetLastError()) {
+            c.ERROR_FILE_NOT_FOUND, c.ERROR_PATH_NOT_FOUND => error.ExecutableNotFound,
+            c.ERROR_ACCESS_DENIED => error.AccessDenied,
+            c.ERROR_INVALID_NAME, c.ERROR_INVALID_PARAMETER => error.InvalidExecutablePath,
+            else => error.CreateProcessFailed,
+        };
     }
 
     _ = c.CloseHandle(process_info.hThread);
     _ = c.CloseHandle(process_info.hProcess);
+}
+
+test "extractInstallDirFromLine trims player log install directory" {
+    const line = "Discovering subsystems at path C:/Program Files/GRYPHLINK/games/EndField Game/EndField_Data/UnitySubsystems";
+    const path = extractInstallDirFromLine(line) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqualStrings("C:/Program Files/GRYPHLINK/games/EndField Game", path);
+}
+
+test "extractInstallDirFromLine ignores unrelated lines" {
+    try std.testing.expect(extractInstallDirFromLine("No install path here") == null);
+}
+
+test "appendNormalizedPath normalizes separators and trims duplicate slashes" {
+    var buf: [128]u8 = undefined;
+    const path = try appendNormalizedPath(&buf, "C:/Games/EndField Game//", "/Endfield.exe");
+    try std.testing.expectEqualStrings("C:\\Games\\EndField Game\\Endfield.exe", path);
 }

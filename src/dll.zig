@@ -43,6 +43,15 @@ const Il2CppMethodInfo = extern struct {
     address: usize,
 };
 
+fn winBool(value: bool) BOOL {
+    return switch (@typeInfo(BOOL)) {
+        .int => if (value) 1 else 0,
+        .bool => value,
+        .@"enum" => if (value) @enumFromInt(1) else @enumFromInt(0),
+        else => @compileError("Unsupported Windows BOOL representation"),
+    };
+}
+
 fn waitForModule(module_name: [*:0]const u16) HMODULE {
     var handle: ?HMODULE = null;
     while (handle == null) {
@@ -93,5 +102,5 @@ pub export fn DllMain(hInstance: HINSTANCE, ul_reason_for_call: DWORD, _: ?LPVOI
         _ = DisableThreadLibraryCalls(@ptrCast(hInstance));
         _ = CreateThread(null, 0, &patchCameraCensorship, null, 0, null);
     }
-    return windows.TRUE;
+    return winBool(true);
 }

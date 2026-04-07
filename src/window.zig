@@ -4,19 +4,7 @@ const std = @import("std");
 const bytegui = @import("bytegui.zig");
 const loader = @import("loader.zig");
 const app_version = @import("version.zig");
-
-// Platform Imports
-pub const c = @cImport({
-    @cDefine("WIN32_LEAN_AND_MEAN", {});
-    @cDefine("NOMINMAX", {});
-    @cDefine("UNICODE", {});
-    @cDefine("_UNICODE", {});
-    @cInclude("windows.h");
-    @cInclude("wtypes.h");
-    @cInclude("d3d11.h");
-    @cInclude("dxgi1_3.h");
-    @cInclude("gdiplus.h");
-});
+pub const c = @import("win32.zig");
 
 const allocator = std.heap.c_allocator;
 
@@ -34,6 +22,8 @@ const ByteGuiWindowFlags_NoScrollWithMouse = bytegui.ByteGuiWindowFlags_NoScroll
 const ByteDrawList = bytegui.ByteDrawList;
 const ByteFont = bytegui.ByteFont;
 const ByteFontConfig = bytegui.ByteFontConfig;
+const FontStyleBold = bytegui.FontStyleBold;
+const FontStyleRegular = bytegui.FontStyleRegular;
 const Ui = bytegui.Ui;
 const ByteGuiPlatformWindowConfig = bytegui.ByteGuiPlatformWindowConfig;
 const ByteU32 = bytegui.ByteU32;
@@ -41,6 +31,7 @@ const ByteVec2 = bytegui.ByteVec2;
 const ByteVec4 = bytegui.ByteVec4;
 const bgc = bytegui.c;
 const TextTexture = Ui.TextTexture;
+const windowsFontPath = bytegui.windowsFontPath;
 
 // UI Constants And Embedded Assets
 const VERSION_STR = app_version.version_str;
@@ -180,16 +171,21 @@ else
 const LoaderWorkerState = struct {
     tracked_pid: u32 = 0,
     last_failed_pid: u32 = 0,
-    temp_dll_path: ?[:0]u16 = null,
+    temp_dll_path: ?[]u8 = null,
+
+    fn cleanupTempDll(self: *LoaderWorkerState) void {
+        if (self.temp_dll_path) |path| {
+            loader.deleteTempDll(allocator, path);
+            allocator.free(path);
+            self.temp_dll_path = null;
+        }
+    }
 
     fn deinit(self: *LoaderWorkerState) void {
-        if (self.temp_dll_path) |path| allocator.free(path);
+        self.cleanupTempDll();
         self.* = .{};
     }
 };
-
-extern "user32" fn LoadCursorW(h_instance: c.HINSTANCE, cursor_name: ?*anyopaque) callconv(.winapi) c.HCURSOR;
-extern "shell32" fn ShellExecuteW(hwnd: c.HWND, operation: [*:0]const u16, file: [*:0]const u16, parameters: ?[*:0]const u16, directory: ?[*:0]const u16, show_cmd: c.INT) callconv(.winapi) c.HINSTANCE;
 
 var g_hwnd: ?c.HWND = null;
 var g_running = true;
@@ -213,18 +209,20 @@ var g_logo_size_px: ByteVec2 = .{};
 var g_launch_label_texture: TextTexture = .{};
 var g_toggle_label_texture: TextTexture = .{};
 
-var g_output_lines: std.ArrayListUnmanaged([]u8) = .{};
+var g_output_lines: std.ArrayListUnmanaged([]u8) = .empty;
 var g_minimize_on_launch = false;
 var g_minimized_by_toggle = false;
 var g_game_exe_path: ?[:0]u16 = null;
+var g_environ: std.process.Environ = .empty;
 var g_launch_btn_enabled = false;
-var g_version_display: []u8 = &.{};
+var g_version_display_buf: [64]u8 = undefined;
+var g_version_display: []const u8 = VERSION_STR;
 var g_loader_thread: ?std.Thread = null;
 var g_loader_control_mutex: ThreadMutex = .{};
 var g_loader_events_mutex: ThreadMutex = .{};
 var g_loader_should_stop = false;
 var g_loader_minimize_on_launch = false;
-var g_loader_events: std.ArrayListUnmanaged(LoaderUiEvent) = .{};
+var g_loader_events: std.ArrayListUnmanaged(LoaderUiEvent) = .empty;
 
 var g_hovered_button: i32 = 0;
 var g_pressed_button: i32 = 0;
@@ -293,11 +291,20 @@ fn highWordU(value: c.LPARAM) u16 {
     return @truncate((bits >> 16) & 0xFFFF);
 }
 
-fn wideToUtf8Alloc(wide: [:0]const u16) ![]u8 {
-    return std.unicode.utf16LeToUtf8Alloc(allocator, wide[0..wide.len]);
+fn wtf8ToWtf16LeZ(wtf8: []const u8, buf: []u16) ![:0]u16 {
+    if (buf.len == 0) return error.NoSpaceLeft;
+    const len = try std.unicode.wtf8ToWtf16Le(buf[0 .. buf.len - 1], wtf8);
+    buf[len] = 0;
+    return buf[0..len :0];
 }
 
-fn computeVersionDisplay() ![]u8 {
+fn wtf16LeToWtf8Slice(wtf16le: []const u16, out_buf: []u8) ![]const u8 {
+    const len = std.unicode.calcWtf8Len(wtf16le);
+    if (len > out_buf.len) return error.NoSpaceLeft;
+    return out_buf[0..std.unicode.wtf16LeToWtf8(out_buf, wtf16le)];
+}
+
+fn computeVersionDisplay(out_buf: []u8) ![]const u8 {
     var trimmed: []const u8 = VERSION_STR;
     if (trimmed.len > 0 and (trimmed[0] == 'v' or trimmed[0] == 'V')) trimmed = trimmed[1..];
 
@@ -311,22 +318,22 @@ fn computeVersionDisplay() ![]u8 {
     }
 
     return switch (count) {
-        4 => std.fmt.allocPrint(allocator, "v{s}.{s}.{s} PREVIEW {s}", .{ parts[0], parts[1], parts[2], parts[3] }),
-        3 => std.fmt.allocPrint(allocator, "v{s}.{s}.{s}", .{ parts[0], parts[1], parts[2] }),
-        else => allocator.dupe(u8, VERSION_STR),
+        4 => try std.fmt.bufPrint(out_buf, "v{s}.{s}.{s} PREVIEW {s}", .{ parts[0], parts[1], parts[2], parts[3] }),
+        3 => try std.fmt.bufPrint(out_buf, "v{s}.{s}.{s}", .{ parts[0], parts[1], parts[2] }),
+        else => VERSION_STR,
     };
 }
 
 fn toByteGuiHwnd(hwnd: c.HWND) bgc.HWND {
-    return @ptrCast(hwnd);
+    return @ptrCast(@alignCast(hwnd));
 }
 
 fn fromByteGuiHwnd(hwnd: ?bgc.HWND) ?c.HWND {
-    return if (hwnd) |value| @ptrCast(value) else null;
+    return if (hwnd) |value| @ptrCast(@alignCast(value)) else null;
 }
 
-fn loadCursorResource(id: u16) c.HCURSOR {
-    return LoadCursorW(null, @ptrFromInt(@as(usize, id)));
+fn loadCursorResource(id: u16) ?c.HCURSOR {
+    return c.LoadCursorW(null, @ptrFromInt(@as(usize, id)));
 }
 
 fn fromByteGuiRect(rect: bgc.RECT) c.RECT {
@@ -360,25 +367,24 @@ fn shouldRunCli(args: std.process.Args) bool {
 
 fn ensureCliConsole() void {
     _ = c.FreeConsole();
-    if (c.AllocConsole() == 0) return;
+    if (c.AllocConsole() == c.FALSE) return;
     _ = c.SetConsoleTitleW(CLI_CONSOLE_TITLE);
 }
 
-fn cliWrite(message: []const u8) void {
-    const stdout_handle = c.GetStdHandle(c.STD_OUTPUT_HANDLE);
-    if (stdout_handle == null or stdout_handle == c.INVALID_HANDLE_VALUE) return;
-
-    var bytes_written: c.DWORD = 0;
-    _ = c.WriteFile(stdout_handle, message.ptr, @intCast(message.len), &bytes_written, null);
+fn cliWrite(io: std.Io, message: []const u8) void {
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
+    stdout_writer.interface.writeAll(message) catch return;
+    stdout_writer.interface.flush() catch {};
 }
 
-fn cliPrint(comptime fmt: []const u8, args: anytype) void {
+fn cliPrint(io: std.Io, comptime fmt: []const u8, args: anytype) void {
     var buf: [1024]u8 = undefined;
     const message = std.fmt.bufPrint(&buf, fmt, args) catch return;
-    cliWrite(message);
+    cliWrite(io, message);
 }
 
-fn getProcessPathUtf8Alloc(pid: u32) !?[]u8 {
+fn getProcessPathWtf8(pid: u32, out_buf: []u8) !?[]const u8 {
     if (pid == 0) return null;
 
     const process = c.OpenProcess(c.PROCESS_QUERY_LIMITED_INFORMATION, c.FALSE, pid) orelse return null;
@@ -386,24 +392,31 @@ fn getProcessPathUtf8Alloc(pid: u32) !?[]u8 {
 
     var wide_buf: [32768]u16 = undefined;
     var wide_len: c.DWORD = wide_buf.len - 1;
-    if (c.QueryFullProcessImageNameW(process, 0, wide_buf[0..].ptr, &wide_len) == 0 or wide_len == 0) return null;
+    if (c.QueryFullProcessImageNameW(process, 0, wide_buf[0..].ptr, &wide_len) == c.FALSE or wide_len == 0) return null;
 
-    return @as(?[]u8, try std.unicode.utf16LeToUtf8Alloc(allocator, wide_buf[0..wide_len]));
+    return try wtf16LeToWtf8Slice(wide_buf[0..wide_len], out_buf);
 }
 
 fn runCli() !u8 {
-    ensureCliConsole();
-    cliPrint("\n[EFU Loader]\n\n", .{});
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
 
-    const temp_dll_path = loader.writeEmbeddedDllToTemp(allocator, embedded_dll) catch {
-        cliPrint("Error: Failed to create temp DLL.\n", .{});
-        cliPrint("Closing in 5 seconds...\n", .{});
+    ensureCliConsole();
+    cliPrint(io, "\n[EFU Loader]\n\n", .{});
+
+    const temp_dll_path = loader.writeEmbeddedDllToTemp(allocator, embedded_dll) catch |err| {
+        cliPrint(io, "Error: {s}\n", .{loader.describeTempDllError(err)});
+        cliPrint(io, "Closing in 5 seconds...\n", .{});
         c.Sleep(5000);
         return 1;
     };
-    defer allocator.free(temp_dll_path);
+    defer {
+        loader.deleteTempDll(allocator, temp_dll_path);
+        allocator.free(temp_dll_path);
+    }
 
-    cliPrint("Ready.\nWaiting for {s}...\n\n", .{loader.target_exe_name});
+    cliPrint(io, "Ready.\nWaiting for {s}...\n\n", .{loader.target_exe_name});
 
     var pid: u32 = 0;
     while (pid == 0) {
@@ -411,33 +424,42 @@ fn runCli() !u8 {
         if (pid == 0) c.Sleep(100);
     }
 
-    cliPrint("Process found (PID: {d})\n", .{pid});
+    cliPrint(io, "Process found (PID: {d})\n", .{pid});
 
-    if (try getProcessPathUtf8Alloc(pid)) |path| {
-        defer allocator.free(path);
-        cliPrint("Process path: {s}\n", .{path});
+    var process_path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    if (try getProcessPathWtf8(pid, &process_path_buf)) |path| {
+        cliPrint(io, "Process path: {s}\n", .{path});
     } else {
-        cliPrint("Warning: Could not get process path\n", .{});
+        cliPrint(io, "Warning: Could not get process path\n", .{});
     }
 
     c.Sleep(10);
 
-    const injected = loader.injectDll(pid, temp_dll_path);
-    if (injected) {
-        cliPrint("Injection successful.\n\n", .{});
-    } else {
-        cliPrint("Injection failed.\n", .{});
-        cliPrint("Maybe you didn't run as admin?\n\n", .{});
-    }
+    const injection_succeeded = blk: {
+        loader.injectDll(pid, temp_dll_path) catch |err| {
+            cliPrint(io, "Injection failed: {s}\n", .{loader.describeInjectError(err)});
+            if (loader.injectErrorSuggestsElevation(err)) {
+                cliPrint(io, "Try running as administrator.\n", .{});
+            }
+            cliPrint(io, "\n", .{});
+            break :blk false;
+        };
+        cliPrint(io, "Injection successful.\n\n", .{});
+        break :blk true;
+    };
 
-    cliPrint("Closing in 5 seconds...\n", .{});
+    cliPrint(io, "Closing in 5 seconds...\n", .{});
     c.Sleep(5000);
-    return if (injected) 0 else 1;
+    return if (injection_succeeded) 0 else 1;
+}
+
+fn allocOwnedLine(comptime fmt: []const u8, args: anytype) ?[]u8 {
+    return std.fmt.allocPrint(allocator, fmt, args) catch null;
 }
 
 // Status Output
 fn appendStatus(comptime fmt: []const u8, args: anytype) void {
-    const line = std.fmt.allocPrint(allocator, fmt, args) catch return;
+    const line = allocOwnedLine(fmt, args) orelse return;
     appendOwnedStatusLine(line);
 }
 
@@ -463,7 +485,7 @@ fn setLastOwnedStatusLine(line: []u8) void {
 fn clearStatusLines() void {
     for (g_output_lines.items) |line| allocator.free(line);
     g_output_lines.deinit(allocator);
-    g_output_lines = .{};
+    g_output_lines = .empty;
 }
 
 fn cancelCloseCountdown() void {
@@ -471,11 +493,11 @@ fn cancelCloseCountdown() void {
 }
 
 fn makeCountdownStatusLine(action: CloseCountdown.Action, seconds_remaining: i32) ?[]u8 {
-    return std.fmt.allocPrint(allocator, "{s} in {d} second{s}...", .{
+    return allocOwnedLine("{s} in {d} second{s}...", .{
         if (action == .minimize) "Minimizing" else "Closing",
         seconds_remaining,
         if (seconds_remaining == 1) "" else "s",
-    }) catch null;
+    });
 }
 
 fn appendCountdownStatus(action: CloseCountdown.Action, seconds_remaining: i32) void {
@@ -483,26 +505,23 @@ fn appendCountdownStatus(action: CloseCountdown.Action, seconds_remaining: i32) 
     setLastOwnedStatusLine(line);
 }
 
-fn startCloseCountdown() void {
+fn startCountdown(action: CloseCountdown.Action) void {
     g_close_countdown = .{
         .active = true,
-        .action = .close,
+        .action = action,
         .remaining_seconds = 5,
         .elapsed = 0.0,
     };
-    const line = makeCountdownStatusLine(g_close_countdown.action, g_close_countdown.remaining_seconds) orelse return;
+    const line = makeCountdownStatusLine(action, g_close_countdown.remaining_seconds) orelse return;
     appendOwnedStatusLine(line);
 }
 
+fn startCloseCountdown() void {
+    startCountdown(.close);
+}
+
 fn startMinimizeCountdown() void {
-    g_close_countdown = .{
-        .active = true,
-        .action = .minimize,
-        .remaining_seconds = 5,
-        .elapsed = 0.0,
-    };
-    const line = makeCountdownStatusLine(g_close_countdown.action, g_close_countdown.remaining_seconds) orelse return;
-    appendOwnedStatusLine(line);
+    startCountdown(.minimize);
 }
 
 // Loader Worker
@@ -511,22 +530,23 @@ fn queueLoaderEvent(event: LoaderUiEvent) void {
     defer g_loader_events_mutex.unlock();
     g_loader_events.append(allocator, event) catch switch (event) {
         .status_line => |line| allocator.free(line),
+        .replace_last_status_line => |line| allocator.free(line),
         else => {},
     };
 }
 
 fn queueLoaderStatus(comptime fmt: []const u8, args: anytype) void {
-    const line = std.fmt.allocPrint(allocator, fmt, args) catch return;
+    const line = allocOwnedLine(fmt, args) orelse return;
     queueLoaderEvent(.{ .status_line = line });
 }
 
 fn queueLoaderReplaceLastStatus(comptime fmt: []const u8, args: anytype) void {
-    const line = std.fmt.allocPrint(allocator, fmt, args) catch return;
+    const line = allocOwnedLine(fmt, args) orelse return;
     queueLoaderEvent(.{ .replace_last_status_line = line });
 }
 
 fn drainLoaderEvents() void {
-    var pending: std.ArrayListUnmanaged(LoaderUiEvent) = .{};
+    var pending: std.ArrayListUnmanaged(LoaderUiEvent) = .empty;
     g_loader_events_mutex.lock();
     std.mem.swap(std.ArrayListUnmanaged(LoaderUiEvent), &pending, &g_loader_events);
     g_loader_events_mutex.unlock();
@@ -550,7 +570,7 @@ fn drainLoaderEvents() void {
 }
 
 fn clearLoaderEvents() void {
-    var pending: std.ArrayListUnmanaged(LoaderUiEvent) = .{};
+    var pending: std.ArrayListUnmanaged(LoaderUiEvent) = .empty;
     g_loader_events_mutex.lock();
     std.mem.swap(std.ArrayListUnmanaged(LoaderUiEvent), &pending, &g_loader_events);
     g_loader_events_mutex.unlock();
@@ -578,7 +598,7 @@ fn loaderMinimizeOnLaunch() bool {
     return g_loader_minimize_on_launch;
 }
 
-fn ensureWorkerTempDll(state: *LoaderWorkerState) ![:0]u16 {
+fn ensureWorkerTempDll(state: *LoaderWorkerState) ![]const u8 {
     if (state.temp_dll_path) |path| return path;
     const path = try loader.writeEmbeddedDllToTemp(allocator, embedded_dll);
     state.temp_dll_path = path;
@@ -588,6 +608,7 @@ fn ensureWorkerTempDll(state: *LoaderWorkerState) ![:0]u16 {
 fn loaderWorkerTick(state: *LoaderWorkerState) void {
     if (state.tracked_pid != 0) {
         if (!loader.isProcessAlive(state.tracked_pid)) {
+            state.cleanupTempDll();
             queueLoaderStatus("Game process closed. Ready again.", .{});
             state.tracked_pid = 0;
             state.last_failed_pid = 0;
@@ -606,14 +627,14 @@ fn loaderWorkerTick(state: *LoaderWorkerState) void {
     queueLoaderEvent(.{ .clear_status = {} });
     queueLoaderStatus("Process found (PID: {d})", .{pid});
     queueLoaderStatus("Extracting mod to temp...", .{});
-    const temp_path = ensureWorkerTempDll(state) catch {
-        queueLoaderStatus("Failed to create temp DLL.", .{});
+    const temp_path = ensureWorkerTempDll(state) catch |err| {
+        queueLoaderStatus("Failed to prepare temp DLL: {s}", .{loader.describeTempDllError(err)});
         state.last_failed_pid = pid;
         return;
     };
 
     queueLoaderStatus("Injecting mod...", .{});
-    if (loader.injectDll(pid, temp_path)) {
+    if (loader.injectDll(pid, temp_path)) |_| {
         queueLoaderReplaceLastStatus("Injected successfully!", .{});
         state.tracked_pid = pid;
         state.last_failed_pid = 0;
@@ -622,9 +643,11 @@ fn loaderWorkerTick(state: *LoaderWorkerState) void {
         } else {
             queueLoaderEvent(.{ .close_after_inject = {} });
         }
-    } else {
-        queueLoaderReplaceLastStatus("Injection failed.", .{});
-        queueLoaderStatus("Maybe you didn't run as admin?", .{});
+    } else |err| {
+        queueLoaderReplaceLastStatus("Injection failed: {s}", .{loader.describeInjectError(err)});
+        if (loader.injectErrorSuggestsElevation(err)) {
+            queueLoaderStatus("Try running as administrator.", .{});
+        }
         state.last_failed_pid = pid;
     }
 }
@@ -677,8 +700,8 @@ fn cleanupButtonLabelTextures() void {
 }
 
 fn rebuildButtonLabelTextures() bool {
-    const launch_ok = Ui.BuildTextTexture(&g_launch_label_texture, LABEL_LAUNCH, SEGOE_UI, c.FontStyleBold, 24.0, BUTTON_LABEL_SUPERSAMPLE, 0.9, 1.0);
-    const toggle_ok = Ui.BuildTextTexture(&g_toggle_label_texture, LABEL_MINIMIZE, SEGOE_UI, c.FontStyleRegular, 20.0, BUTTON_LABEL_SUPERSAMPLE, 0.45, 1.0);
+    const launch_ok = Ui.BuildTextTexture(&g_launch_label_texture, LABEL_LAUNCH, SEGOE_UI, FontStyleBold, 24.0, BUTTON_LABEL_SUPERSAMPLE, 0.9, 1.0);
+    const toggle_ok = Ui.BuildTextTexture(&g_toggle_label_texture, LABEL_MINIMIZE, SEGOE_UI, FontStyleRegular, 20.0, BUTTON_LABEL_SUPERSAMPLE, 0.45, 1.0);
     return launch_ok and toggle_ok;
 }
 
@@ -692,7 +715,7 @@ fn rebuildLogoTexture() bool {
         .fill_argb = 0xFF000000,
         .text = std.unicode.utf8ToUtf16LeStringLiteral("UNCENSORED"),
         .text_family = IMPACT,
-        .text_style = c.FontStyleBold,
+        .text_style = FontStyleBold,
         .text_em_size = 36.0,
         .logo_scale = .{ .x = 2.211, .y = 2.211 },
         .logo_translate = .{ .x = 75.0 / 2.211, .y = 55.0 / 2.211 },
@@ -741,28 +764,51 @@ fn applyBaseStyle() void {
 fn loadFonts() void {
     const io = ByteGui.GetIO();
     io.Fonts.?.Clear();
+    g_font_ui = null;
+    g_font_ui_bold = null;
+    g_font_console = null;
+    g_font_version = null;
+    g_font_launch = null;
+    g_font_launch_hover = null;
+    g_font_launch_peak = null;
+    g_font_toggle = null;
+    g_font_toggle_hover = null;
+    g_font_toggle_peak = null;
+    g_font_impact = null;
 
-    const segoe = "C:\\Windows\\Fonts\\segoeui.ttf";
-    const segoe_bold = "C:\\Windows\\Fonts\\segoeuib.ttf";
-    const consola = "C:\\Windows\\Fonts\\consola.ttf";
-    const impact = "C:\\Windows\\Fonts\\impact.ttf";
+    const segoe = windowsFontPath(allocator, "segoeui.ttf");
+    defer if (segoe) |path| allocator.free(path);
+    const segoe_bold = windowsFontPath(allocator, "segoeuib.ttf");
+    defer if (segoe_bold) |path| allocator.free(path);
+    const consola = windowsFontPath(allocator, "consola.ttf");
+    defer if (consola) |path| allocator.free(path);
+    const impact = windowsFontPath(allocator, "impact.ttf");
+    defer if (impact) |path| allocator.free(path);
 
     var cfg = ByteFontConfig{};
     cfg.PixelSnapH = true;
     cfg.OversampleH = 2;
     cfg.OversampleV = 1;
 
-    g_font_ui = io.Fonts.?.AddFontFromFileTTF(segoe, scaleF(16.0), &cfg);
-    g_font_ui_bold = io.Fonts.?.AddFontFromFileTTF(segoe_bold, scaleF(16.0), &cfg);
-    g_font_console = io.Fonts.?.AddFontFromFileTTF(consola, scaleF(13.0), &cfg);
-    g_font_version = io.Fonts.?.AddFontFromFileTTF(consola, scaleF(12.0), &cfg);
-    g_font_launch = io.Fonts.?.AddFontFromFileTTF(segoe_bold, scaleF(20.0), &cfg);
-    g_font_launch_hover = io.Fonts.?.AddFontFromFileTTF(segoe_bold, scaleF(22.0), &cfg);
-    g_font_launch_peak = io.Fonts.?.AddFontFromFileTTF(segoe_bold, scaleF(24.0), &cfg);
-    g_font_toggle = io.Fonts.?.AddFontFromFileTTF(segoe, scaleF(16.0), &cfg);
-    g_font_toggle_hover = io.Fonts.?.AddFontFromFileTTF(segoe, scaleF(17.0), &cfg);
-    g_font_toggle_peak = io.Fonts.?.AddFontFromFileTTF(segoe, scaleF(18.0), &cfg);
-    g_font_impact = io.Fonts.?.AddFontFromFileTTF(impact, scaleF(36.0), &cfg);
+    if (segoe) |path| {
+        g_font_ui = io.Fonts.?.AddFontFromFileTTF(path, scaleF(16.0), &cfg);
+        g_font_toggle = io.Fonts.?.AddFontFromFileTTF(path, scaleF(16.0), &cfg);
+        g_font_toggle_hover = io.Fonts.?.AddFontFromFileTTF(path, scaleF(17.0), &cfg);
+        g_font_toggle_peak = io.Fonts.?.AddFontFromFileTTF(path, scaleF(18.0), &cfg);
+    }
+    if (segoe_bold) |path| {
+        g_font_ui_bold = io.Fonts.?.AddFontFromFileTTF(path, scaleF(16.0), &cfg);
+        g_font_launch = io.Fonts.?.AddFontFromFileTTF(path, scaleF(20.0), &cfg);
+        g_font_launch_hover = io.Fonts.?.AddFontFromFileTTF(path, scaleF(22.0), &cfg);
+        g_font_launch_peak = io.Fonts.?.AddFontFromFileTTF(path, scaleF(24.0), &cfg);
+    }
+    if (consola) |path| {
+        g_font_console = io.Fonts.?.AddFontFromFileTTF(path, scaleF(13.0), &cfg);
+        g_font_version = io.Fonts.?.AddFontFromFileTTF(path, scaleF(12.0), &cfg);
+    }
+    if (impact) |path| {
+        g_font_impact = io.Fonts.?.AddFontFromFileTTF(path, scaleF(36.0), &cfg);
+    }
 
     if (g_font_ui == null) g_font_ui = io.Fonts.?.AddFontDefault();
     if (g_font_ui_bold == null) g_font_ui_bold = g_font_ui;
@@ -949,7 +995,7 @@ fn updateAnimations(dt: f32) void {
                 g_window_opacity = 0.0;
                 g_window_anim.typ = .none;
                 if (g_minimized_by_toggle) {
-                    const line = allocator.dupe(u8, "Minimized.") catch null;
+                    const line = allocOwnedLine("Minimized.", .{});
                     if (line) |owned_line| setLastOwnedStatusLine(owned_line);
                 }
                 _ = c.ShowWindow(hwnd, c.SW_MINIMIZE);
@@ -1210,13 +1256,13 @@ fn drawUI() void {
 
 fn refreshGamePathStatus() void {
     if (g_game_exe_path) |path| allocator.free(path);
-    g_game_exe_path = loader.detectGameExe(allocator) catch null;
+    g_game_exe_path = loader.detectGameExe(g_environ, allocator) catch null;
     g_launch_btn_enabled = g_game_exe_path != null;
 }
 
 fn maybeRestoreAfterExit() void {
     if (!g_minimized_by_toggle or g_hwnd == null) return;
-    if (c.IsIconic(g_hwnd.?) == 0) return;
+    if (c.IsIconic(g_hwnd.?) == c.FALSE) return;
     cancelCloseCountdown();
     clearStatusLines();
     _ = c.ShowWindow(g_hwnd.?, c.SW_RESTORE);
@@ -1231,24 +1277,34 @@ fn launchGameAction() void {
         appendStatus("Launch requested, but the game path is unavailable.", .{});
         return;
     }
-    loader.launchGame(g_game_exe_path.?) catch {
-        appendStatus("Failed to launch game.", .{});
+    loader.launchGame(g_game_exe_path.?) catch |err| {
+        appendStatus("Failed to launch game: {s}", .{loader.describeLaunchError(err)});
         return;
     };
     appendStatus("Launching game...", .{});
 }
 
 fn openReadme() void {
-    _ = ShellExecuteW(null, std.unicode.utf8ToUtf16LeStringLiteral("open"), README_URL, null, null, c.SW_SHOWNORMAL);
+    _ = c.ShellExecuteW(null, std.unicode.utf8ToUtf16LeStringLiteral("open"), README_URL, null, null, c.SW_SHOWNORMAL);
 }
 
 fn openReleaseTag() void {
-    const normalized = if (VERSION_STR.len > 0 and (VERSION_STR[0] == 'v' or VERSION_STR[0] == 'V')) VERSION_STR else "v" ++ VERSION_STR;
-    const url_utf8 = std.fmt.allocPrint(allocator, "https://github.com/DynamiByte/Endfield-Uncensored/releases/tag/{s}", .{normalized}) catch return;
-    defer allocator.free(url_utf8);
-    const url_utf16 = std.unicode.utf8ToUtf16LeAllocZ(allocator, url_utf8) catch return;
-    defer allocator.free(url_utf16);
-    _ = ShellExecuteW(null, std.unicode.utf8ToUtf16LeStringLiteral("open"), url_utf16.ptr, null, null, c.SW_SHOWNORMAL);
+    var version_buf: [32]u8 = undefined;
+    const normalized = if (VERSION_STR.len > 0 and (VERSION_STR[0] == 'v' or VERSION_STR[0] == 'V'))
+        VERSION_STR
+    else
+        std.fmt.bufPrint(&version_buf, "v{s}", .{VERSION_STR}) catch return;
+
+    var url_utf8_buf: [160]u8 = undefined;
+    const url_utf8 = std.fmt.bufPrint(
+        &url_utf8_buf,
+        "https://github.com/DynamiByte/Endfield-Uncensored/releases/tag/{s}",
+        .{normalized},
+    ) catch return;
+
+    var url_utf16_buf: [160]u16 = undefined;
+    const url_utf16 = wtf8ToWtf16LeZ(url_utf8, &url_utf16_buf) catch return;
+    _ = c.ShellExecuteW(null, std.unicode.utf8ToUtf16LeStringLiteral("open"), url_utf16.ptr, null, null, c.SW_SHOWNORMAL);
 }
 
 // App Lifetime
@@ -1328,7 +1384,7 @@ fn handleLButtonUp(l_param: c.LPARAM) c.LRESULT {
     if (g_press_captured) {
         _ = c.ReleaseCapture();
         const pt = c.POINT{ .x = lowWordSigned(l_param), .y = highWordSigned(l_param) };
-        if (!g_press_canceled and c.PtInRect(&g_press_rect, pt) != 0) onButtonActivated(g_pressed_button);
+        if (!g_press_canceled and c.PtInRect(&g_press_rect, pt) != c.FALSE) onButtonActivated(g_pressed_button);
         g_pressed_button = 0;
         g_press_captured = false;
         g_press_canceled = false;
@@ -1399,17 +1455,17 @@ fn wndProc(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) call
 }
 
 fn wndProcBridge(hwnd: bgc.HWND, msg: bgc.UINT, w_param: bgc.WPARAM, l_param: bgc.LPARAM) callconv(.winapi) bgc.LRESULT {
-    return wndProc(@ptrCast(hwnd), msg, w_param, l_param);
+    return wndProc(@ptrCast(@alignCast(hwnd)), msg, w_param, l_param);
 }
 
-noinline fn initGuiApp(instance: c.HINSTANCE) bool {
+noinline fn initGuiApp(instance: ?c.HMODULE) bool {
     bytegui.BYTEGUI_CHECKVERSION();
     _ = ByteGui.CreateContext() orelse {
         return false;
     };
 
     var window_config = ByteGuiPlatformWindowConfig{};
-    window_config.Instance = @ptrCast(instance);
+    window_config.Instance = if (instance) |handle| @ptrCast(@alignCast(handle)) else null;
     window_config.WndProc = wndProcBridge;
     window_config.ClassName = WINDOW_CLASS;
     window_config.Title = APP_TITLE;
@@ -1472,8 +1528,7 @@ fn shutdownGuiApp() void {
 }
 
 fn runGui() !u8 {
-    g_version_display = try computeVersionDisplay();
-    defer allocator.free(g_version_display);
+    g_version_display = try computeVersionDisplay(&g_version_display_buf);
     if (!initGuiApp(c.GetModuleHandleW(null))) {
         shutdownGuiApp();
         return 1;
@@ -1482,7 +1537,7 @@ fn runGui() !u8 {
 
     var msg = std.mem.zeroes(c.MSG);
     while (g_running) {
-        while (c.PeekMessageW(&msg, null, 0, 0, c.PM_REMOVE) != 0) {
+        while (c.PeekMessageW(&msg, null, 0, 0, c.PM_REMOVE) != c.FALSE) {
             _ = c.TranslateMessage(&msg);
             _ = c.DispatchMessageW(&msg);
             if (msg.message == c.WM_QUIT) g_running = false;
@@ -1512,6 +1567,7 @@ fn runGui() !u8 {
 }
 
 pub fn main(init: std.process.Init.Minimal) void {
+    g_environ = init.environ;
     const code = if (shouldRunCli(init.args))
         runCli() catch 1
     else

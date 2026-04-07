@@ -346,7 +346,7 @@ pub const ByteDrawData = struct {
     DisplayPos: ByteVec2 = .{},
     DisplaySize: ByteVec2 = .{},
     FramebufferScale: ByteVec2 = .{ .x = 1.0, .y = 1.0 },
-    CmdLists: std.ArrayListUnmanaged(*ByteDrawList) = .{},
+    CmdLists: std.ArrayListUnmanaged(*ByteDrawList) = .empty,
 
     fn deinit(self: *ByteDrawData) void {
         self.CmdLists.deinit(allocator);
@@ -434,7 +434,7 @@ pub const ByteFont = struct {
 
 // Font Loading And Text Rasterization
 pub const ByteFontAtlas = struct {
-    Fonts: std.ArrayListUnmanaged(*ByteFont) = .{},
+    Fonts: std.ArrayListUnmanaged(*ByteFont) = .empty,
 
     pub fn AddFontFromFileTTF(self: *ByteFontAtlas, filename: []const u8, size_pixels: f32, font_cfg: ?*const ByteFontConfig) ?*ByteFont {
         if (filename.len == 0 or size_pixels <= 0.0) return null;
@@ -465,10 +465,10 @@ pub const ByteFontAtlas = struct {
 
 pub const ByteDrawList = struct {
     Flags: ByteDrawListFlags = ByteDrawListFlags_AntiAliasedFill | ByteDrawListFlags_AntiAliasedLines,
-    VtxBuffer: std.ArrayListUnmanaged(ByteDrawVert) = .{},
-    IdxBuffer: std.ArrayListUnmanaged(ByteDrawIdx) = .{},
-    CmdBuffer: std.ArrayListUnmanaged(ByteDrawCmd) = .{},
-    Path: ByteVec2List = .{},
+    VtxBuffer: std.ArrayListUnmanaged(ByteDrawVert) = .empty,
+    IdxBuffer: std.ArrayListUnmanaged(ByteDrawIdx) = .empty,
+    CmdBuffer: std.ArrayListUnmanaged(ByteDrawCmd) = .empty,
+    Path: ByteVec2List = .empty,
 
     CurrentClipRect: ByteVec4 = .{},
     WhiteTexture: ByteTextureID = null,
@@ -595,7 +595,7 @@ pub const ByteDrawList = struct {
             return;
         }
 
-        var points = ByteVec2List{};
+        var points: ByteVec2List = .empty;
         defer points.deinit(allocator);
 
         const segments = @max(@as(i32, 3), @divTrunc(calcCircleSegmentCount(clamped_rounding), 4));
@@ -632,7 +632,7 @@ pub const ByteDrawList = struct {
     pub fn AddCircle(self: *ByteDrawList, center: ByteVec2, radius: f32, col: ByteU32, num_segments: i32, thickness: f32) void {
         if (radius <= 0.0) return;
         const segments = if (num_segments > 0) num_segments else calcCircleSegmentCount(radius);
-        var points = ByteVec2List{};
+        var points: ByteVec2List = .empty;
         defer points.deinit(allocator);
         points.ensureTotalCapacity(allocator, @intCast(segments)) catch return;
         var i: i32 = 0;
@@ -646,7 +646,7 @@ pub const ByteDrawList = struct {
     pub fn AddCircleFilled(self: *ByteDrawList, center: ByteVec2, radius: f32, col: ByteU32, num_segments: i32) void {
         if (radius <= 0.0) return;
         const segments = if (num_segments > 0) num_segments else calcCircleSegmentCount(radius);
-        var points = ByteVec2List{};
+        var points: ByteVec2List = .empty;
         defer points.deinit(allocator);
         points.ensureTotalCapacity(allocator, @intCast(segments)) catch return;
         var i: i32 = 0;
@@ -763,9 +763,9 @@ pub const ByteGuiContext = struct {
     DrawData: ByteDrawData = .{},
 
     CurrentFont: ?*ByteFont = null,
-    FontStack: std.ArrayListUnmanaged(*ByteFont) = .{},
-    AlphaStack: std.ArrayListUnmanaged(f32) = .{},
-    ChildStack: std.ArrayListUnmanaged(ChildState) = .{},
+    FontStack: std.ArrayListUnmanaged(*ByteFont) = .empty,
+    AlphaStack: std.ArrayListUnmanaged(f32) = .empty,
+    ChildStack: std.ArrayListUnmanaged(ChildState) = .empty,
 
     NextWindowPos: ByteVec2 = .{},
     NextWindowSize: ByteVec2 = .{},
@@ -779,7 +779,7 @@ pub const ByteGuiContext = struct {
     CurrentClipRect: ByteVec4 = .{},
     WhiteTexture: ByteTextureID = null,
 
-    TextCache: std.ArrayListUnmanaged(TextCacheEntry) = .{},
+    TextCache: std.ArrayListUnmanaged(TextCacheEntry) = .empty,
 
     fn init(self: *ByteGuiContext) void {
         self.* = .{};
@@ -1130,8 +1130,8 @@ pub const ByteGui = struct {
         const segments: i32 = if (arc_segments > 0) arc_segments else 8;
         const step = (0.5 * kPi) / @as(f32, @floatFromInt(segments));
 
-        var points = ByteVec2List{};
-        points.ensureTotalCapacity(allocator, @intCast((segments + 1) * 4)) catch return .{};
+        var points: ByteVec2List = .empty;
+        points.ensureTotalCapacity(allocator, @intCast((segments + 1) * 4)) catch return .empty;
 
         const add_arc = struct {
             fn call(list: *ByteVec2List, cx: f32, cy: f32, start_angle: f32, step_angle: f32, rad: f32, segments_local: i32) void {
@@ -1151,8 +1151,8 @@ pub const ByteGui = struct {
     }
 
     pub fn BuildRectPolygon(left: f32, top: f32, right: f32, bottom: f32) ByteVec2List {
-        var points = ByteVec2List{};
-        points.ensureTotalCapacity(allocator, 4) catch return .{};
+        var points: ByteVec2List = .empty;
+        points.ensureTotalCapacity(allocator, 4) catch return .empty;
         points.appendAssumeCapacity(.{ .x = left, .y = top });
         points.appendAssumeCapacity(.{ .x = right, .y = top });
         points.appendAssumeCapacity(.{ .x = right, .y = bottom });
@@ -1162,8 +1162,8 @@ pub const ByteGui = struct {
 
     pub fn BuildCornerSectorPolygon(center: ByteVec2, radius: f32, start_angle: f32, end_angle: f32, arc_segments: i32) ByteVec2List {
         const segments: i32 = if (arc_segments > 0) arc_segments else 8;
-        var points = ByteVec2List{};
-        points.ensureTotalCapacity(allocator, @intCast(segments + 3)) catch return .{};
+        var points: ByteVec2List = .empty;
+        points.ensureTotalCapacity(allocator, @intCast(segments + 3)) catch return .empty;
         points.appendAssumeCapacity(center);
 
         var i: i32 = 0;
@@ -1176,10 +1176,10 @@ pub const ByteGui = struct {
     }
 
     pub fn ClipPolygonAgainstConvexPolygon(subject: []const ByteVec2, clip: []const ByteVec2) ByteVec2List {
-        if (subject.len == 0 or clip.len < 3) return .{};
+        if (subject.len == 0 or clip.len < 3) return .empty;
 
-        var output = ByteVec2List{};
-        output.ensureTotalCapacity(allocator, @intCast(subject.len)) catch return .{};
+        var output: ByteVec2List = .empty;
+        output.ensureTotalCapacity(allocator, @intCast(subject.len)) catch return .empty;
         for (subject) |point| output.appendAssumeCapacity(point);
 
         const clip_is_ccw = signedArea(clip) > 0.0;
@@ -1188,7 +1188,7 @@ pub const ByteGui = struct {
             if (output.items.len == 0) break;
 
             var input = output;
-            output = .{};
+            output = .empty;
             defer input.deinit(allocator);
 
             var prev = input.items[input.items.len - 1];
@@ -1887,12 +1887,7 @@ fn calcCircleSegmentCount(radius: f32) i32 {
 }
 
 fn systemFontPath(comptime file_name: []const u8) ?[]u8 {
-    var windir_utf16: [260]u16 = undefined;
-    const windir_len = c.GetEnvironmentVariableW(std.unicode.utf8ToUtf16LeStringLiteral("WINDIR"), &windir_utf16, windir_utf16.len);
-    if (windir_len == 0 or windir_len >= windir_utf16.len) return null;
-    const windir = std.unicode.utf16LeToUtf8Alloc(allocator, windir_utf16[0..windir_len]) catch return null;
-    defer allocator.free(windir);
-    return std.fs.path.join(allocator, &.{ windir, "Fonts", file_name }) catch null;
+    return windowsFontPath(allocator, file_name);
 }
 
 fn detectFontStyleFromPath(path: []const u8) i32 {
@@ -2011,7 +2006,7 @@ const TextMeasureSession = struct {
 };
 
 const TextLayoutResult = struct {
-    lines: std.ArrayListUnmanaged(TextLine) = .{},
+    lines: std.ArrayListUnmanaged(TextLine) = .empty,
     width: f32 = 0.0,
     height: f32 = 0.0,
     line_height: f32 = 0.0,
@@ -3735,4 +3730,14 @@ pub fn ByteGui_ImplDX11_RenderDrawData(draw_data: ?*ByteDrawData) void {
         global_idx_offset += @intCast(draw_list.IdxBuffer.items.len);
         global_vtx_offset += @intCast(draw_list.VtxBuffer.items.len);
     }
+}
+pub fn windowsFontPath(gpa: std.mem.Allocator, comptime file_name: []const u8) ?[]u8 {
+    if (builtin.os.tag != .windows) return null;
+
+    const environ: std.process.Environ = .{ .block = .{ .use_global = true } };
+    const windir_utf16 = std.process.Environ.getWindows(environ, std.unicode.wtf8ToWtf16LeStringLiteral("WINDIR")) orelse return null;
+    const windir = std.unicode.wtf16LeToWtf8Alloc(gpa, windir_utf16) catch return null;
+    defer gpa.free(windir);
+
+    return std.fs.path.join(gpa, &.{ windir, "Fonts", file_name }) catch return null;
 }
