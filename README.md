@@ -45,6 +45,6 @@ This is also on GameBanana, [here](https://gamebanana.com/mods/651108).
 If you want to build it yourself, you'll need Zig [`0.16.0-dev.2736`](https://ziglang.org/builds/zig-x86_64-windows-0.16.0-dev.2736+3b515fbed.zip)
 The command I use to build is `zig build -Doptimize=ReleaseSmall`
 
-If you want to use your own injector, you can find a prebuilt DLL from the [zip file here](https://github.com/DynamiByte/Endfield-Uncensored/releases/tag/v3.0.0). To build it yourself you'll need to modify the build script, as of now.
+If you want to use your own injector, you can find a prebuilt DLL from the [zip file here](https://github.com/DynamiByte/Endfield-Uncensored/releases/tag/v3.0.0). To build it yourself you'll need to modify the build script, or build from V3 source (The DLL code remains the same anyway, so it does not matter).
 
 If you have any issues or ideas on what to add to the program, please submit them to the issue [tracker](https://github.com/DynamiByte/Endfield-Uncensored/issues), or contact me on Discord, my username is ["dynamicbyte"](https://discord.com/users/1077491551267213392). I want your input!
