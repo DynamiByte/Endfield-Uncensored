@@ -2,15 +2,18 @@ const std = @import("std");
 const windows = std.os.windows;
 
 pub const ATOM = windows.ATOM;
+pub const BYTE = windows.BYTE;
 pub const BOOL = windows.BOOL;
 pub const DWORD = windows.DWORD;
 pub const HANDLE = windows.HANDLE;
 pub const HBRUSH = windows.HBRUSH;
 pub const HCURSOR = windows.HCURSOR;
+pub const HDC = windows.HDC;
 pub const HICON = windows.HICON;
+pub const HGLRC = windows.HGLRC;
 pub const HINSTANCE = windows.HINSTANCE;
-pub const HMODULE = windows.HMODULE;
 pub const HMENU = windows.HMENU;
+pub const HMODULE = windows.HMODULE;
 pub const HWND = windows.HWND;
 pub const INT = windows.INT;
 pub const INVALID_HANDLE_VALUE = windows.INVALID_HANDLE_VALUE;
@@ -69,6 +72,35 @@ pub const WNDCLASSEXW = extern struct {
     hIconSm: ?HICON,
 };
 
+pub const PIXELFORMATDESCRIPTOR = extern struct {
+    nSize: WORD,
+    nVersion: WORD,
+    dwFlags: DWORD,
+    iPixelType: u8,
+    cColorBits: u8,
+    cRedBits: u8,
+    cRedShift: u8,
+    cGreenBits: u8,
+    cGreenShift: u8,
+    cBlueBits: u8,
+    cBlueShift: u8,
+    cAlphaBits: u8,
+    cAlphaShift: u8,
+    cAccumBits: u8,
+    cAccumRedBits: u8,
+    cAccumGreenBits: u8,
+    cAccumBlueBits: u8,
+    cAccumAlphaBits: u8,
+    cDepthBits: u8,
+    cStencilBits: u8,
+    cAuxBuffers: u8,
+    iLayerType: u8,
+    bReserved: u8,
+    dwLayerMask: DWORD,
+    dwVisibleMask: DWORD,
+    dwDamageMask: DWORD,
+};
+
 pub const PROCESSENTRY32W = extern struct {
     dwSize: DWORD,
     cntUsage: DWORD,
@@ -82,8 +114,17 @@ pub const PROCESSENTRY32W = extern struct {
     szExeFile: [MAX_PATH]WCHAR,
 };
 
-pub const FALSE = BOOL.FALSE;
-pub const TRUE = BOOL.TRUE;
+fn winBool(value: bool) BOOL {
+    return switch (@typeInfo(BOOL)) {
+        .int => if (value) 1 else 0,
+        .bool => value,
+        .@"enum" => if (value) @enumFromInt(1) else @enumFromInt(0),
+        else => @compileError("Unsupported Windows BOOL representation"),
+    };
+}
+
+pub const FALSE: BOOL = winBool(false);
+pub const TRUE: BOOL = winBool(true);
 
 pub const PROCESS_CREATE_THREAD: DWORD = 0x0002;
 pub const PROCESS_VM_OPERATION: DWORD = 0x0008;
@@ -112,6 +153,7 @@ pub const ERROR_INVALID_NAME: DWORD = 123;
 pub const WM_DESTROY: UINT = 0x0002;
 pub const WM_SIZE: UINT = 0x0005;
 pub const WM_ERASEBKGND: UINT = 0x0014;
+pub const WM_SETCURSOR: UINT = 0x0020;
 pub const WM_QUIT: UINT = 0x0012;
 pub const WM_SETICON: UINT = 0x0080;
 pub const WM_NCHITTEST: UINT = 0x0084;
@@ -134,14 +176,27 @@ pub const SW_MINIMIZE: INT = 6;
 pub const SW_RESTORE: INT = 9;
 
 pub const SWP_NOSIZE: UINT = 0x0001;
+pub const SWP_NOMOVE: UINT = 0x0002;
 pub const SWP_NOZORDER: UINT = 0x0004;
 pub const SWP_NOACTIVATE: UINT = 0x0010;
 
 pub const CS_CLASSDC: UINT = 0x0040;
+pub const CS_OWNDC: UINT = 0x0020;
 pub const WS_POPUP: DWORD = 0x80000000;
 pub const WS_EX_APPWINDOW: DWORD = 0x00040000;
-pub const WS_EX_NOREDIRECTIONBITMAP: DWORD = 0x00200000;
+pub const WS_EX_TOPMOST: DWORD = 0x00000008;
+pub const WS_EX_LAYERED: DWORD = 0x00080000;
 pub const CW_USEDEFAULT: INT = @as(INT, @bitCast(@as(u32, 0x80000000)));
+pub const LWA_ALPHA: DWORD = 0x00000002;
+pub const HWND_TOPMOST: ?HWND = @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))));
+pub const HWND_NOTOPMOST: ?HWND = @ptrFromInt(@as(usize, @bitCast(@as(isize, -2))));
+pub const HWND_TOP: ?HWND = @ptrFromInt(0);
+
+pub const PFD_TYPE_RGBA: u8 = 0;
+pub const PFD_MAIN_PLANE: u8 = 0;
+pub const PFD_DOUBLEBUFFER: DWORD = 0x00000001;
+pub const PFD_DRAW_TO_WINDOW: DWORD = 0x00000004;
+pub const PFD_SUPPORT_OPENGL: DWORD = 0x00000020;
 
 pub const SM_CXSCREEN: INT = 0;
 pub const SM_CYSCREEN: INT = 1;
@@ -157,6 +212,7 @@ pub extern "kernel32" fn OpenProcess(dw_desired_access: DWORD, b_inherit_handle:
 pub extern "kernel32" fn CloseHandle(h_object: HANDLE) callconv(.winapi) BOOL;
 pub extern "kernel32" fn GetLastError() callconv(.winapi) DWORD;
 pub extern "kernel32" fn GetCurrentProcessId() callconv(.winapi) DWORD;
+pub extern "kernel32" fn GetModuleFileNameW(h_module: ?HMODULE, lp_filename: [*]WCHAR, n_size: DWORD) callconv(.winapi) DWORD;
 pub extern "kernel32" fn GetTickCount64() callconv(.winapi) u64;
 pub extern "kernel32" fn WaitForSingleObject(h_handle: HANDLE, dw_milliseconds: DWORD) callconv(.winapi) DWORD;
 pub extern "kernel32" fn GetTempPathW(n_buffer_length: DWORD, lp_buffer: [*]WCHAR) callconv(.winapi) DWORD;
@@ -174,10 +230,18 @@ pub extern "kernel32" fn AllocConsole() callconv(.winapi) BOOL;
 pub extern "kernel32" fn SetConsoleTitleW(lp_console_title: LPCWSTR) callconv(.winapi) BOOL;
 
 pub extern "user32" fn GetWindowRect(hwnd: HWND, lp_rect: *RECT) callconv(.winapi) BOOL;
+pub extern "user32" fn GetDC(hwnd: ?HWND) callconv(.winapi) ?HDC;
 pub extern "user32" fn LoadCursorW(h_instance: ?HINSTANCE, cursor_name: ?*anyopaque) callconv(.winapi) ?HCURSOR;
+pub extern "user32" fn ReleaseDC(hwnd: ?HWND, hdc: HDC) callconv(.winapi) INT;
 pub extern "user32" fn SetWindowPos(hwnd: HWND, hwnd_insert_after: ?HWND, x: INT, y: INT, cx: INT, cy: INT, flags: UINT) callconv(.winapi) BOOL;
 pub extern "user32" fn DestroyWindow(hwnd: HWND) callconv(.winapi) BOOL;
 pub extern "user32" fn ShowWindow(hwnd: HWND, n_cmd_show: INT) callconv(.winapi) BOOL;
+pub extern "user32" fn SetForegroundWindow(hwnd: HWND) callconv(.winapi) BOOL;
+pub extern "user32" fn GetForegroundWindow() callconv(.winapi) ?HWND;
+pub extern "user32" fn GetWindowThreadProcessId(hwnd: HWND, lpdw_process_id: ?*DWORD) callconv(.winapi) DWORD;
+pub extern "user32" fn AttachThreadInput(id_attach: DWORD, id_attach_to: DWORD, f_attach: BOOL) callconv(.winapi) BOOL;
+pub extern "kernel32" fn GetCurrentThreadId() callconv(.winapi) DWORD;
+pub extern "user32" fn SetLayeredWindowAttributes(hwnd: HWND, cr_key: DWORD, alpha: BYTE, flags: DWORD) callconv(.winapi) BOOL;
 pub extern "user32" fn IsIconic(hwnd: HWND) callconv(.winapi) BOOL;
 pub extern "user32" fn GetCursorPos(lp_point: *POINT) callconv(.winapi) BOOL;
 pub extern "user32" fn ScreenToClient(hwnd: HWND, lp_point: *POINT) callconv(.winapi) BOOL;
@@ -198,7 +262,24 @@ pub extern "user32" fn DispatchMessageW(lp_msg: *const MSG) callconv(.winapi) LR
 pub extern "user32" fn PostQuitMessage(exit_code: INT) callconv(.winapi) void;
 pub extern "user32" fn UpdateWindow(hwnd: HWND) callconv(.winapi) BOOL;
 
+pub extern "gdi32" fn ChoosePixelFormat(hdc: HDC, ppfd: *const PIXELFORMATDESCRIPTOR) callconv(.winapi) INT;
+pub extern "gdi32" fn SetPixelFormat(hdc: HDC, format: INT, ppfd: *const PIXELFORMATDESCRIPTOR) callconv(.winapi) BOOL;
+pub extern "gdi32" fn SwapBuffers(hdc: HDC) callconv(.winapi) BOOL;
+
 pub extern "shell32" fn ShellExecuteW(hwnd: ?HWND, operation: LPCWSTR, file: LPCWSTR, parameters: ?LPCWSTR, directory: ?LPCWSTR, show_cmd: INT) callconv(.winapi) HINSTANCE;
+
+pub const MARGINS = extern struct {
+    cxLeftWidth: INT = 0,
+    cxRightWidth: INT = 0,
+    cyTopHeight: INT = 0,
+    cyBottomHeight: INT = 0,
+};
+pub extern "dwmapi" fn DwmExtendFrameIntoClientArea(hwnd: HWND, pMarInset: *const MARGINS) callconv(.winapi) LONG;
+
+pub extern "opengl32" fn wglCreateContext(hdc: HDC) callconv(.winapi) ?HGLRC;
+pub extern "opengl32" fn wglDeleteContext(hglrc: HGLRC) callconv(.winapi) BOOL;
+pub extern "opengl32" fn wglMakeCurrent(hdc: ?HDC, hglrc: ?HGLRC) callconv(.winapi) BOOL;
+pub extern "opengl32" fn wglGetProcAddress(lpszProc: [*:0]const u8) callconv(.winapi) ?*const anyopaque;
 
 pub extern "kernel32" fn CreateProcessW(
     lp_application_name: ?LPCWSTR,

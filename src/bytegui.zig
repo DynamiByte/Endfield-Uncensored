@@ -1,227 +1,107 @@
-// ByteGui - A minimal immediate mode GUI library for Endfield Uncensored, built on DirectX 11 and GDI+.
+// ByteGui - A minimal immediate mode GUI library for Endfield Uncensored, built on OpenGL.
 
 const builtin = @import("builtin");
 const std = @import("std");
+const w32 = @import("win32.zig");
+const bt = @import("bytetype.zig");
 
 // Platform Imports
-pub const c = @cImport({
-    @cDefine("WIN32_LEAN_AND_MEAN", {});
-    @cDefine("NOMINMAX", {});
-    @cDefine("CINTERFACE", {});
-    @cDefine("COBJMACROS", {});
-    @cInclude("windows.h");
-    @cInclude("d3d11.h");
-    @cInclude("d3dcompiler.h");
-    @cInclude("dxgi1_3.h");
-    @cInclude("gdiplus.h");
-});
+pub const c = @import("bytegui_c");
 
-// DirectComposition Definitions
-const dcomp = struct {
-    pub const IID_IDCompositionDevice: c.IID = .{
-        .Data1 = 0xC37EA93A,
-        .Data2 = 0xE7AA,
-        .Data3 = 0x450D,
-        .Data4 = .{ 0xB1, 0x6F, 0x97, 0x46, 0xCB, 0x04, 0x07, 0xF3 },
-    };
+const gl = struct {
+    pub const GLenum = c_uint;
+    pub const GLbitfield = c_uint;
+    pub const GLint = c_int;
+    pub const GLsizei = c_int;
+    pub const GLuint = c_uint;
+    pub const GLfloat = f32;
+    pub const GLclampf = f32;
+    pub const GLdouble = f64;
+    pub const GLboolean = u8;
 
-    pub const IID_IDCompositionDesktopDevice: c.IID = .{
-        .Data1 = 0x5F4633FE,
-        .Data2 = 0x1E08,
-        .Data3 = 0x4CB8,
-        .Data4 = .{ 0x8C, 0x75, 0xCE, 0x24, 0x33, 0x3F, 0x56, 0x02 },
-    };
+    pub const FALSE: GLboolean = 0;
+    pub const TRUE: GLboolean = 1;
 
-    pub const IID_IDCompositionVisual3: c.IID = .{
-        .Data1 = 0x2775F462,
-        .Data2 = 0xB6C1,
-        .Data3 = 0x4015,
-        .Data4 = .{ 0xB0, 0xBE, 0xB3, 0xE7, 0xD6, 0xA4, 0x97, 0x6D },
-    };
+    pub const COLOR_BUFFER_BIT: GLbitfield = 0x00004000;
 
-    pub const IDCompositionTarget = extern struct {
-        lpVtbl: *const IDCompositionTargetVtbl,
-    };
+    pub const UNSIGNED_BYTE: GLenum = 0x1401;
+    pub const UNSIGNED_INT: GLenum = 0x1405;
+    pub const FLOAT: GLenum = 0x1406;
 
-    pub const IDCompositionTargetVtbl = extern struct {
-        QueryInterface: ?*const fn (*IDCompositionTarget, *const c.IID, *?*anyopaque) callconv(.winapi) c.HRESULT,
-        AddRef: ?*const fn (*IDCompositionTarget) callconv(.winapi) c.ULONG,
-        Release: ?*const fn (*IDCompositionTarget) callconv(.winapi) c.ULONG,
-        SetRoot: ?*const fn (*IDCompositionTarget, ?*anyopaque) callconv(.winapi) c.HRESULT,
-    };
+    pub const TRIANGLES: GLenum = 0x0004;
 
-    pub const IDCompositionVisual = extern struct {
-        lpVtbl: *const IDCompositionVisualVtbl,
-    };
+    pub const TEXTURE_2D: GLenum = 0x0DE1;
+    pub const TEXTURE_WRAP_S: GLenum = 0x2802;
+    pub const TEXTURE_WRAP_T: GLenum = 0x2803;
+    pub const TEXTURE_MIN_FILTER: GLenum = 0x2801;
+    pub const TEXTURE_MAG_FILTER: GLenum = 0x2800;
+    pub const TEXTURE_ENV: GLenum = 0x2300;
+    pub const TEXTURE_ENV_MODE: GLenum = 0x2200;
+    pub const MODULATE: GLint = 0x2100;
+    pub const CLAMP_TO_EDGE: GLint = 0x812F;
+    pub const LINEAR: GLint = 0x2601;
+    pub const NEAREST: GLint = 0x2600;
+    pub const RGBA: GLenum = 0x1908;
 
-    pub const IDCompositionVisualVtbl = extern struct {
-        QueryInterface: ?*const fn (*IDCompositionVisual, *const c.IID, *?*anyopaque) callconv(.winapi) c.HRESULT,
-        AddRef: ?*const fn (*IDCompositionVisual) callconv(.winapi) c.ULONG,
-        Release: ?*const fn (*IDCompositionVisual) callconv(.winapi) c.ULONG,
-        SetOffsetXAnimation: ?*const anyopaque,
-        SetOffsetX: ?*const anyopaque,
-        SetOffsetYAnimation: ?*const anyopaque,
-        SetOffsetY: ?*const anyopaque,
-        SetTransformObject: ?*const anyopaque,
-        SetTransformMatrix: ?*const anyopaque,
-        SetTransformParent: ?*const anyopaque,
-        SetEffect: ?*const anyopaque,
-        SetBitmapInterpolationMode: ?*const anyopaque,
-        SetBorderMode: ?*const anyopaque,
-        SetClipObject: ?*const anyopaque,
-        SetClipRect: ?*const anyopaque,
-        SetContent: ?*const fn (*IDCompositionVisual, ?*anyopaque) callconv(.winapi) c.HRESULT,
-        AddVisual: ?*const anyopaque,
-        RemoveVisual: ?*const anyopaque,
-        RemoveAllVisuals: ?*const anyopaque,
-        SetCompositeMode: ?*const anyopaque,
-    };
+    pub const BLEND: GLenum = 0x0BE2;
+    pub const ONE: GLenum = 0x0001;
+    pub const SRC_ALPHA: GLenum = 0x0302;
+    pub const ONE_MINUS_SRC_ALPHA: GLenum = 0x0303;
+    pub const SCISSOR_TEST: GLenum = 0x0C11;
+    pub const CULL_FACE: GLenum = 0x0B44;
+    pub const DEPTH_TEST: GLenum = 0x0B71;
+    pub const LIGHTING: GLenum = 0x0B50;
+    pub const SMOOTH: GLenum = 0x1D01;
+    pub const UNPACK_ALIGNMENT: GLenum = 0x0CF5;
 
-    pub const IDCompositionVisual2 = extern struct {
-        lpVtbl: *const IDCompositionVisual2Vtbl,
-    };
+    pub const PROJECTION: GLenum = 0x1701;
+    pub const MODELVIEW: GLenum = 0x1700;
 
-    pub const IDCompositionVisual2Vtbl = extern struct {
-        QueryInterface: ?*const fn (*IDCompositionVisual2, *const c.IID, *?*anyopaque) callconv(.winapi) c.HRESULT,
-        AddRef: ?*const fn (*IDCompositionVisual2) callconv(.winapi) c.ULONG,
-        Release: ?*const fn (*IDCompositionVisual2) callconv(.winapi) c.ULONG,
-        SetOffsetXAnimation: ?*const anyopaque,
-        SetOffsetX: ?*const anyopaque,
-        SetOffsetYAnimation: ?*const anyopaque,
-        SetOffsetY: ?*const anyopaque,
-        SetTransformObject: ?*const anyopaque,
-        SetTransformMatrix: ?*const anyopaque,
-        SetTransformParent: ?*const anyopaque,
-        SetEffect: ?*const anyopaque,
-        SetBitmapInterpolationMode: ?*const anyopaque,
-        SetBorderMode: ?*const anyopaque,
-        SetClipObject: ?*const anyopaque,
-        SetClipRect: ?*const anyopaque,
-        SetContent: ?*const fn (*IDCompositionVisual2, ?*anyopaque) callconv(.winapi) c.HRESULT,
-        AddVisual: ?*const anyopaque,
-        RemoveVisual: ?*const anyopaque,
-        RemoveAllVisuals: ?*const anyopaque,
-        SetCompositeMode: ?*const anyopaque,
-        SetOpacityMode: ?*const anyopaque,
-        SetBackFaceVisibility: ?*const anyopaque,
-    };
+    pub const VERTEX_ARRAY: GLenum = 0x8074;
+    pub const COLOR_ARRAY: GLenum = 0x8076;
+    pub const TEXTURE_COORD_ARRAY: GLenum = 0x8078;
 
-    pub const IDCompositionVisual3 = extern struct {
-        lpVtbl: *const IDCompositionVisual3Vtbl,
-    };
+    pub extern "opengl32" fn glClearColor(red: GLclampf, green: GLclampf, blue: GLclampf, alpha: GLclampf) callconv(.winapi) void;
+    pub extern "opengl32" fn glClear(mask: GLbitfield) callconv(.winapi) void;
+    pub extern "opengl32" fn glEnable(cap: GLenum) callconv(.winapi) void;
+    pub extern "opengl32" fn glDisable(cap: GLenum) callconv(.winapi) void;
+    pub extern "opengl32" fn glBlendFunc(sfactor: GLenum, dfactor: GLenum) callconv(.winapi) void;
+    pub extern "opengl32" fn glViewport(x: GLint, y: GLint, width: GLsizei, height: GLsizei) callconv(.winapi) void;
+    pub extern "opengl32" fn glScissor(x: GLint, y: GLint, width: GLsizei, height: GLsizei) callconv(.winapi) void;
+    pub extern "opengl32" fn glShadeModel(mode: GLenum) callconv(.winapi) void;
+    pub extern "opengl32" fn glPixelStorei(pname: GLenum, param: GLint) callconv(.winapi) void;
 
-    pub const IDCompositionVisual3Vtbl = extern struct {
-        QueryInterface: ?*const fn (*IDCompositionVisual3, *const c.IID, *?*anyopaque) callconv(.winapi) c.HRESULT,
-        AddRef: ?*const fn (*IDCompositionVisual3) callconv(.winapi) c.ULONG,
-        Release: ?*const fn (*IDCompositionVisual3) callconv(.winapi) c.ULONG,
-        SetOffsetXAnimation: ?*const anyopaque,
-        SetOffsetX: ?*const anyopaque,
-        SetOffsetYAnimation: ?*const anyopaque,
-        SetOffsetY: ?*const anyopaque,
-        SetTransformObject2D: ?*const anyopaque,
-        SetTransformMatrix2D: ?*const anyopaque,
-        SetTransformParent: ?*const anyopaque,
-        SetEffect: ?*const anyopaque,
-        SetBitmapInterpolationMode: ?*const anyopaque,
-        SetBorderMode: ?*const anyopaque,
-        SetClipObject: ?*const anyopaque,
-        SetClipRect: ?*const anyopaque,
-        SetContent: ?*const anyopaque,
-        AddVisual: ?*const anyopaque,
-        RemoveVisual: ?*const anyopaque,
-        RemoveAllVisuals: ?*const anyopaque,
-        SetCompositeMode: ?*const anyopaque,
-        SetOpacityMode: ?*const anyopaque,
-        SetBackFaceVisibility: ?*const anyopaque,
-        EnableHeatMap: ?*const anyopaque,
-        DisableHeatMap: ?*const anyopaque,
-        EnableRedrawRegions: ?*const anyopaque,
-        DisableRedrawRegions: ?*const anyopaque,
-        SetDepthMode: ?*const anyopaque,
-        SetOffsetZAnimation: ?*const anyopaque,
-        SetOffsetZ: ?*const anyopaque,
-        SetOpacityAnimation: ?*const anyopaque,
-        SetOpacity: ?*const fn (*IDCompositionVisual3, f32) callconv(.winapi) c.HRESULT,
-        SetTransformObject3D: ?*const anyopaque,
-        SetTransformMatrix3D: ?*const anyopaque,
-        SetVisible: ?*const anyopaque,
-    };
+    pub extern "opengl32" fn glMatrixMode(mode: GLenum) callconv(.winapi) void;
+    pub extern "opengl32" fn glLoadIdentity() callconv(.winapi) void;
+    pub extern "opengl32" fn glOrtho(left: GLdouble, right: GLdouble, bottom: GLdouble, top: GLdouble, near_val: GLdouble, far_val: GLdouble) callconv(.winapi) void;
 
-    pub const IDCompositionDesktopDevice = extern struct {
-        lpVtbl: *const IDCompositionDesktopDeviceVtbl,
-    };
+    pub extern "opengl32" fn glTexEnvi(target: GLenum, pname: GLenum, param: GLint) callconv(.winapi) void;
+    pub extern "opengl32" fn glGenTextures(n: GLsizei, textures: [*]GLuint) callconv(.winapi) void;
+    pub extern "opengl32" fn glDeleteTextures(n: GLsizei, textures: [*]const GLuint) callconv(.winapi) void;
+    pub extern "opengl32" fn glBindTexture(target: GLenum, texture: GLuint) callconv(.winapi) void;
+    pub extern "opengl32" fn glTexParameteri(target: GLenum, pname: GLenum, param: GLint) callconv(.winapi) void;
+    pub extern "opengl32" fn glTexImage2D(
+        target: GLenum,
+        level: GLint,
+        internal_format: GLint,
+        width: GLsizei,
+        height: GLsizei,
+        border: GLint,
+        format: GLenum,
+        typ: GLenum,
+        pixels: ?*const anyopaque,
+    ) callconv(.winapi) void;
 
-    pub const IDCompositionDevice = extern struct {
-        lpVtbl: *const IDCompositionDeviceVtbl,
-    };
-
-    pub const IDCompositionDeviceVtbl = extern struct {
-        QueryInterface: ?*const fn (*IDCompositionDevice, *const c.IID, *?*anyopaque) callconv(.winapi) c.HRESULT,
-        AddRef: ?*const fn (*IDCompositionDevice) callconv(.winapi) c.ULONG,
-        Release: ?*const fn (*IDCompositionDevice) callconv(.winapi) c.ULONG,
-        Commit: ?*const fn (*IDCompositionDevice) callconv(.winapi) c.HRESULT,
-        WaitForCommitCompletion: ?*const anyopaque,
-        GetFrameStatistics: ?*const anyopaque,
-        CreateTargetForHwnd: ?*const fn (*IDCompositionDevice, c.HWND, c.BOOL, *?*IDCompositionTarget) callconv(.winapi) c.HRESULT,
-        CreateVisual: ?*const fn (*IDCompositionDevice, *?*IDCompositionVisual) callconv(.winapi) c.HRESULT,
-    };
-
-    pub const IDCompositionDesktopDeviceVtbl = extern struct {
-        QueryInterface: ?*const fn (*IDCompositionDesktopDevice, *const c.IID, *?*anyopaque) callconv(.winapi) c.HRESULT,
-        AddRef: ?*const fn (*IDCompositionDesktopDevice) callconv(.winapi) c.ULONG,
-        Release: ?*const fn (*IDCompositionDesktopDevice) callconv(.winapi) c.ULONG,
-        Commit: ?*const fn (*IDCompositionDesktopDevice) callconv(.winapi) c.HRESULT,
-        WaitForCommitCompletion: ?*const anyopaque,
-        GetFrameStatistics: ?*const anyopaque,
-        CreateVisual: ?*const fn (*IDCompositionDesktopDevice, *?*IDCompositionVisual2) callconv(.winapi) c.HRESULT,
-        CreateSurfaceFactory: ?*const anyopaque,
-        CreateSurface: ?*const anyopaque,
-        CreateVirtualSurface: ?*const anyopaque,
-        CreateTranslateTransform: ?*const anyopaque,
-        CreateScaleTransform: ?*const anyopaque,
-        CreateRotateTransform: ?*const anyopaque,
-        CreateSkewTransform: ?*const anyopaque,
-        CreateMatrixTransform: ?*const anyopaque,
-        CreateTransformGroup: ?*const anyopaque,
-        CreateTranslateTransform3D: ?*const anyopaque,
-        CreateScaleTransform3D: ?*const anyopaque,
-        CreateRotateTransform3D: ?*const anyopaque,
-        CreateMatrixTransform3D: ?*const anyopaque,
-        CreateTransform3DGroup: ?*const anyopaque,
-        CreateEffectGroup: ?*const anyopaque,
-        CreateRectangleClip: ?*const anyopaque,
-        CreateAnimation: ?*const anyopaque,
-        CreateTargetForHwnd: ?*const fn (*IDCompositionDesktopDevice, c.HWND, c.BOOL, *?*IDCompositionTarget) callconv(.winapi) c.HRESULT,
-        CreateSurfaceFromHandle: ?*const anyopaque,
-        CreateSurfaceFromHwnd: ?*const anyopaque,
-    };
-
-    extern "dcomp" fn DCompositionCreateDevice(dxgi_device: ?*c.IDXGIDevice, iid: *const c.IID, dcomposition_device: *?*anyopaque) callconv(.winapi) c.HRESULT;
-    extern "dcomp" fn DCompositionCreateDevice3(rendering_device: ?*anyopaque, iid: *const c.IID, dcomposition_device: *?*anyopaque) callconv(.winapi) c.HRESULT;
+    pub extern "opengl32" fn glEnableClientState(array: GLenum) callconv(.winapi) void;
+    pub extern "opengl32" fn glDisableClientState(array: GLenum) callconv(.winapi) void;
+    pub extern "opengl32" fn glVertexPointer(size: GLint, typ: GLenum, stride: GLsizei, pointer: ?*const anyopaque) callconv(.winapi) void;
+    pub extern "opengl32" fn glTexCoordPointer(size: GLint, typ: GLenum, stride: GLsizei, pointer: ?*const anyopaque) callconv(.winapi) void;
+    pub extern "opengl32" fn glColorPointer(size: GLint, typ: GLenum, stride: GLsizei, pointer: ?*const anyopaque) callconv(.winapi) void;
+    pub extern "opengl32" fn glDrawElements(mode: GLenum, count: GLsizei, typ: GLenum, indices: ?*const anyopaque) callconv(.winapi) void;
 };
 
-const dxids = struct {
-    pub const IID_ID3D11Texture2D: c.IID = .{
-        .Data1 = 0x6F15AAF2,
-        .Data2 = 0xD208,
-        .Data3 = 0x4E89,
-        .Data4 = .{ 0x9A, 0xB4, 0x48, 0x95, 0x35, 0xD3, 0x4F, 0x9C },
-    };
-
-    pub const IID_IDXGIDevice: c.IID = .{
-        .Data1 = 0x54EC77FA,
-        .Data2 = 0x1377,
-        .Data3 = 0x44E6,
-        .Data4 = .{ 0x8C, 0x32, 0x88, 0xFD, 0x5F, 0x44, 0xC8, 0x4C },
-    };
-
-    pub const IID_IDXGIFactory2: c.IID = .{
-        .Data1 = 0x50C83A1C,
-        .Data2 = 0xE072,
-        .Data3 = 0x4C48,
-        .Data4 = .{ 0x87, 0xB0, 0x36, 0x30, 0xFA, 0x36, 0xA6, 0xD0 },
-    };
-};
+const GlBlendFuncSeparateFn = *const fn (gl.GLenum, gl.GLenum, gl.GLenum, gl.GLenum) callconv(.winapi) void;
+var g_glBlendFuncSeparate: ?GlBlendFuncSeparateFn = null;
 
 const allocator = std.heap.c_allocator;
 pub const BYTEGUI_VERSION = "efu-mini";
@@ -235,8 +115,6 @@ pub const ByteTextureID = ?*anyopaque;
 pub const BYTEGUI_COL32_A_MASK: ByteU32 = 0xFF000000;
 
 const kPi: f32 = 3.14159265358979323846;
-const kTextSupersample: f32 = 2.0;
-const kTextSupersampleI: i32 = 2;
 const default_class_name = std.unicode.utf8ToUtf16LeStringLiteral("ByteGuiPlatformWindow");
 const default_title = std.unicode.utf8ToUtf16LeStringLiteral("ByteGui");
 const idc_arrow_id: u16 = 32512;
@@ -245,6 +123,13 @@ const load_image_shared: c.UINT = 0x8000;
 const wm_seticon: c.UINT = 0x0080;
 const icon_small_slot: c.WPARAM = 0;
 const icon_big_slot: c.WPARAM = 1;
+
+fn setByteGuiTrace(_: []const u8) void {}
+
+fn setByteGuiTraceFmt(comptime fmt: []const u8, args: anytype) void {
+    _ = fmt;
+    _ = args;
+}
 
 extern "user32" fn LoadCursorW(h_instance: c.HINSTANCE, cursor_name: ?*anyopaque) callconv(.winapi) c.HCURSOR;
 extern "user32" fn LoadImageW(h_instance: c.HINSTANCE, name: ?*anyopaque, image_type: c.UINT, width: c.INT, height: c.INT, flags: c.UINT) callconv(.winapi) ?*anyopaque;
@@ -255,8 +140,9 @@ fn loadCursorResource(id: u16) c.HCURSOR {
 }
 
 fn loadIconResource(instance: c.HINSTANCE, id: u16, width: c.INT, height: c.INT) c.HICON {
+    @setRuntimeSafety(false);
     const handle = LoadImageW(instance, @ptrFromInt(@as(usize, id)), image_icon_type, width, height, load_image_shared) orelse return null;
-    return @ptrCast(@alignCast(handle));
+    return @ptrFromInt(@intFromPtr(handle));
 }
 
 fn iconHandleToLParam(icon: c.HICON) c.LPARAM {
@@ -399,12 +285,13 @@ pub const ByteGuiStyle = struct {
 
 pub const ByteFont = struct {
     LegacySize: f32 = 0.0,
-    FamilyName: []u8 = &.{},
     FilePath: []u8 = &.{},
     FontStyle: i32 = FontStyleRegular,
-    FontCollection: ?*c.GpFontCollection = null,
-    FamilyNameWide: ?[:0]u16 = null,
     PixelSnapH: bool = false,
+    OversampleH: u32 = 1,
+    OversampleV: u32 = 1,
+    FontData: []u8 = &.{},
+    ByteTypeFace: bt.FontFace = .{},
 
     pub fn CalcTextSizeA(
         self: *const ByteFont,
@@ -417,17 +304,13 @@ pub const ByteFont = struct {
         const slice = sliceFromOptionalEnd(text_begin, text_end);
         const effective_max_width = if (max_width > 0.0 and max_width < std.math.floatMax(f32)) max_width else 0.0;
         const effective_wrap = if (wrap_width > 0.0) wrap_width else effective_max_width;
-        return measureTextWithGdiPlus(self, size, slice, effective_wrap);
+        return measureTextWithRasterizer(self, size, slice, effective_wrap);
     }
 
     fn deinit(self: *ByteFont) void {
-        if (self.FontCollection) |collection| {
-            var private_collection: ?*c.GpFontCollection = collection;
-            _ = c.GdipDeletePrivateFontCollection(@ptrCast(&private_collection));
-        }
-        if (self.FamilyNameWide) |family_name_wide| allocator.free(family_name_wide);
-        if (self.FamilyName.len > 0) allocator.free(self.FamilyName);
+        self.ByteTypeFace.deinit();
         if (self.FilePath.len > 0) allocator.free(self.FilePath);
+        if (self.FontData.len > 0) allocator.free(self.FontData);
         self.* = undefined;
     }
 };
@@ -439,6 +322,11 @@ pub const ByteFontAtlas = struct {
     pub fn AddFontFromFileTTF(self: *ByteFontAtlas, filename: []const u8, size_pixels: f32, font_cfg: ?*const ByteFontConfig) ?*ByteFont {
         if (filename.len == 0 or size_pixels <= 0.0) return null;
         return addFontFromFile(self, filename, size_pixels, font_cfg);
+    }
+
+    pub fn AddFontFromMemoryTTF(self: *ByteFontAtlas, font_data: []const u8, debug_name: []const u8, size_pixels: f32, font_cfg: ?*const ByteFontConfig) ?*ByteFont {
+        if (font_data.len == 0 or size_pixels <= 0.0) return null;
+        return addFontFromMemory(self, font_data, debug_name, size_pixels, font_cfg);
     }
 
     pub fn AddFontDefault(self: *ByteFontAtlas) ?*ByteFont {
@@ -662,9 +550,10 @@ pub const ByteDrawList = struct {
 
         const slice = sliceFromOptionalEnd(text_begin, text_end);
         const entry = getOrCreateTextTexture(font, font_size, 0.0, slice) orelse return;
-        const texture = entry.Texture orelse return;
+        const texture = entry.Texture;
+        if (texture == null) return;
         const snapped_pos = ByteVec2{ .x = @floor(pos.x + 0.5), .y = @floor(pos.y + 0.5) };
-        self.AddImage(@ptrCast(texture), snapped_pos, .{ .x = snapped_pos.x + entry.DisplaySize.x, .y = snapped_pos.y + entry.DisplaySize.y }, .{}, .{ .x = 1.0, .y = 1.0 }, col);
+        self.AddImage(texture, snapped_pos, .{ .x = snapped_pos.x + entry.DisplaySize.x, .y = snapped_pos.y + entry.DisplaySize.y }, entry.UvMin, entry.UvMax, col);
     }
 
     pub fn AddImage(self: *ByteDrawList, user_texture_id: ByteTextureID, p_min: ByteVec2, p_max: ByteVec2, uv_min: ByteVec2, uv_max: ByteVec2, col: ByteU32) void {
@@ -729,7 +618,7 @@ pub const ByteGuiPlatformWindowConfig = struct {
     LogicalWidth: i32 = 0,
     LogicalHeight: i32 = 0,
     Style: c.DWORD = c.WS_POPUP,
-    ExStyle: c.DWORD = c.WS_EX_APPWINDOW | c.WS_EX_NOREDIRECTIONBITMAP,
+    ExStyle: c.DWORD = c.WS_EX_APPWINDOW,
     CenterOnPrimaryMonitor: bool = true,
 };
 
@@ -738,11 +627,13 @@ const TextCacheEntry = struct {
     PixelSize100: i32,
     WrapWidth100: i32,
     Text: []u8,
-    Texture: ?*c.ID3D11ShaderResourceView = null,
+    Texture: ByteTextureID = null,
     DisplaySize: ByteVec2 = .{},
+    UvMin: ByteVec2 = .{},
+    UvMax: ByteVec2 = .{ .x = 1.0, .y = 1.0 },
 
     fn deinit(self: *TextCacheEntry) void {
-        releaseShaderResourceView(self.Texture);
+        releaseTexture(self.Texture);
         allocator.free(self.Text);
         self.* = undefined;
     }
@@ -805,32 +696,11 @@ const MiniWin32BackendData = struct {
     TicksPerSecond: i64 = 0,
 };
 
-const MiniDx11BackendData = struct {
-    Device: ?*c.ID3D11Device = null,
-    Context: ?*c.ID3D11DeviceContext = null,
-    SwapChain: ?*c.IDXGISwapChain1 = null,
-    MainRTV: ?*c.ID3D11RenderTargetView = null,
-    DcompDevice: ?*dcomp.IDCompositionDesktopDevice = null,
-    DcompTarget: ?*dcomp.IDCompositionTarget = null,
-    DcompVisual: ?*dcomp.IDCompositionVisual2 = null,
-    DcompVisual3: ?*dcomp.IDCompositionVisual3 = null,
-    VertexBuffer: ?*c.ID3D11Buffer = null,
-    IndexBuffer: ?*c.ID3D11Buffer = null,
-    VertexShader: ?*c.ID3D11VertexShader = null,
-    InputLayout: ?*c.ID3D11InputLayout = null,
-    VertexConstantBuffer: ?*c.ID3D11Buffer = null,
-    PixelShader: ?*c.ID3D11PixelShader = null,
-    LinearSampler: ?*c.ID3D11SamplerState = null,
-    RasterizerState: ?*c.ID3D11RasterizerState = null,
-    BlendState: ?*c.ID3D11BlendState = null,
-    DepthStencilState: ?*c.ID3D11DepthStencilState = null,
-    WhiteTextureView: ?*c.ID3D11ShaderResourceView = null,
-    VertexBufferSize: i32 = 5000,
-    IndexBufferSize: i32 = 10000,
-};
-
-const VertexConstantBufferDx11 = extern struct {
-    mvp: [4][4]f32 = std.mem.zeroes([4][4]f32),
+const MiniOpenGLBackendData = struct {
+    WindowHwnd: ?w32.HWND = null,
+    WindowDc: ?w32.HDC = null,
+    RenderContext: ?w32.HGLRC = null,
+    WhiteTexture: ByteTextureID = null,
 };
 
 const HostWindowData = struct {
@@ -846,28 +716,11 @@ const HostWindowData = struct {
 };
 
 var GByteGui: ?*ByteGuiContext = null;
-var GByteGuiGdiPlusToken: c.ULONG_PTR = 0;
 var GHostWindow: HostWindowData = .{};
-
-fn ensureByteGuiGdiPlus() bool {
-    if (GByteGuiGdiPlusToken != 0) return true;
-
-    var startup_input = std.mem.zeroes(c.GdiplusStartupInput);
-    startup_input.GdiplusVersion = 1;
-    return c.GdiplusStartup(&GByteGuiGdiPlusToken, &startup_input, null) == c.Ok;
-}
-
-fn shutdownByteGuiGdiPlus() void {
-    if (GByteGuiGdiPlusToken != 0) {
-        c.GdiplusShutdown(GByteGuiGdiPlusToken);
-        GByteGuiGdiPlusToken = 0;
-    }
-}
 
 pub const ByteGui = struct {
     pub fn CreateContext() ?*ByteGuiContext {
         DestroyContext(null);
-        if (!ensureByteGuiGdiPlus()) return null;
         const ctx = allocator.create(ByteGuiContext) catch return null;
         ctx.init();
         GByteGui = ctx;
@@ -882,10 +735,8 @@ pub const ByteGui = struct {
         if (actual == GByteGui) clearTextCache();
         actual.?.deinit();
         allocator.destroy(actual.?);
-        if (actual == GByteGui) {
-            GByteGui = null;
-            shutdownByteGuiGdiPlus();
-        }
+        if (actual == GByteGui) GByteGui = null;
+        if (GByteGui == null) bt.shutdown();
     }
 
     pub fn GetCurrentContext() ?*ByteGuiContext {
@@ -1048,13 +899,14 @@ pub const ByteGui = struct {
 
         const wrap_width = @max(0.0, ctx.CurrentClipRect.z - ctx.CursorScreenPos.x);
         const entry = getOrCreateTextTexture(active_font, active_font.LegacySize, wrap_width, text) orelse return;
-        const texture = entry.Texture orelse return;
+        const texture = entry.Texture;
+        if (texture == null) return;
 
         var color = ctx.Style.Colors[ByteGuiCol_Text];
         color.w *= ctx.Style.Alpha;
         const col_u32 = ColorConvertFloat4ToU32(color);
         const pos = ByteVec2{ .x = @floor(ctx.CursorScreenPos.x + 0.5), .y = @floor(ctx.CursorScreenPos.y + 0.5) };
-        ctx.DrawList.AddImage(@ptrCast(texture), pos, .{ .x = pos.x + entry.DisplaySize.x, .y = pos.y + entry.DisplaySize.y }, .{}, .{ .x = 1.0, .y = 1.0 }, col_u32);
+        ctx.DrawList.AddImage(texture, pos, .{ .x = pos.x + entry.DisplaySize.x, .y = pos.y + entry.DisplaySize.y }, entry.UvMin, entry.UvMax, col_u32);
         ctx.CursorScreenPos.y += entry.DisplaySize.y;
     }
 
@@ -1068,7 +920,7 @@ pub const ByteGui = struct {
         const active_font = font orelse return makeHitRectFromBounds(pos.x - padding, pos.y - padding, pos.x + padding, pos.y + padding);
         const slice = sliceFromOptionalEnd(text, text_end);
         const size = CalcTextSize(active_font, font_size, slice, null, wrap_width);
-        const inset = textRenderInsetPx(font_size);
+        const inset = textRenderInsetPx(active_font, font_size);
         return makeHitRectFromBounds(pos.x + inset - padding, pos.y + inset - padding, pos.x + inset + size.x + padding, pos.y + inset + size.y + padding);
     }
 
@@ -1413,21 +1265,39 @@ pub const ByteGui = struct {
 
 // UI Helper Layer
 // These helpers keep application-facing window code focused on state and flow,
-// while ByteGui owns the reusable math, drawing, and GDI texture work.
+// while ByteGui owns the reusable math, drawing, and OpenGL texture work.
 pub const Ui = struct {
     pub const TextTexture = struct {
-        texture: ?*c.ID3D11ShaderResourceView = null,
+        texture: ByteTextureID = null,
         display_size_px: ByteVec2 = .{},
+        uv_min: ByteVec2 = .{},
+        uv_max: ByteVec2 = .{ .x = 1.0, .y = 1.0 },
     };
 
-    pub fn CleanupTexture(texture: *?*c.ID3D11ShaderResourceView) void {
-        releaseShaderResourceView(texture.*);
+    pub const RasterizedTexture = struct {
+        rgba: []u8 = &[_]u8{},
+        pixel_w: u32 = 0,
+        pixel_h: u32 = 0,
+        display_size_px: ByteVec2 = .{},
+        uv_min: ByteVec2 = .{},
+        uv_max: ByteVec2 = .{ .x = 1.0, .y = 1.0 },
+    };
+
+    pub fn CleanupTexture(texture: *ByteTextureID) void {
+        releaseTexture(texture.*);
         texture.* = null;
     }
 
     pub fn CleanupTextTexture(texture: *TextTexture) void {
         CleanupTexture(&texture.texture);
         texture.display_size_px = .{};
+        texture.uv_min = .{};
+        texture.uv_max = .{ .x = 1.0, .y = 1.0 };
+    }
+
+    pub fn CleanupRasterizedTexture(texture: *RasterizedTexture) void {
+        if (texture.rgba.len > 0) allocator.free(texture.rgba);
+        texture.* = .{};
     }
 
     pub fn Clamp01(v: f32) f32 {
@@ -1586,186 +1456,153 @@ pub const Ui = struct {
             @ptrCast(texture.texture),
             image_pos,
             .{ .x = image_pos.x + image_size.x, .y = image_pos.y + image_size.y },
-            .{},
-            .{ .x = 1.0, .y = 1.0 },
+            texture.uv_min,
+            texture.uv_max,
             ColorToU32(ApplyOpacity(.{ .x = 1.0, .y = 1.0, .z = 1.0, .w = 1.0 }, opacity)),
         );
         return true;
     }
 
-    pub fn BuildTextTexture(out_texture: *TextTexture, text: [*:0]const u16, family_name: [*:0]const u16, font_style: i32, logical_font_size: f32, supersample: f32, pad_scale: f32, layout_scale: f32) bool {
+    pub fn BuildTextTexture(out_texture: *TextTexture, font: ?*ByteFont, logical_font_size: f32, text: []const u8, supersample: f32, pad_scale: f32, layout_scale: f32) bool {
         CleanupTextTexture(out_texture);
-        if (ByteGui_ImplDX11_GetDevice() == null or !ensureByteGuiGdiPlus()) return false;
-
-        var family: ?*c.GpFontFamily = null;
-        if (!gdipOk(c.GdipCreateFontFamilyFromName(family_name, null, &family)) or family == null) return false;
-        defer _ = c.GdipDeleteFontFamily(family);
-
-        const ss: i32 = @intFromFloat(supersample);
-        const raster_scale = ByteGui_ImplWin32_GetDpiScale() * supersample;
-        const raster_font_size = logical_font_size * raster_scale;
-
-        var font: ?*c.GpFont = null;
-        if (!gdipOk(c.GdipCreateFont(family, raster_font_size, font_style, c.UnitPixel, &font)) or font == null) return false;
-        defer _ = c.GdipDeleteFont(font);
-
-        var format: ?*c.GpStringFormat = null;
-        if (!gdipOk(c.GdipCreateStringFormat(0, 0, &format)) or format == null) return false;
-        defer _ = c.GdipDeleteStringFormat(format);
-        _ = c.GdipSetStringFormatFlags(format, c.StringFormatFlagsNoClip | c.StringFormatFlagsNoFitBlackBox);
-        _ = c.GdipSetStringFormatAlign(format, c.StringAlignmentNear);
-        _ = c.GdipSetStringFormatLineAlign(format, c.StringAlignmentNear);
-
-        const measure_bitmap = createGdipBitmap(1, 1) orelse return false;
-        defer _ = c.GdipDisposeImage(@ptrCast(measure_bitmap));
-        const measure_graphics = createGdipGraphicsForImage(@ptrCast(measure_bitmap)) orelse return false;
-        defer _ = c.GdipDeleteGraphics(measure_graphics);
-        _ = c.GdipSetTextRenderingHint(measure_graphics, c.TextRenderingHintAntiAliasGridFit);
-
-        var measure_bounds = std.mem.zeroes(c.RectF);
-        var layout_rect = c.RectF{ .X = 0.0, .Y = 0.0, .Width = 4096.0, .Height = 4096.0 };
-        if (!gdipOk(c.GdipMeasureString(measure_graphics, text, -1, font, &layout_rect, format, &measure_bounds, null, null))) return false;
-        if (measure_bounds.Width <= 0.0 or measure_bounds.Height <= 0.0) return false;
-
-        const pad_px = alignUpInt(@max(2, @as(i32, @intFromFloat(@ceil(raster_scale * pad_scale)))), ss);
-        const pixel_w: u32 = @intCast(alignUpInt(@max(1, @as(i32, @intFromFloat(@ceil(measure_bounds.Width))) + pad_px * 2), ss));
-        const pixel_h: u32 = @intCast(alignUpInt(@max(1, @as(i32, @intFromFloat(@ceil(measure_bounds.Height))) + pad_px * 2), ss));
-
-        const bitmap = createGdipBitmap(@intCast(pixel_w), @intCast(pixel_h)) orelse return false;
-        defer _ = c.GdipDisposeImage(@ptrCast(bitmap));
-        const graphics = createGdipGraphicsForImage(@ptrCast(bitmap)) orelse return false;
-        defer _ = c.GdipDeleteGraphics(graphics);
-
-        _ = c.GdipSetSmoothingMode(graphics, c.SmoothingModeHighQuality);
-        _ = c.GdipSetPixelOffsetMode(graphics, c.PixelOffsetModeHighQuality);
-        _ = c.GdipSetInterpolationMode(graphics, c.InterpolationModeHighQualityBicubic);
-        _ = c.GdipSetCompositingQuality(graphics, c.CompositingQualityHighQuality);
-        _ = c.GdipSetTextRenderingHint(graphics, c.TextRenderingHintAntiAliasGridFit);
-        _ = c.GdipGraphicsClear(graphics, 0);
-
-        var brush: ?*c.GpSolidFill = null;
-        if (!gdipOk(c.GdipCreateSolidFill(0xFF000000, &brush)) or brush == null) return false;
-        defer _ = c.GdipDeleteBrush(@ptrCast(brush));
-
-        var draw_rect = c.RectF{
-            .X = @as(f32, @floatFromInt(pad_px)) - measure_bounds.X,
-            .Y = @as(f32, @floatFromInt(pad_px)) - measure_bounds.Y,
-            .Width = 4096.0,
-            .Height = 4096.0,
-        };
-        if (!gdipOk(c.GdipDrawString(graphics, text, -1, font, &draw_rect, format, @ptrCast(brush)))) return false;
-
-        out_texture.texture = createTextureFromGdipBitmap(bitmap) orelse return false;
-        out_texture.display_size_px = .{
-            .x = (@as(f32, @floatFromInt(pixel_w)) / supersample) * layout_scale,
-            .y = (@as(f32, @floatFromInt(pixel_h)) / supersample) * layout_scale,
-        };
+        const active_font = font orelse return false;
+        const built = buildTextTextureFromFont(active_font, logical_font_size * ByteGui_ImplWin32_GetDpiScale(), text, supersample, pad_scale, 0.0, layout_scale, 0, .linear) orelse return false;
+        out_texture.texture = built.texture;
+        out_texture.display_size_px = built.content_size_px;
+        out_texture.uv_min = built.uv_min;
+        out_texture.uv_max = built.uv_max;
         return true;
     }
 
+    pub const SvgTransform = struct {
+        a: f32 = 1.0,
+        b: f32 = 0.0,
+        c: f32 = 0.0,
+        d: f32 = 1.0,
+        e: f32 = 0.0,
+        f: f32 = 0.0,
+    };
+
+    pub const SvgPathLayer = struct {
+        path: []const u8,
+        transform: SvgTransform = .{},
+    };
+
+    pub const SvgDisplayMode = enum {
+        canvas,
+        tight_content,
+    };
+
     pub const SvgTextureBuildParams = struct {
-        svg_path: []const u8,
+        paths: []const SvgPathLayer,
         canvas_pos: ByteVec2,
         canvas_size: ByteVec2,
         supersample: f32,
-        fill_argb: c.ARGB,
-        text: [*:0]const u16,
-        text_family: [*:0]const u16,
-        text_style: i32,
-        text_em_size: f32,
-        logo_scale: ByteVec2,
-        logo_translate: ByteVec2,
-        text_scale: ByteVec2,
-        text_translate: ByteVec2,
+        sample_grid: u32 = 5,
+        fill_argb: ByteU32 = 0xFF000000,
+        display_mode: SvgDisplayMode = .canvas,
     };
 
-    pub fn BuildSvgTexture(out_texture: *?*c.ID3D11ShaderResourceView, out_origin: *ByteVec2, out_size: *ByteVec2, params: SvgTextureBuildParams) bool {
-        CleanupTexture(out_texture);
-        out_origin.* = .{};
-        out_size.* = .{};
-        if (ByteGui_ImplDX11_GetDevice() == null or !ensureByteGuiGdiPlus()) return false;
-
-        const logo_path = createGdipPath() orelse return false;
-        defer _ = c.GdipDeletePath(logo_path);
-        gdiSvgParsePath(params.svg_path, logo_path);
-
-        const logo_matrix = createGdipMatrix() orelse return false;
-        defer _ = c.GdipDeleteMatrix(logo_matrix);
-        _ = c.GdipScaleMatrix(logo_matrix, params.logo_scale.x, params.logo_scale.y, c.MatrixOrderPrepend);
-        _ = c.GdipTranslateMatrix(logo_matrix, params.logo_translate.x, params.logo_translate.y, c.MatrixOrderPrepend);
-        _ = c.GdipTransformPath(logo_path, logo_matrix);
-
-        const text_path = createGdipPath() orelse return false;
-        defer _ = c.GdipDeletePath(text_path);
-
-        var font_family: ?*c.GpFontFamily = null;
-        if (!gdipOk(c.GdipCreateFontFamilyFromName(params.text_family, null, &font_family)) or font_family == null) return false;
-        defer _ = c.GdipDeleteFontFamily(font_family);
-
-        var text_rect = c.RectF{ .X = 0.0, .Y = 0.0, .Width = 4096.0, .Height = 4096.0 };
-        if (!gdipOk(c.GdipAddPathString(text_path, params.text, -1, font_family, params.text_style, params.text_em_size, &text_rect, null))) return false;
-
-        const text_matrix = createGdipMatrix() orelse return false;
-        defer _ = c.GdipDeleteMatrix(text_matrix);
-        _ = c.GdipScaleMatrix(text_matrix, params.text_scale.x, params.text_scale.y, c.MatrixOrderPrepend);
-        _ = c.GdipTranslateMatrix(text_matrix, params.text_translate.x, params.text_translate.y, c.MatrixOrderPrepend);
-        _ = c.GdipTransformPath(text_path, text_matrix);
-
-        const pixel_path = createGdipPath() orelse return false;
-        defer _ = c.GdipDeletePath(pixel_path);
-        _ = c.GdipAddPathPath(pixel_path, logo_path, c.FALSE);
-        _ = c.GdipAddPathPath(pixel_path, text_path, c.FALSE);
-
-        const ss: i32 = @intFromFloat(params.supersample);
+    fn rasterizeSvgTextureImage(params: SvgTextureBuildParams) ?RasterizedTexture {
+        if (params.paths.len == 0) return null;
+        const ss = @max(1, @as(i32, @intFromFloat(@round(params.supersample))));
         const raster_scale = ByteGui_ImplWin32_GetDpiScale() * params.supersample;
-
-        const dpi_matrix = createGdipMatrix() orelse return false;
-        defer _ = c.GdipDeleteMatrix(dpi_matrix);
-        _ = c.GdipScaleMatrix(dpi_matrix, raster_scale, raster_scale, c.MatrixOrderPrepend);
-        _ = c.GdipTransformPath(pixel_path, dpi_matrix);
-
         const pad_px = alignUpInt(@max(2, @as(i32, @intFromFloat(@ceil(raster_scale * 2.0)))), ss);
         const pixel_w: u32 = @intCast(alignUpInt(@max(1, @as(i32, @intFromFloat(@ceil(params.canvas_size.x * raster_scale))) + pad_px * 2), ss));
         const pixel_h: u32 = @intCast(alignUpInt(@max(1, @as(i32, @intFromFloat(@ceil(params.canvas_size.y * raster_scale))) + pad_px * 2), ss));
 
-        const shift_matrix = createGdipMatrix() orelse return false;
-        defer _ = c.GdipDeleteMatrix(shift_matrix);
-        _ = c.GdipTranslateMatrix(
-            shift_matrix,
-            @as(f32, @floatFromInt(pad_px)) - params.canvas_pos.x * raster_scale,
-            @as(f32, @floatFromInt(pad_px)) - params.canvas_pos.y * raster_scale,
-            c.MatrixOrderPrepend,
-        );
-        _ = c.GdipTransformPath(pixel_path, shift_matrix);
+        const rgba = allocator.alloc(u8, @as(usize, pixel_w) * @as(usize, pixel_h) * 4) catch return null;
+        @memset(rgba, 0);
 
-        const bitmap = createGdipBitmap(@intCast(pixel_w), @intCast(pixel_h)) orelse return false;
-        defer _ = c.GdipDisposeImage(@ptrCast(bitmap));
-        const graphics = createGdipGraphicsForImage(@ptrCast(bitmap)) orelse return false;
-        defer _ = c.GdipDeleteGraphics(graphics);
+        for (params.paths) |layer| {
+            var shape = VectorShape{};
+            defer shape.deinit();
+            if (!parseSvgPathToShape(layer.path, &shape)) {
+                allocator.free(rgba);
+                return null;
+            }
 
-        _ = c.GdipSetSmoothingMode(graphics, c.SmoothingModeHighQuality);
-        _ = c.GdipSetPixelOffsetMode(graphics, c.PixelOffsetModeHighQuality);
-        _ = c.GdipSetInterpolationMode(graphics, c.InterpolationModeHighQualityBicubic);
-        _ = c.GdipSetCompositingQuality(graphics, c.CompositingQualityHighQuality);
-        _ = c.GdipGraphicsClear(graphics, gdiArgb(0, 0, 0, 0));
+            transformVectorShapeInPlace(&shape, .{
+                .a = layer.transform.a * raster_scale,
+                .b = layer.transform.b * raster_scale,
+                .c = layer.transform.c * raster_scale,
+                .d = layer.transform.d * raster_scale,
+                .e = layer.transform.e * raster_scale + @as(f32, @floatFromInt(pad_px)) - params.canvas_pos.x * raster_scale,
+                .f = layer.transform.f * raster_scale + @as(f32, @floatFromInt(pad_px)) - params.canvas_pos.y * raster_scale,
+            });
 
-        var brush: ?*c.GpSolidFill = null;
-        if (!gdipOk(c.GdipCreateSolidFill(params.fill_argb, &brush)) or brush == null) return false;
-        defer _ = c.GdipDeleteBrush(@ptrCast(brush));
+            const layer_rgba = rasterizeVectorShapeToRgba(&shape, pixel_w, pixel_h, params.fill_argb, @max(params.sample_grid, 1)) orelse {
+                allocator.free(rgba);
+                return null;
+            };
+            defer allocator.free(layer_rgba);
+            blendScaledRgbaIntoRgba(rgba, pixel_w, pixel_h, layer_rgba, pixel_w, pixel_h, .{}, .{ .x = 1.0, .y = 1.0 });
+        }
 
-        if (!gdipOk(c.GdipFillPath(graphics, @ptrCast(brush), pixel_path))) return false;
+        const canvas_min_x = @as(f32, @floatFromInt(pad_px));
+        const canvas_min_y = @as(f32, @floatFromInt(pad_px));
+        const canvas_max_x = canvas_min_x + params.canvas_size.x * raster_scale;
+        const canvas_max_y = canvas_min_y + params.canvas_size.y * raster_scale;
 
-        out_texture.* = createTextureFromGdipBitmap(bitmap) orelse return false;
-        const display_pad_px = @as(f32, @floatFromInt(pad_px)) / params.supersample;
-        out_origin.* = SnapPixelVec2(.{
-            .x = ScaleF(params.canvas_pos.x) - display_pad_px,
-            .y = ScaleF(params.canvas_pos.y) - display_pad_px,
-        });
-        out_size.* = .{
-            .x = @as(f32, @floatFromInt(pixel_w)) / params.supersample,
-            .y = @as(f32, @floatFromInt(pixel_h)) / params.supersample,
+        var result = RasterizedTexture{
+            .rgba = rgba,
+            .pixel_w = pixel_w,
+            .pixel_h = pixel_h,
+            .display_size_px = ScaleVec2(params.canvas_size.x, params.canvas_size.y),
+            .uv_min = .{
+                .x = std.math.clamp(canvas_min_x / @as(f32, @floatFromInt(pixel_w)), 0.0, 1.0),
+                .y = std.math.clamp(canvas_min_y / @as(f32, @floatFromInt(pixel_h)), 0.0, 1.0),
+            },
+            .uv_max = .{
+                .x = std.math.clamp(canvas_max_x / @as(f32, @floatFromInt(pixel_w)), 0.0, 1.0),
+                .y = std.math.clamp(canvas_max_y / @as(f32, @floatFromInt(pixel_h)), 0.0, 1.0),
+            },
         };
+
+        if (params.display_mode == .tight_content) {
+            if (computeRgbaAlphaBounds(rgba, pixel_w, pixel_h)) |bounds| {
+                const min_x = std.math.clamp(@as(f32, @floatFromInt(bounds.min_x)), 0.0, @as(f32, @floatFromInt(pixel_w)));
+                const min_y = std.math.clamp(@as(f32, @floatFromInt(bounds.min_y)), 0.0, @as(f32, @floatFromInt(pixel_h)));
+                const max_x = std.math.clamp(@as(f32, @floatFromInt(bounds.max_x)), min_x, @as(f32, @floatFromInt(pixel_w)));
+                const max_y = std.math.clamp(@as(f32, @floatFromInt(bounds.max_y)), min_y, @as(f32, @floatFromInt(pixel_h)));
+                if (max_x > min_x and max_y > min_y) {
+                    result.display_size_px = .{
+                        .x = (max_x - min_x) / params.supersample,
+                        .y = (max_y - min_y) / params.supersample,
+                    };
+                    result.uv_min = .{
+                        .x = min_x / @as(f32, @floatFromInt(pixel_w)),
+                        .y = min_y / @as(f32, @floatFromInt(pixel_h)),
+                    };
+                    result.uv_max = .{
+                        .x = max_x / @as(f32, @floatFromInt(pixel_w)),
+                        .y = max_y / @as(f32, @floatFromInt(pixel_h)),
+                    };
+                }
+            }
+        }
+        return result;
+    }
+
+    pub fn RasterizeSvgTexture(params: SvgTextureBuildParams) ?RasterizedTexture {
+        return rasterizeSvgTextureImage(params);
+    }
+
+    pub fn UploadRasterizedTexture(out_texture: *TextTexture, raster: *const RasterizedTexture) bool {
+        CleanupTextTexture(out_texture);
+        if (!ByteGui_ImplOpenGL_HasContext() or raster.rgba.len == 0 or raster.pixel_w == 0 or raster.pixel_h == 0) return false;
+
+        out_texture.texture = createTextureFromRGBA(raster.rgba, raster.pixel_w, raster.pixel_h, .linear) orelse return false;
+        out_texture.display_size_px = raster.display_size_px;
+        out_texture.uv_min = raster.uv_min;
+        out_texture.uv_max = raster.uv_max;
         return true;
+    }
+
+    pub fn BuildSvgTexture(out_texture: *TextTexture, params: SvgTextureBuildParams) bool {
+        var raster = RasterizeSvgTexture(params) orelse return false;
+        defer CleanupRasterizedTexture(&raster);
+        return UploadRasterizedTexture(out_texture, &raster);
     }
 };
 
@@ -1806,6 +1643,685 @@ fn sliceFromOptionalEnd(text_begin: []const u8, text_end: ?usize) []const u8 {
 
 fn approxEqual(a: f32, b: f32, eps: f32) bool {
     return @abs(a - b) < eps;
+}
+
+const VectorContour = struct {
+    points: ByteVec2List = .empty,
+
+    fn deinit(self: *VectorContour) void {
+        self.points.deinit(allocator);
+        self.* = .{};
+    }
+};
+
+const VectorShape = struct {
+    contours: std.ArrayListUnmanaged(VectorContour) = .empty,
+    current_contour: ?usize = null,
+
+    fn deinit(self: *VectorShape) void {
+        for (self.contours.items) |*contour| contour.deinit();
+        self.contours.deinit(allocator);
+        self.* = .{};
+    }
+
+    fn startContour(self: *VectorShape, point: ByteVec2) bool {
+        self.current_contour = null;
+        self.contours.append(allocator, .{}) catch return false;
+        self.current_contour = self.contours.items.len - 1;
+        self.lineTo(point);
+        return true;
+    }
+
+    fn lineTo(self: *VectorShape, point: ByteVec2) void {
+        if (self.current_contour == null) {
+            _ = self.startContour(point);
+            return;
+        }
+        addUniquePoint(&self.contours.items[self.current_contour.?].points, point);
+    }
+
+    fn closeContour(self: *VectorShape) void {
+        self.current_contour = null;
+    }
+};
+
+const SvgPathParser = struct {
+    input: []const u8,
+    index: usize = 0,
+    current_x: f32 = 0.0,
+    current_y: f32 = 0.0,
+    start_x: f32 = 0.0,
+    start_y: f32 = 0.0,
+    last_control_x: f32 = 0.0,
+    last_control_y: f32 = 0.0,
+    last_cmd: u8 = 0,
+
+    fn eof(self: *const SvgPathParser) bool {
+        return self.index >= self.input.len;
+    }
+
+    fn peek(self: *const SvgPathParser) u8 {
+        return if (self.index < self.input.len) self.input[self.index] else 0;
+    }
+
+    fn skipWhitespace(self: *SvgPathParser) void {
+        while (self.index < self.input.len) : (self.index += 1) {
+            const ch = self.input[self.index];
+            if (ch != ' ' and ch != ',' and ch != '\t' and ch != '\n' and ch != '\r') break;
+        }
+    }
+
+    fn hasMoreNumbers(self: *SvgPathParser) bool {
+        self.skipWhitespace();
+        if (self.eof()) return false;
+        const ch = self.peek();
+        return ch == '-' or ch == '+' or ch == '.' or (ch >= '0' and ch <= '9');
+    }
+
+    fn parseNumber(self: *SvgPathParser) f32 {
+        self.skipWhitespace();
+        if (self.eof()) return 0.0;
+
+        var negative = false;
+        if (self.peek() == '-') {
+            negative = true;
+            self.index += 1;
+        } else if (self.peek() == '+') {
+            self.index += 1;
+        }
+
+        var result: f32 = 0.0;
+        while (!self.eof()) {
+            const ch = self.peek();
+            if (ch < '0' or ch > '9') break;
+            result = result * 10.0 + @as(f32, @floatFromInt(ch - '0'));
+            self.index += 1;
+        }
+
+        if (!self.eof() and self.peek() == '.') {
+            self.index += 1;
+            var divisor: f32 = 10.0;
+            while (!self.eof()) {
+                const ch = self.peek();
+                if (ch < '0' or ch > '9') break;
+                result += @as(f32, @floatFromInt(ch - '0')) / divisor;
+                divisor *= 10.0;
+                self.index += 1;
+            }
+        }
+
+        if (!self.eof()) {
+            const ch = self.peek();
+            if (ch == 'e' or ch == 'E') {
+                self.index += 1;
+                var exp_negative = false;
+                if (!self.eof() and self.peek() == '-') {
+                    exp_negative = true;
+                    self.index += 1;
+                } else if (!self.eof() and self.peek() == '+') {
+                    self.index += 1;
+                }
+
+                var exponent: i32 = 0;
+                while (!self.eof()) {
+                    const digit = self.peek();
+                    if (digit < '0' or digit > '9') break;
+                    exponent = exponent * 10 + @as(i32, digit - '0');
+                    self.index += 1;
+                }
+                if (exp_negative) exponent = -exponent;
+                result *= std.math.pow(f32, 10.0, @as(f32, @floatFromInt(exponent)));
+            }
+        }
+
+        return if (negative) -result else result;
+    }
+};
+
+fn cubicBezierPoint(p0: ByteVec2, p1: ByteVec2, p2: ByteVec2, p3: ByteVec2, t: f32) ByteVec2 {
+    const omt = 1.0 - t;
+    const omt2 = omt * omt;
+    const omt3 = omt2 * omt;
+    const t2 = t * t;
+    const t3 = t2 * t;
+    return .{
+        .x = omt3 * p0.x + 3.0 * omt2 * t * p1.x + 3.0 * omt * t2 * p2.x + t3 * p3.x,
+        .y = omt3 * p0.y + 3.0 * omt2 * t * p1.y + 3.0 * omt * t2 * p2.y + t3 * p3.y,
+    };
+}
+
+fn quadraticBezierPoint(p0: ByteVec2, p1: ByteVec2, p2: ByteVec2, t: f32) ByteVec2 {
+    const omt = 1.0 - t;
+    const omt2 = omt * omt;
+    const t2 = t * t;
+    return .{
+        .x = omt2 * p0.x + 2.0 * omt * t * p1.x + t2 * p2.x,
+        .y = omt2 * p0.y + 2.0 * omt * t * p1.y + t2 * p2.y,
+    };
+}
+
+fn bezierSegmentCount(points: []const ByteVec2, min_segments: i32, max_segments: i32) i32 {
+    var poly_len: f32 = 0.0;
+    for (points[0 .. points.len - 1], 0..) |point, i| {
+        const next = points[i + 1];
+        poly_len += @sqrt(byteLengthSqr(subVec2(next, point)));
+    }
+    const chord = @sqrt(byteLengthSqr(subVec2(points[points.len - 1], points[0])));
+    const curvature = @max(0.0, poly_len - chord);
+    const estimate = @ceil(chord * 0.12 + curvature * 0.35);
+    return std.math.clamp(@as(i32, @intFromFloat(estimate)), min_segments, max_segments);
+}
+
+fn appendQuadraticCurve(shape: *VectorShape, p0: ByteVec2, p1: ByteVec2, p2: ByteVec2) void {
+    const segments = bezierSegmentCount(&.{ p0, p1, p2 }, 8, 96);
+    var i: i32 = 1;
+    while (i <= segments) : (i += 1) {
+        const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(segments));
+        shape.lineTo(quadraticBezierPoint(p0, p1, p2, t));
+    }
+}
+
+fn appendCubicCurve(shape: *VectorShape, p0: ByteVec2, p1: ByteVec2, p2: ByteVec2, p3: ByteVec2) void {
+    const segments = bezierSegmentCount(&.{ p0, p1, p2, p3 }, 12, 128);
+    var i: i32 = 1;
+    while (i <= segments) : (i += 1) {
+        const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(segments));
+        shape.lineTo(cubicBezierPoint(p0, p1, p2, p3, t));
+    }
+}
+
+fn svgAngleBetween(ux: f32, uy: f32, vx: f32, vy: f32) f32 {
+    const dot = ux * vx + uy * vy;
+    const len = @sqrt((ux * ux + uy * uy) * (vx * vx + vy * vy));
+    if (len <= 0.0) return 0.0;
+    const arg = std.math.clamp(dot / len, -1.0, 1.0);
+    var ang = std.math.acos(arg);
+    if (ux * vy - uy * vx < 0.0) ang = -ang;
+    return ang;
+}
+
+fn appendSvgArc(shape: *VectorShape, x0: f32, y0: f32, rx_in: f32, ry_in: f32, angle: f32, large_arc_flag: i32, sweep_flag: i32, x1: f32, y1: f32) void {
+    var rx = @abs(rx_in);
+    var ry = @abs(ry_in);
+    if (rx == 0.0 or ry == 0.0) {
+        shape.lineTo(.{ .x = x1, .y = y1 });
+        return;
+    }
+
+    const sin_phi = @sin(angle * std.math.pi / 180.0);
+    const cos_phi = @cos(angle * std.math.pi / 180.0);
+    const dx2 = (x0 - x1) / 2.0;
+    const dy2 = (y0 - y1) / 2.0;
+    const x1p = cos_phi * dx2 + sin_phi * dy2;
+    const y1p = -sin_phi * dx2 + cos_phi * dy2;
+
+    var rx_sq = rx * rx;
+    var ry_sq = ry * ry;
+    const x1p_sq = x1p * x1p;
+    const y1p_sq = y1p * y1p;
+    const lambda = x1p_sq / rx_sq + y1p_sq / ry_sq;
+    if (lambda > 1.0) {
+        const scale = @sqrt(lambda);
+        rx *= scale;
+        ry *= scale;
+        rx_sq = rx * rx;
+        ry_sq = ry * ry;
+    }
+
+    var radicant = rx_sq * ry_sq - rx_sq * y1p_sq - ry_sq * x1p_sq;
+    var denom = rx_sq * y1p_sq + ry_sq * x1p_sq;
+    if (denom == 0.0) denom = 1.0;
+    radicant = @max(0.0, radicant / denom);
+
+    const coef = (if (large_arc_flag != sweep_flag) @as(f32, 1.0) else @as(f32, -1.0)) * @sqrt(radicant);
+    const cxp = coef * (rx * y1p) / ry;
+    const cyp = coef * (-ry * x1p) / rx;
+    const cx = cos_phi * cxp - sin_phi * cyp + (x0 + x1) / 2.0;
+    const cy = sin_phi * cxp + cos_phi * cyp + (y0 + y1) / 2.0;
+    const theta1 = svgAngleBetween(1.0, 0.0, (x1p - cxp) / rx, (y1p - cyp) / ry);
+    var delta_theta = svgAngleBetween((x1p - cxp) / rx, (y1p - cyp) / ry, (-x1p - cxp) / rx, (-y1p - cyp) / ry);
+
+    if (sweep_flag == 0 and delta_theta > 0.0) {
+        delta_theta -= 2.0 * std.math.pi;
+    } else if (sweep_flag != 0 and delta_theta < 0.0) {
+        delta_theta += 2.0 * std.math.pi;
+    }
+
+    const segments: i32 = @intFromFloat(@ceil(@abs(delta_theta / (std.math.pi / 2.0))));
+    const delta = delta_theta / @as(f32, @floatFromInt(@max(segments, 1)));
+    var t = theta1;
+    var i: i32 = 0;
+    while (i < segments) : (i += 1) {
+        const t1 = t;
+        const t2 = t + delta;
+        const sin_t1 = @sin(t1);
+        const cos_t1 = @cos(t1);
+        const sin_t2 = @sin(t2);
+        const cos_t2 = @cos(t2);
+        const e = @tan(delta / 4.0) * 4.0 / 3.0;
+        const x_a = rx * cos_t1;
+        const y_a = ry * sin_t1;
+        const x_b = rx * cos_t2;
+        const y_b = ry * sin_t2;
+        const cp1x = x_a - e * ry * sin_t1;
+        const cp1y = y_a + e * rx * cos_t1;
+        const cp2x = x_b + e * ry * sin_t2;
+        const cp2y = y_b - e * rx * cos_t2;
+        appendCubicCurve(shape, .{
+            .x = cos_phi * x_a - sin_phi * y_a + cx,
+            .y = sin_phi * x_a + cos_phi * y_a + cy,
+        }, .{
+            .x = cos_phi * cp1x - sin_phi * cp1y + cx,
+            .y = sin_phi * cp1x + cos_phi * cp1y + cy,
+        }, .{
+            .x = cos_phi * cp2x - sin_phi * cp2y + cx,
+            .y = sin_phi * cp2x + cos_phi * cp2y + cy,
+        }, .{
+            .x = cos_phi * x_b - sin_phi * y_b + cx,
+            .y = sin_phi * x_b + cos_phi * y_b + cy,
+        });
+        t += delta;
+    }
+}
+
+fn parseSvgPathToShape(svg_path: []const u8, shape: *VectorShape) bool {
+    var parser = SvgPathParser{ .input = svg_path };
+
+    while (!parser.eof()) {
+        parser.skipWhitespace();
+        if (parser.eof()) break;
+
+        const prev_cmd = parser.last_cmd;
+        var cmd: u8 = 0;
+        const ch = parser.peek();
+        if ((ch >= 'A' and ch <= 'Z') or (ch >= 'a' and ch <= 'z')) {
+            cmd = ch;
+            parser.index += 1;
+        } else {
+            cmd = parser.last_cmd;
+            if (cmd == 'M') cmd = 'L' else if (cmd == 'm') cmd = 'l';
+        }
+        parser.last_cmd = cmd;
+
+        switch (cmd) {
+            'M' => {
+                parser.current_x = parser.parseNumber();
+                parser.current_y = parser.parseNumber();
+                parser.start_x = parser.current_x;
+                parser.start_y = parser.current_y;
+                parser.last_control_x = parser.current_x;
+                parser.last_control_y = parser.current_y;
+                if (!shape.startContour(.{ .x = parser.current_x, .y = parser.current_y })) return false;
+                while (parser.hasMoreNumbers()) {
+                    parser.current_x = parser.parseNumber();
+                    parser.current_y = parser.parseNumber();
+                    shape.lineTo(.{ .x = parser.current_x, .y = parser.current_y });
+                }
+            },
+            'm' => {
+                parser.current_x += parser.parseNumber();
+                parser.current_y += parser.parseNumber();
+                parser.start_x = parser.current_x;
+                parser.start_y = parser.current_y;
+                parser.last_control_x = parser.current_x;
+                parser.last_control_y = parser.current_y;
+                if (!shape.startContour(.{ .x = parser.current_x, .y = parser.current_y })) return false;
+                while (parser.hasMoreNumbers()) {
+                    parser.current_x += parser.parseNumber();
+                    parser.current_y += parser.parseNumber();
+                    shape.lineTo(.{ .x = parser.current_x, .y = parser.current_y });
+                }
+            },
+            'L' => while (true) {
+                parser.current_x = parser.parseNumber();
+                parser.current_y = parser.parseNumber();
+                parser.last_control_x = parser.current_x;
+                parser.last_control_y = parser.current_y;
+                shape.lineTo(.{ .x = parser.current_x, .y = parser.current_y });
+                if (!parser.hasMoreNumbers()) break;
+            },
+            'l' => while (true) {
+                parser.current_x += parser.parseNumber();
+                parser.current_y += parser.parseNumber();
+                parser.last_control_x = parser.current_x;
+                parser.last_control_y = parser.current_y;
+                shape.lineTo(.{ .x = parser.current_x, .y = parser.current_y });
+                if (!parser.hasMoreNumbers()) break;
+            },
+            'H' => while (true) {
+                parser.current_x = parser.parseNumber();
+                parser.last_control_x = parser.current_x;
+                parser.last_control_y = parser.current_y;
+                shape.lineTo(.{ .x = parser.current_x, .y = parser.current_y });
+                if (!parser.hasMoreNumbers()) break;
+            },
+            'h' => while (true) {
+                parser.current_x += parser.parseNumber();
+                parser.last_control_x = parser.current_x;
+                parser.last_control_y = parser.current_y;
+                shape.lineTo(.{ .x = parser.current_x, .y = parser.current_y });
+                if (!parser.hasMoreNumbers()) break;
+            },
+            'V' => while (true) {
+                parser.current_y = parser.parseNumber();
+                parser.last_control_x = parser.current_x;
+                parser.last_control_y = parser.current_y;
+                shape.lineTo(.{ .x = parser.current_x, .y = parser.current_y });
+                if (!parser.hasMoreNumbers()) break;
+            },
+            'v' => while (true) {
+                parser.current_y += parser.parseNumber();
+                parser.last_control_x = parser.current_x;
+                parser.last_control_y = parser.current_y;
+                shape.lineTo(.{ .x = parser.current_x, .y = parser.current_y });
+                if (!parser.hasMoreNumbers()) break;
+            },
+            'C' => while (true) {
+                const x1 = parser.parseNumber();
+                const y1 = parser.parseNumber();
+                const x2 = parser.parseNumber();
+                const y2 = parser.parseNumber();
+                const x = parser.parseNumber();
+                const y = parser.parseNumber();
+                appendCubicCurve(shape, .{ .x = parser.current_x, .y = parser.current_y }, .{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, .{ .x = x, .y = y });
+                parser.last_control_x = x2;
+                parser.last_control_y = y2;
+                parser.current_x = x;
+                parser.current_y = y;
+                if (!parser.hasMoreNumbers()) break;
+            },
+            'c' => while (true) {
+                const x1 = parser.current_x + parser.parseNumber();
+                const y1 = parser.current_y + parser.parseNumber();
+                const x2 = parser.current_x + parser.parseNumber();
+                const y2 = parser.current_y + parser.parseNumber();
+                const x = parser.current_x + parser.parseNumber();
+                const y = parser.current_y + parser.parseNumber();
+                appendCubicCurve(shape, .{ .x = parser.current_x, .y = parser.current_y }, .{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, .{ .x = x, .y = y });
+                parser.last_control_x = x2;
+                parser.last_control_y = y2;
+                parser.current_x = x;
+                parser.current_y = y;
+                if (!parser.hasMoreNumbers()) break;
+            },
+            'S' => {
+                var smooth = prev_cmd == 'C' or prev_cmd == 'c' or prev_cmd == 'S' or prev_cmd == 's';
+                while (true) {
+                    const x2 = parser.parseNumber();
+                    const y2 = parser.parseNumber();
+                    const x = parser.parseNumber();
+                    const y = parser.parseNumber();
+                    const x1 = if (smooth) 2.0 * parser.current_x - parser.last_control_x else parser.current_x;
+                    const y1 = if (smooth) 2.0 * parser.current_y - parser.last_control_y else parser.current_y;
+                    appendCubicCurve(shape, .{ .x = parser.current_x, .y = parser.current_y }, .{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, .{ .x = x, .y = y });
+                    parser.last_control_x = x2;
+                    parser.last_control_y = y2;
+                    parser.current_x = x;
+                    parser.current_y = y;
+                    if (!parser.hasMoreNumbers()) break;
+                    smooth = true;
+                }
+            },
+            's' => {
+                var smooth = prev_cmd == 'C' or prev_cmd == 'c' or prev_cmd == 'S' or prev_cmd == 's';
+                while (true) {
+                    const x2 = parser.current_x + parser.parseNumber();
+                    const y2 = parser.current_y + parser.parseNumber();
+                    const x = parser.current_x + parser.parseNumber();
+                    const y = parser.current_y + parser.parseNumber();
+                    const x1 = if (smooth) 2.0 * parser.current_x - parser.last_control_x else parser.current_x;
+                    const y1 = if (smooth) 2.0 * parser.current_y - parser.last_control_y else parser.current_y;
+                    appendCubicCurve(shape, .{ .x = parser.current_x, .y = parser.current_y }, .{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, .{ .x = x, .y = y });
+                    parser.last_control_x = x2;
+                    parser.last_control_y = y2;
+                    parser.current_x = x;
+                    parser.current_y = y;
+                    if (!parser.hasMoreNumbers()) break;
+                    smooth = true;
+                }
+            },
+            'Q' => while (true) {
+                const x1 = parser.parseNumber();
+                const y1 = parser.parseNumber();
+                const x = parser.parseNumber();
+                const y = parser.parseNumber();
+                appendQuadraticCurve(shape, .{ .x = parser.current_x, .y = parser.current_y }, .{ .x = x1, .y = y1 }, .{ .x = x, .y = y });
+                parser.last_control_x = x1;
+                parser.last_control_y = y1;
+                parser.current_x = x;
+                parser.current_y = y;
+                if (!parser.hasMoreNumbers()) break;
+            },
+            'q' => while (true) {
+                const x1 = parser.current_x + parser.parseNumber();
+                const y1 = parser.current_y + parser.parseNumber();
+                const x = parser.current_x + parser.parseNumber();
+                const y = parser.current_y + parser.parseNumber();
+                appendQuadraticCurve(shape, .{ .x = parser.current_x, .y = parser.current_y }, .{ .x = x1, .y = y1 }, .{ .x = x, .y = y });
+                parser.last_control_x = x1;
+                parser.last_control_y = y1;
+                parser.current_x = x;
+                parser.current_y = y;
+                if (!parser.hasMoreNumbers()) break;
+            },
+            'A', 'a' => while (true) {
+                const rx = parser.parseNumber();
+                const ry = parser.parseNumber();
+                const angle = parser.parseNumber();
+                const large_arc = @as(i32, @intFromFloat(parser.parseNumber()));
+                const sweep = @as(i32, @intFromFloat(parser.parseNumber()));
+                const x = parser.parseNumber();
+                const y = parser.parseNumber();
+                const end_x = if (cmd == 'a') parser.current_x + x else x;
+                const end_y = if (cmd == 'a') parser.current_y + y else y;
+                appendSvgArc(shape, parser.current_x, parser.current_y, rx, ry, angle, large_arc, sweep, end_x, end_y);
+                parser.current_x = end_x;
+                parser.current_y = end_y;
+                parser.last_control_x = parser.current_x;
+                parser.last_control_y = parser.current_y;
+                if (!parser.hasMoreNumbers()) break;
+            },
+            'Z', 'z' => {
+                shape.closeContour();
+                parser.current_x = parser.start_x;
+                parser.current_y = parser.start_y;
+                parser.last_control_x = parser.current_x;
+                parser.last_control_y = parser.current_y;
+            },
+            else => {},
+        }
+    }
+
+    return true;
+}
+
+fn transformVectorShapeInPlace(shape: *VectorShape, transform: Ui.SvgTransform) void {
+    for (shape.contours.items) |*contour| {
+        for (contour.points.items) |*point| {
+            const src_x = point.x;
+            const src_y = point.y;
+            point.x = src_x * transform.a + src_y * transform.c + transform.e;
+            point.y = src_x * transform.b + src_y * transform.d + transform.f;
+        }
+    }
+}
+
+fn pointInContourEvenOdd(contour: []const ByteVec2, sample: ByteVec2) bool {
+    if (contour.len < 3) return false;
+
+    var inside = false;
+    var j = contour.len - 1;
+    for (contour, 0..) |point, i| {
+        const prev = contour[j];
+        const intersects = ((point.y > sample.y) != (prev.y > sample.y)) and
+            (sample.x < (prev.x - point.x) * (sample.y - point.y) / ((prev.y - point.y) + 0.000001) + point.x);
+        if (intersects) inside = !inside;
+        j = i;
+    }
+    return inside;
+}
+
+fn pointInShapeEvenOdd(shape: *const VectorShape, sample: ByteVec2) bool {
+    var inside = false;
+    for (shape.contours.items) |contour| {
+        if (pointInContourEvenOdd(contour.points.items, sample)) inside = !inside;
+    }
+    return inside;
+}
+
+fn argbGrayValue(argb: ByteU32) u8 {
+    const r: u32 = (argb >> 16) & 0xFF;
+    const g: u32 = (argb >> 8) & 0xFF;
+    const b: u32 = argb & 0xFF;
+    return @intCast(@divTrunc(r + g + b, 3));
+}
+
+fn rasterizeVectorShapeToRgba(shape: *const VectorShape, width: u32, height: u32, fill_argb: ByteU32, sample_grid: u32) ?[]u8 {
+    const rgba = allocator.alloc(u8, @as(usize, width) * @as(usize, height) * 4) catch return null;
+    @memset(rgba, 0);
+    const rgb_value = argbGrayValue(fill_argb);
+
+    const grid = @max(@as(u32, 1), sample_grid);
+    const inv_grid = 1.0 / @as(f32, @floatFromInt(grid));
+    const sample_count = grid * grid;
+
+    for (0..height) |row| {
+        for (0..width) |col| {
+            var covered: u32 = 0;
+            var sy: u32 = 0;
+            while (sy < grid) : (sy += 1) {
+                var sx: u32 = 0;
+                while (sx < grid) : (sx += 1) {
+                    const sample = ByteVec2{
+                        .x = @as(f32, @floatFromInt(col)) + (@as(f32, @floatFromInt(sx)) + 0.5) * inv_grid,
+                        .y = @as(f32, @floatFromInt(row)) + (@as(f32, @floatFromInt(sy)) + 0.5) * inv_grid,
+                    };
+                    if (pointInShapeEvenOdd(shape, sample)) covered += 1;
+                }
+            }
+            if (covered == 0) continue;
+
+            const alpha: u8 = @intCast(@divTrunc(covered * 255, sample_count));
+            const dst_index = (row * @as(usize, width) + col) * 4;
+            rgba[dst_index + 0] = rgb_value;
+            rgba[dst_index + 1] = rgb_value;
+            rgba[dst_index + 2] = rgb_value;
+            rgba[dst_index + 3] = alpha;
+        }
+    }
+
+    return rgba;
+}
+
+fn sampleRgbaBilinear(pixels: []const u8, width: u32, height: u32, x: f32, y: f32) [4]f32 {
+    if (width == 0 or height == 0) return .{ 0.0, 0.0, 0.0, 0.0 };
+
+    const max_x = @as(f32, @floatFromInt(width - 1));
+    const max_y = @as(f32, @floatFromInt(height - 1));
+    const clamped_x = std.math.clamp(x, 0.0, max_x);
+    const clamped_y = std.math.clamp(y, 0.0, max_y);
+
+    const x0: u32 = @intFromFloat(@floor(clamped_x));
+    const y0: u32 = @intFromFloat(@floor(clamped_y));
+    const x1: u32 = @min(width - 1, x0 + 1);
+    const y1: u32 = @min(height - 1, y0 + 1);
+    const tx = clamped_x - @as(f32, @floatFromInt(x0));
+    const ty = clamped_y - @as(f32, @floatFromInt(y0));
+
+    const idx00 = (@as(usize, y0) * @as(usize, width) + @as(usize, x0)) * 4;
+    const idx10 = (@as(usize, y0) * @as(usize, width) + @as(usize, x1)) * 4;
+    const idx01 = (@as(usize, y1) * @as(usize, width) + @as(usize, x0)) * 4;
+    const idx11 = (@as(usize, y1) * @as(usize, width) + @as(usize, x1)) * 4;
+
+    var result = [4]f32{ 0.0, 0.0, 0.0, 0.0 };
+    for (0..4) |channel| {
+        const top = std.math.lerp(@as(f32, @floatFromInt(pixels[idx00 + channel])), @as(f32, @floatFromInt(pixels[idx10 + channel])), tx);
+        const bottom = std.math.lerp(@as(f32, @floatFromInt(pixels[idx01 + channel])), @as(f32, @floatFromInt(pixels[idx11 + channel])), tx);
+        result[channel] = std.math.lerp(top, bottom, ty) / 255.0;
+    }
+    return result;
+}
+
+fn blendScaledRgbaIntoRgba(dst: []u8, dst_w: u32, dst_h: u32, src: []const u8, src_w: u32, src_h: u32, dest_pos: ByteVec2, scale: ByteVec2) void {
+    if (src_w == 0 or src_h == 0 or scale.x <= 0.0 or scale.y <= 0.0) return;
+
+    const scaled_w = @max(1, @as(i32, @intFromFloat(@ceil(@as(f32, @floatFromInt(src_w)) * scale.x))));
+    const scaled_h = @max(1, @as(i32, @intFromFloat(@ceil(@as(f32, @floatFromInt(src_h)) * scale.y))));
+    const start_x = std.math.clamp(@as(i32, @intFromFloat(@floor(dest_pos.x))), 0, @as(i32, @intCast(dst_w)));
+    const start_y = std.math.clamp(@as(i32, @intFromFloat(@floor(dest_pos.y))), 0, @as(i32, @intCast(dst_h)));
+    const end_x = std.math.clamp(@as(i32, @intFromFloat(@ceil(dest_pos.x + @as(f32, @floatFromInt(scaled_w))))), 0, @as(i32, @intCast(dst_w)));
+    const end_y = std.math.clamp(@as(i32, @intFromFloat(@ceil(dest_pos.y + @as(f32, @floatFromInt(scaled_h))))), 0, @as(i32, @intCast(dst_h)));
+
+    var y = start_y;
+    while (y < end_y) : (y += 1) {
+        const src_y = ((@as(f32, @floatFromInt(y)) + 0.5) - dest_pos.y) / scale.y - 0.5;
+        if (src_y < -0.5 or src_y > @as(f32, @floatFromInt(src_h)) - 0.5) continue;
+
+        var x = start_x;
+        while (x < end_x) : (x += 1) {
+            const src_x = ((@as(f32, @floatFromInt(x)) + 0.5) - dest_pos.x) / scale.x - 0.5;
+            if (src_x < -0.5 or src_x > @as(f32, @floatFromInt(src_w)) - 0.5) continue;
+
+            const sample = sampleRgbaBilinear(src, src_w, src_h, src_x, src_y);
+            const src_a = clamp01(sample[3]);
+            if (src_a <= 0.0) continue;
+
+            const dst_index = (@as(usize, @intCast(y)) * @as(usize, dst_w) + @as(usize, @intCast(x))) * 4;
+            const dst_r = @as(f32, @floatFromInt(dst[dst_index + 0])) / 255.0;
+            const dst_g = @as(f32, @floatFromInt(dst[dst_index + 1])) / 255.0;
+            const dst_b = @as(f32, @floatFromInt(dst[dst_index + 2])) / 255.0;
+            const dst_a = @as(f32, @floatFromInt(dst[dst_index + 3])) / 255.0;
+
+            const out_a = src_a + dst_a * (1.0 - src_a);
+            if (out_a <= 0.0) continue;
+
+            const out_r = (sample[0] * src_a + dst_r * dst_a * (1.0 - src_a)) / out_a;
+            const out_g = (sample[1] * src_a + dst_g * dst_a * (1.0 - src_a)) / out_a;
+            const out_b = (sample[2] * src_a + dst_b * dst_a * (1.0 - src_a)) / out_a;
+
+            dst[dst_index + 0] = @intFromFloat(clamp01(out_r) * 255.0);
+            dst[dst_index + 1] = @intFromFloat(clamp01(out_g) * 255.0);
+            dst[dst_index + 2] = @intFromFloat(clamp01(out_b) * 255.0);
+            dst[dst_index + 3] = @intFromFloat(clamp01(out_a) * 255.0);
+        }
+    }
+}
+
+const RgbaAlphaBounds = struct {
+    min_x: u32,
+    min_y: u32,
+    max_x: u32,
+    max_y: u32,
+};
+
+fn computeRgbaAlphaBounds(rgba: []const u8, width: u32, height: u32) ?RgbaAlphaBounds {
+    if (width == 0 or height == 0) return null;
+
+    var found = false;
+    var min_x: u32 = width;
+    var min_y: u32 = height;
+    var max_x: u32 = 0;
+    var max_y: u32 = 0;
+
+    for (0..height) |row| {
+        for (0..width) |col| {
+            const alpha = rgba[(row * @as(usize, width) + col) * 4 + 3];
+            if (alpha == 0) continue;
+            found = true;
+            min_x = @min(min_x, @as(u32, @intCast(col)));
+            min_y = @min(min_y, @as(u32, @intCast(row)));
+            max_x = @max(max_x, @as(u32, @intCast(col)) + 1);
+            max_y = @max(max_y, @as(u32, @intCast(row)) + 1);
+        }
+    }
+
+    if (!found) return null;
+    return .{
+        .min_x = min_x,
+        .min_y = min_y,
+        .max_x = max_x,
+        .max_y = max_y,
+    };
 }
 
 fn addUniquePoint(polygon: *ByteVec2List, point: ByteVec2) void {
@@ -1898,110 +2414,55 @@ fn detectFontStyleFromPath(path: []const u8) i32 {
     return FontStyleRegular;
 }
 
-// GDI+ Font And Text Rendering
+// Font Loading And Text Rasterization
+const TextBounds = struct {
+    X: f32 = 0.0,
+    Y: f32 = 0.0,
+    Width: f32 = 0.0,
+    Height: f32 = 0.0,
+};
+
 const TextLine = struct {
     start: usize,
     end: usize,
     width: f32 = 0.0,
-    bounds: c.RectF = std.mem.zeroes(c.RectF),
+    bounds: TextBounds = .{},
 };
-
-const KnownInstalledFamily = struct {
-    utf8: []const u8,
-    utf16: [*:0]const u16,
-};
-
-fn knownInstalledFamilyName(path: []const u8) ?KnownInstalledFamily {
-    const lower = std.ascii.allocLowerString(allocator, path) catch return null;
-    defer allocator.free(lower);
-
-    if (std.mem.indexOf(u8, lower, "segoeui") != null or std.mem.indexOf(u8, lower, "segui") != null) {
-        return .{ .utf8 = "Segoe UI", .utf16 = std.unicode.utf8ToUtf16LeStringLiteral("Segoe UI") };
-    }
-    if (std.mem.indexOf(u8, lower, "consola") != null) {
-        return .{ .utf8 = "Consolas", .utf16 = std.unicode.utf8ToUtf16LeStringLiteral("Consolas") };
-    }
-    if (std.mem.indexOf(u8, lower, "impact") != null) {
-        return .{ .utf8 = "Impact", .utf16 = std.unicode.utf8ToUtf16LeStringLiteral("Impact") };
-    }
-    return null;
-}
-
-fn dupeUtf16Z(text: [*:0]const u16) ![:0]u16 {
-    const len = std.mem.len(text);
-    const copy = try allocator.allocSentinel(u16, len, 0);
-    @memcpy(copy[0..len], text[0..len]);
-    return copy;
-}
 
 const TextMeasureSession = struct {
-    bitmap: ?*c.GpBitmap = null,
-    graphics: ?*c.GpGraphics = null,
-    family: ?*c.GpFontFamily = null,
-    font: ?*c.GpFont = null,
-    format: ?*c.GpStringFormat = null,
+    font: *const ByteFont,
+    size_pixels: f32,
+    ascender_px: f32,
+    descender_px: f32,
+    line_height_px: f32,
 
     fn init(byte_font: *const ByteFont, size_pixels: f32) ?TextMeasureSession {
-        if (size_pixels <= 0.0 or byte_font.FamilyNameWide == null) return null;
-        if (!ensureByteGuiGdiPlus()) return null;
+        if (size_pixels <= 0.0 or byte_font.FontData.len == 0) return null;
 
-        var session = TextMeasureSession{};
-        errdefer session.deinit();
-
-        if (!gdipOk(c.GdipCreateFontFamilyFromName(byte_font.FamilyNameWide.?.ptr, byte_font.FontCollection, &session.family)) or session.family == null) {
-            if (!gdipOk(c.GdipCreateFontFamilyFromName(byte_font.FamilyNameWide.?.ptr, null, &session.family)) or session.family == null) return null;
-        }
-
-        var resolved_style = byte_font.FontStyle;
-        var style_available: c.BOOL = c.FALSE;
-        if (!gdipOk(c.GdipIsStyleAvailable(session.family, resolved_style, &style_available)) or style_available == c.FALSE) {
-            resolved_style = c.FontStyleRegular;
-        }
-
-        if (!gdipOk(c.GdipCreateFont(session.family, size_pixels, resolved_style, c.UnitPixel, &session.font)) or session.font == null) return null;
-        if (!gdipOk(c.GdipCreateStringFormat(0, 0, &session.format)) or session.format == null) return null;
-
-        const format_flags = c.StringFormatFlagsNoClip | c.StringFormatFlagsNoFitBlackBox | c.StringFormatFlagsMeasureTrailingSpaces | c.StringFormatFlagsNoWrap;
-        _ = c.GdipSetStringFormatFlags(session.format, format_flags);
-        _ = c.GdipSetStringFormatAlign(session.format, c.StringAlignmentNear);
-        _ = c.GdipSetStringFormatLineAlign(session.format, c.StringAlignmentNear);
-
-        session.bitmap = createGdipBitmap(1, 1) orelse return null;
-        session.graphics = createGdipGraphicsForImage(@ptrCast(session.bitmap)) orelse return null;
-        _ = c.GdipSetTextRenderingHint(session.graphics, c.TextRenderingHintAntiAliasGridFit);
-        return session;
+        const metrics = @constCast(&byte_font.ByteTypeFace).getSizeMetrics(size_pixels) orelse return null;
+        return .{
+            .font = byte_font,
+            .size_pixels = size_pixels,
+            .ascender_px = metrics.ascender,
+            .descender_px = metrics.descender,
+            .line_height_px = @max(1.0, metrics.ascender - metrics.descender),
+        };
     }
 
     fn deinit(self: *TextMeasureSession) void {
-        if (self.graphics != null) _ = c.GdipDeleteGraphics(self.graphics);
-        if (self.bitmap != null) _ = c.GdipDisposeImage(@ptrCast(self.bitmap));
-        if (self.format != null) _ = c.GdipDeleteStringFormat(self.format);
-        if (self.font != null) _ = c.GdipDeleteFont(self.font);
-        if (self.family != null) _ = c.GdipDeleteFontFamily(self.family);
-        self.* = .{};
+        _ = self;
     }
 
-    fn measureBounds(self: *TextMeasureSession, text: []const u8) ?c.RectF {
-        if (text.len == 0) return std.mem.zeroes(c.RectF);
-
-        const wide_text = std.unicode.utf8ToUtf16LeAllocZ(allocator, text) catch return null;
-        defer allocator.free(wide_text);
-
-        var bounds = std.mem.zeroes(c.RectF);
-        var layout_rect = c.RectF{ .X = 0.0, .Y = 0.0, .Width = 32768.0, .Height = 32768.0 };
-        if (!gdipOk(c.GdipMeasureString(self.graphics, wide_text.ptr, -1, self.font, &layout_rect, self.format, &bounds, null, null))) return null;
-        return bounds;
+    fn measureBounds(self: *const TextMeasureSession, text: []const u8) TextBounds {
+        return computeTextBounds(self.font, self.size_pixels, text);
     }
 
-    fn measureWidth(self: *TextMeasureSession, text: []const u8) f32 {
-        const bounds = self.measureBounds(text) orelse return 0.0;
-        return @max(0.0, bounds.Width);
+    fn measureWidth(self: *const TextMeasureSession, text: []const u8) f32 {
+        return @max(0.0, self.measureBounds(text).Width);
     }
 
-    fn lineHeight(self: *TextMeasureSession) f32 {
-        var line_height: f32 = 0.0;
-        if (!gdipOk(c.GdipGetFontHeight(self.font, self.graphics, &line_height)) or line_height <= 0.0) return 1.0;
-        return line_height;
+    fn lineHeight(self: *const TextMeasureSession) f32 {
+        return @max(1.0, self.line_height_px);
     }
 };
 
@@ -2017,543 +2478,188 @@ const TextLayoutResult = struct {
     }
 };
 
-fn gdipOk(status: c.GpStatus) bool {
-    return status == c.Ok;
-}
+const BuiltTextTexture = struct {
+    texture: ByteTextureID,
+    display_size_px: ByteVec2,
+    content_size_px: ByteVec2,
+    uv_min: ByteVec2,
+    uv_max: ByteVec2,
+};
 
-fn createGdipBitmap(width: i32, height: i32) ?*c.GpBitmap {
-    var bitmap: ?*c.GpBitmap = null;
-    if (!gdipOk(c.GdipCreateBitmapFromScan0(width, height, 0, c.PixelFormat32bppARGB, null, &bitmap)) or bitmap == null) return null;
-    return bitmap;
-}
+const TextureFilter = enum {
+    nearest,
+    linear,
+};
 
-fn createGdipGraphicsForImage(image: ?*c.GpImage) ?*c.GpGraphics {
-    var graphics: ?*c.GpGraphics = null;
-    if (!gdipOk(c.GdipGetImageGraphicsContext(image, &graphics)) or graphics == null) return null;
-    return graphics;
-}
+const RasterizedTextImage = struct {
+    rgba: []u8,
+    pixel_w: u32,
+    pixel_h: u32,
+    display_size_px: ByteVec2,
+    content_size_px: ByteVec2,
+    content_origin_px: ByteVec2,
+    uv_min: ByteVec2,
+    uv_max: ByteVec2,
 
-fn createGdipPath() ?*c.GpPath {
-    var path: ?*c.GpPath = null;
-    if (!gdipOk(c.GdipCreatePath(c.FillModeAlternate, &path)) or path == null) return null;
-    return path;
-}
-
-fn createGdipMatrix() ?*c.GpMatrix {
-    var matrix: ?*c.GpMatrix = null;
-    if (!gdipOk(c.GdipCreateMatrix(&matrix)) or matrix == null) return null;
-    return matrix;
-}
-
-fn gdiArgb(a: u8, r: u8, g: u8, b: u8) c.ARGB {
-    return (@as(c.ARGB, a) << 24) | (@as(c.ARGB, r) << 16) | (@as(c.ARGB, g) << 8) | @as(c.ARGB, b);
-}
-
-const GdiSvgParser = struct {
-    input: []const u8,
-    index: usize = 0,
-    current_x: f32 = 0.0,
-    current_y: f32 = 0.0,
-    start_x: f32 = 0.0,
-    start_y: f32 = 0.0,
-    last_control_x: f32 = 0.0,
-    last_control_y: f32 = 0.0,
-    last_cmd: u8 = 0,
-
-    fn eof(self: *const GdiSvgParser) bool {
-        return self.index >= self.input.len;
-    }
-
-    fn peek(self: *const GdiSvgParser) u8 {
-        return if (self.index < self.input.len) self.input[self.index] else 0;
-    }
-
-    fn skipWhitespace(self: *GdiSvgParser) void {
-        while (self.index < self.input.len) : (self.index += 1) {
-            const ch = self.input[self.index];
-            if (ch != ' ' and ch != ',' and ch != '\t' and ch != '\n' and ch != '\r') break;
-        }
-    }
-
-    fn hasMoreNumbers(self: *GdiSvgParser) bool {
-        self.skipWhitespace();
-        if (self.eof()) return false;
-        const ch = self.peek();
-        return ch == '-' or ch == '+' or ch == '.' or (ch >= '0' and ch <= '9');
-    }
-
-    fn parseNumber(self: *GdiSvgParser) f32 {
-        self.skipWhitespace();
-        if (self.eof()) return 0.0;
-
-        var negative = false;
-        if (self.peek() == '-') {
-            negative = true;
-            self.index += 1;
-        } else if (self.peek() == '+') {
-            self.index += 1;
-        }
-
-        var result: f32 = 0.0;
-        while (!self.eof()) {
-            const ch = self.peek();
-            if (ch < '0' or ch > '9') break;
-            result = result * 10.0 + @as(f32, @floatFromInt(ch - '0'));
-            self.index += 1;
-        }
-
-        if (!self.eof() and self.peek() == '.') {
-            self.index += 1;
-            var divisor: f32 = 10.0;
-            while (!self.eof()) {
-                const ch = self.peek();
-                if (ch < '0' or ch > '9') break;
-                result += @as(f32, @floatFromInt(ch - '0')) / divisor;
-                divisor *= 10.0;
-                self.index += 1;
-            }
-        }
-
-        if (!self.eof()) {
-            const ch = self.peek();
-            if (ch == 'e' or ch == 'E') {
-                self.index += 1;
-                var exp_negative = false;
-                if (!self.eof() and self.peek() == '-') {
-                    exp_negative = true;
-                    self.index += 1;
-                } else if (!self.eof() and self.peek() == '+') {
-                    self.index += 1;
-                }
-
-                var exponent: i32 = 0;
-                while (!self.eof()) {
-                    const digit = self.peek();
-                    if (digit < '0' or digit > '9') break;
-                    exponent = exponent * 10 + @as(i32, digit - '0');
-                    self.index += 1;
-                }
-                if (exp_negative) exponent = -exponent;
-                result *= std.math.pow(f32, 10.0, @as(f32, @floatFromInt(exponent)));
-            }
-        }
-
-        return if (negative) -result else result;
+    fn deinit(self: *RasterizedTextImage) void {
+        if (self.rgba.len > 0) allocator.free(self.rgba);
+        self.* = undefined;
     }
 };
 
-fn gdiSvgAngleBetween(ux: f32, uy: f32, vx: f32, vy: f32) f32 {
-    const dot = ux * vx + uy * vy;
-    const len = @sqrt((ux * ux + uy * uy) * (vx * vx + vy * vy));
-    if (len <= 0.0) return 0.0;
-    const arg = std.math.clamp(dot / len, -1.0, 1.0);
-    var ang = std.math.acos(arg);
-    if (ux * vy - uy * vx < 0.0) ang = -ang;
-    return ang;
+fn roundToNearestPixel(value: f32) f32 {
+    return @floor(value + 0.5);
 }
 
-fn gdiSvgAddArcToPath(path: ?*c.GpPath, x0: f32, y0: f32, rx_in: f32, ry_in: f32, angle: f32, large_arc_flag: i32, sweep_flag: i32, x1: f32, y1: f32) void {
-    const active_path = path orelse return;
-    var rx = @abs(rx_in);
-    var ry = @abs(ry_in);
-    if (rx == 0.0 or ry == 0.0) {
-        _ = c.GdipAddPathLine(active_path, x0, y0, x1, y1);
-        return;
-    }
-
-    const sin_phi = @sin(angle * std.math.pi / 180.0);
-    const cos_phi = @cos(angle * std.math.pi / 180.0);
-    const dx2 = (x0 - x1) / 2.0;
-    const dy2 = (y0 - y1) / 2.0;
-    const x1p = cos_phi * dx2 + sin_phi * dy2;
-    const y1p = -sin_phi * dx2 + cos_phi * dy2;
-
-    var rx_sq = rx * rx;
-    var ry_sq = ry * ry;
-    const x1p_sq = x1p * x1p;
-    const y1p_sq = y1p * y1p;
-    const lambda = x1p_sq / rx_sq + y1p_sq / ry_sq;
-    if (lambda > 1.0) {
-        const scale = @sqrt(lambda);
-        rx *= scale;
-        ry *= scale;
-        rx_sq = rx * rx;
-        ry_sq = ry * ry;
-    }
-
-    var radicant = rx_sq * ry_sq - rx_sq * y1p_sq - ry_sq * x1p_sq;
-    var denom = rx_sq * y1p_sq + ry_sq * x1p_sq;
-    if (denom == 0.0) denom = 1.0;
-    radicant = @max(0.0, radicant / denom);
-
-    const coef = (if (large_arc_flag != sweep_flag) @as(f32, 1.0) else @as(f32, -1.0)) * @sqrt(radicant);
-    const cxp = coef * (rx * y1p) / ry;
-    const cyp = coef * (-ry * x1p) / rx;
-    const cx = cos_phi * cxp - sin_phi * cyp + (x0 + x1) / 2.0;
-    const cy = sin_phi * cxp + cos_phi * cyp + (y0 + y1) / 2.0;
-    const theta1 = gdiSvgAngleBetween(1.0, 0.0, (x1p - cxp) / rx, (y1p - cyp) / ry);
-    var delta_theta = gdiSvgAngleBetween((x1p - cxp) / rx, (y1p - cyp) / ry, (-x1p - cxp) / rx, (-y1p - cyp) / ry);
-
-    if (sweep_flag == 0 and delta_theta > 0.0) {
-        delta_theta -= 2.0 * std.math.pi;
-    } else if (sweep_flag != 0 and delta_theta < 0.0) {
-        delta_theta += 2.0 * std.math.pi;
-    }
-
-    const segments: i32 = @intFromFloat(@ceil(@abs(delta_theta / (std.math.pi / 2.0))));
-    const delta = delta_theta / @as(f32, @floatFromInt(@max(segments, 1)));
-    var t = theta1;
-    var i: i32 = 0;
-    while (i < segments) : (i += 1) {
-        const t1 = t;
-        const t2 = t + delta;
-        const sin_t1 = @sin(t1);
-        const cos_t1 = @cos(t1);
-        const sin_t2 = @sin(t2);
-        const cos_t2 = @cos(t2);
-        const e = @tan(delta / 4.0) * 4.0 / 3.0;
-        const x_a = rx * cos_t1;
-        const y_a = ry * sin_t1;
-        const x_b = rx * cos_t2;
-        const y_b = ry * sin_t2;
-        const cp1x = x_a - e * ry * sin_t1;
-        const cp1y = y_a + e * rx * cos_t1;
-        const cp2x = x_b + e * ry * sin_t2;
-        const cp2y = y_b - e * rx * cos_t2;
-        const from_x = cos_phi * x_a - sin_phi * y_a + cx;
-        const from_y = sin_phi * x_a + cos_phi * y_a + cy;
-        const c1x = cos_phi * cp1x - sin_phi * cp1y + cx;
-        const c1y = sin_phi * cp1x + cos_phi * cp1y + cy;
-        const c2x = cos_phi * cp2x - sin_phi * cp2y + cx;
-        const c2y = sin_phi * cp2x + cos_phi * cp2y + cy;
-        const to_x = cos_phi * x_b - sin_phi * y_b + cx;
-        const to_y = sin_phi * x_b + cos_phi * y_b + cy;
-        _ = c.GdipAddPathBezier(active_path, from_x, from_y, c1x, c1y, c2x, c2y, to_x, to_y);
-        t += delta;
-    }
+fn textSupersampleForFont(font: *const ByteFont) f32 {
+    _ = font;
+    return 1.0;
 }
 
-fn gdiSvgParsePath(svg_path: []const u8, path: ?*c.GpPath) void {
-    const active_path = path orelse return;
-    var parser = GdiSvgParser{ .input = svg_path };
-
-    while (!parser.eof()) {
-        parser.skipWhitespace();
-        if (parser.eof()) break;
-
-        var cmd: u8 = 0;
-        const ch = parser.peek();
-        if ((ch >= 'A' and ch <= 'Z') or (ch >= 'a' and ch <= 'z')) {
-            cmd = ch;
-            parser.index += 1;
-            parser.last_cmd = cmd;
-        } else {
-            cmd = parser.last_cmd;
-            if (cmd == 'M') cmd = 'L' else if (cmd == 'm') cmd = 'l';
-        }
-
-        switch (cmd) {
-            'M' => {
-                parser.current_x = parser.parseNumber();
-                parser.start_x = parser.current_x;
-                parser.current_y = parser.parseNumber();
-                parser.start_y = parser.current_y;
-                _ = c.GdipStartPathFigure(active_path);
-                while (parser.hasMoreNumbers()) {
-                    parser.current_x = parser.parseNumber();
-                    parser.current_y = parser.parseNumber();
-                    _ = c.GdipAddPathLine(active_path, parser.current_x - 0.01, parser.current_y - 0.01, parser.current_x, parser.current_y);
-                }
-            },
-            'm' => {
-                var dx = parser.parseNumber();
-                var dy = parser.parseNumber();
-                parser.current_x += dx;
-                parser.start_x = parser.current_x;
-                parser.current_y += dy;
-                parser.start_y = parser.current_y;
-                _ = c.GdipStartPathFigure(active_path);
-                while (parser.hasMoreNumbers()) {
-                    dx = parser.parseNumber();
-                    dy = parser.parseNumber();
-                    const new_x = parser.current_x + dx;
-                    const new_y = parser.current_y + dy;
-                    _ = c.GdipAddPathLine(active_path, parser.current_x, parser.current_y, new_x, new_y);
-                    parser.current_x = new_x;
-                    parser.current_y = new_y;
-                }
-            },
-            'L' => {
-                while (true) {
-                    const x = parser.parseNumber();
-                    const y = parser.parseNumber();
-                    _ = c.GdipAddPathLine(active_path, parser.current_x, parser.current_y, x, y);
-                    parser.current_x = x;
-                    parser.current_y = y;
-                    if (!parser.hasMoreNumbers()) break;
-                }
-            },
-            'l' => {
-                while (true) {
-                    const dx = parser.parseNumber();
-                    const dy = parser.parseNumber();
-                    const new_x = parser.current_x + dx;
-                    const new_y = parser.current_y + dy;
-                    _ = c.GdipAddPathLine(active_path, parser.current_x, parser.current_y, new_x, new_y);
-                    parser.current_x = new_x;
-                    parser.current_y = new_y;
-                    if (!parser.hasMoreNumbers()) break;
-                }
-            },
-            'H' => {
-                while (true) {
-                    const x = parser.parseNumber();
-                    _ = c.GdipAddPathLine(active_path, parser.current_x, parser.current_y, x, parser.current_y);
-                    parser.current_x = x;
-                    if (!parser.hasMoreNumbers()) break;
-                }
-            },
-            'h' => {
-                while (true) {
-                    const dx = parser.parseNumber();
-                    const new_x = parser.current_x + dx;
-                    _ = c.GdipAddPathLine(active_path, parser.current_x, parser.current_y, new_x, parser.current_y);
-                    parser.current_x = new_x;
-                    if (!parser.hasMoreNumbers()) break;
-                }
-            },
-            'V' => {
-                while (true) {
-                    const y = parser.parseNumber();
-                    _ = c.GdipAddPathLine(active_path, parser.current_x, parser.current_y, parser.current_x, y);
-                    parser.current_y = y;
-                    if (!parser.hasMoreNumbers()) break;
-                }
-            },
-            'v' => {
-                while (true) {
-                    const dy = parser.parseNumber();
-                    const new_y = parser.current_y + dy;
-                    _ = c.GdipAddPathLine(active_path, parser.current_x, parser.current_y, parser.current_x, new_y);
-                    parser.current_y = new_y;
-                    if (!parser.hasMoreNumbers()) break;
-                }
-            },
-            'C' => {
-                while (true) {
-                    const x1 = parser.parseNumber();
-                    const y1 = parser.parseNumber();
-                    const x2 = parser.parseNumber();
-                    const y2 = parser.parseNumber();
-                    const x = parser.parseNumber();
-                    const y = parser.parseNumber();
-                    _ = c.GdipAddPathBezier(active_path, parser.current_x, parser.current_y, x1, y1, x2, y2, x, y);
-                    parser.last_control_x = x2;
-                    parser.last_control_y = y2;
-                    parser.current_x = x;
-                    parser.current_y = y;
-                    if (!parser.hasMoreNumbers()) break;
-                }
-            },
-            'c' => {
-                while (true) {
-                    const dx1 = parser.parseNumber();
-                    const dy1 = parser.parseNumber();
-                    const dx2 = parser.parseNumber();
-                    const dy2 = parser.parseNumber();
-                    const dx = parser.parseNumber();
-                    const dy = parser.parseNumber();
-                    const x1 = parser.current_x + dx1;
-                    const y1 = parser.current_y + dy1;
-                    const x2 = parser.current_x + dx2;
-                    const y2 = parser.current_y + dy2;
-                    const x = parser.current_x + dx;
-                    const y = parser.current_y + dy;
-                    _ = c.GdipAddPathBezier(active_path, parser.current_x, parser.current_y, x1, y1, x2, y2, x, y);
-                    parser.last_control_x = x2;
-                    parser.last_control_y = y2;
-                    parser.current_x = x;
-                    parser.current_y = y;
-                    if (!parser.hasMoreNumbers()) break;
-                }
-            },
-            'S' => {
-                while (true) {
-                    const x2 = parser.parseNumber();
-                    const y2 = parser.parseNumber();
-                    const x = parser.parseNumber();
-                    const y = parser.parseNumber();
-                    const x1 = 2.0 * parser.current_x - parser.last_control_x;
-                    const y1 = 2.0 * parser.current_y - parser.last_control_y;
-                    _ = c.GdipAddPathBezier(active_path, parser.current_x, parser.current_y, x1, y1, x2, y2, x, y);
-                    parser.last_control_x = x2;
-                    parser.last_control_y = y2;
-                    parser.current_x = x;
-                    parser.current_y = y;
-                    if (!parser.hasMoreNumbers()) break;
-                }
-            },
-            's' => {
-                while (true) {
-                    const dx2 = parser.parseNumber();
-                    const dy2 = parser.parseNumber();
-                    const dx = parser.parseNumber();
-                    const dy = parser.parseNumber();
-                    const x2 = parser.current_x + dx2;
-                    const y2 = parser.current_y + dy2;
-                    const x = parser.current_x + dx;
-                    const y = parser.current_y + dy;
-                    const x1 = 2.0 * parser.current_x - parser.last_control_x;
-                    const y1 = 2.0 * parser.current_y - parser.last_control_y;
-                    _ = c.GdipAddPathBezier(active_path, parser.current_x, parser.current_y, x1, y1, x2, y2, x, y);
-                    parser.last_control_x = x2;
-                    parser.last_control_y = y2;
-                    parser.current_x = x;
-                    parser.current_y = y;
-                    if (!parser.hasMoreNumbers()) break;
-                }
-            },
-            'Q' => {
-                while (true) {
-                    const x1 = parser.parseNumber();
-                    const y1 = parser.parseNumber();
-                    const x = parser.parseNumber();
-                    const y = parser.parseNumber();
-                    const cx1 = parser.current_x + (2.0 / 3.0) * (x1 - parser.current_x);
-                    const cy1 = parser.current_y + (2.0 / 3.0) * (y1 - parser.current_y);
-                    const cx2 = x + (2.0 / 3.0) * (x1 - x);
-                    const cy2 = y + (2.0 / 3.0) * (y1 - y);
-                    _ = c.GdipAddPathBezier(active_path, parser.current_x, parser.current_y, cx1, cy1, cx2, cy2, x, y);
-                    parser.last_control_x = x1;
-                    parser.last_control_y = y1;
-                    parser.current_x = x;
-                    parser.current_y = y;
-                    if (!parser.hasMoreNumbers()) break;
-                }
-            },
-            'q' => {
-                while (true) {
-                    const dx1 = parser.parseNumber();
-                    const dy1 = parser.parseNumber();
-                    const dx = parser.parseNumber();
-                    const dy = parser.parseNumber();
-                    const x1 = parser.current_x + dx1;
-                    const y1 = parser.current_y + dy1;
-                    const x = parser.current_x + dx;
-                    const y = parser.current_y + dy;
-                    const cx1 = parser.current_x + (2.0 / 3.0) * (x1 - parser.current_x);
-                    const cy1 = parser.current_y + (2.0 / 3.0) * (y1 - parser.current_y);
-                    const cx2 = x + (2.0 / 3.0) * (x1 - x);
-                    const cy2 = y + (2.0 / 3.0) * (y1 - y);
-                    _ = c.GdipAddPathBezier(active_path, parser.current_x, parser.current_y, cx1, cy1, cx2, cy2, x, y);
-                    parser.last_control_x = x1;
-                    parser.last_control_y = y1;
-                    parser.current_x = x;
-                    parser.current_y = y;
-                    if (!parser.hasMoreNumbers()) break;
-                }
-            },
-            'A', 'a' => {
-                while (true) {
-                    const rx = parser.parseNumber();
-                    const ry = parser.parseNumber();
-                    const angle = parser.parseNumber();
-                    const large_arc = @as(i32, @intFromFloat(parser.parseNumber()));
-                    const sweep = @as(i32, @intFromFloat(parser.parseNumber()));
-                    const x = parser.parseNumber();
-                    const y = parser.parseNumber();
-                    const x1 = if (cmd == 'a') parser.current_x + x else x;
-                    const y1 = if (cmd == 'a') parser.current_y + y else y;
-                    gdiSvgAddArcToPath(active_path, parser.current_x, parser.current_y, rx, ry, angle, large_arc, sweep, x1, y1);
-                    parser.current_x = x1;
-                    parser.current_y = y1;
-                    if (!parser.hasMoreNumbers()) break;
-                }
-            },
-            'Z', 'z' => {
-                _ = c.GdipClosePathFigure(active_path);
-                parser.current_x = parser.start_x;
-                parser.current_y = parser.start_y;
-            },
-            else => {},
-        }
-    }
+fn textSupersampleForFontI(font: *const ByteFont) i32 {
+    _ = font;
+    return 1;
 }
 
-fn extractFamilyNameFromCollection(collection: *c.GpFontCollection, out_utf8: *[]u8, out_utf16: *[:0]u16) bool {
-    var family_count: c.INT = 0;
-    if (!gdipOk(c.GdipGetFontCollectionFamilyCount(collection, &family_count)) or family_count <= 0) return false;
-
-    const families = allocator.alloc(?*c.GpFontFamily, @intCast(family_count)) catch return false;
-    defer allocator.free(families);
-
-    var found_count: c.INT = 0;
-    if (!gdipOk(c.GdipGetFontCollectionFamilyList(collection, family_count, @ptrCast(families.ptr), &found_count)) or found_count <= 0) return false;
-    defer {
-        const count: usize = @intCast(found_count);
-        for (families[0..count]) |family| {
-            if (family != null) _ = c.GdipDeleteFontFamily(family);
-        }
-    }
-
-    const family = families[0] orelse return false;
-    var family_name_wide: [c.LF_FACESIZE]u16 = [_]u16{0} ** c.LF_FACESIZE;
-    if (!gdipOk(c.GdipGetFamilyName(family, &family_name_wide, 0))) return false;
-
-    const family_len = std.mem.indexOfScalar(u16, family_name_wide[0..], 0) orelse family_name_wide.len;
-    if (family_len == 0) return false;
-
-    out_utf8.* = std.unicode.utf16LeToUtf8Alloc(allocator, family_name_wide[0..family_len]) catch return false;
-    errdefer allocator.free(out_utf8.*);
-
-    out_utf16.* = allocator.allocSentinel(u16, family_len, 0) catch return false;
-    @memcpy(out_utf16.*[0..family_len], family_name_wide[0..family_len]);
-    return true;
+fn snapTextPenX(font: *const ByteFont, pen_x: f32) f32 {
+    return if (font.PixelSnapH) roundToNearestPixel(pen_x) else pen_x;
 }
 
-fn addFontFromFile(self: *ByteFontAtlas, file_path: []const u8, size_pixels: f32, font_cfg: ?*const ByteFontConfig) ?*ByteFont {
-    const font = allocator.create(ByteFont) catch {
-        return null;
+const TextGlyphPlacement = struct {
+    origin_x: f32,
+    shift_x: f32,
+};
+
+fn resolveTextGlyphPlacement(font: *const ByteFont, pen_x: f32) TextGlyphPlacement {
+    if (font.PixelSnapH) {
+        return .{
+            .origin_x = roundToNearestPixel(pen_x),
+            .shift_x = 0.0,
+        };
+    }
+
+    const origin_x = @floor(pen_x);
+    return .{
+        .origin_x = origin_x,
+        .shift_x = pen_x - origin_x,
     };
-    errdefer allocator.destroy(font);
+}
 
-    var family_name_utf8: []u8 = undefined;
-    var family_name_utf16: [:0]u16 = undefined;
-    var collection: ?*c.GpFontCollection = null;
+fn fontConfigOversample(value: i32) u32 {
+    return @intCast(std.math.clamp(value, 1, 8));
+}
 
-    if (knownInstalledFamilyName(file_path)) |known_family| {
-        family_name_utf8 = allocator.dupe(u8, known_family.utf8) catch return null;
-        errdefer allocator.free(family_name_utf8);
-        family_name_utf16 = dupeUtf16Z(known_family.utf16) catch return null;
-        errdefer allocator.free(family_name_utf16);
-    } else {
-        const wide_path = std.unicode.utf8ToUtf16LeAllocZ(allocator, file_path) catch return null;
-        defer allocator.free(wide_path);
+fn nextCodepointValue(text: []const u8, index: *usize) u32 {
+    const start = index.*;
+    if (start >= text.len) return 0;
 
-        if (!gdipOk(c.GdipNewPrivateFontCollection(&collection)) or collection == null) return null;
-        errdefer {
-            if (collection != null) {
-                var cleanup_collection = collection;
-                _ = c.GdipDeletePrivateFontCollection(@ptrCast(&cleanup_collection));
+    const cp_len = std.unicode.utf8ByteSequenceLength(text[start]) catch 1;
+    const end = @min(text.len, start + cp_len);
+    index.* = end;
+    return std.unicode.utf8Decode(text[start..end]) catch 0xFFFD;
+}
+
+fn readFileAllocAbsoluteOrRelative(path: []const u8, max_bytes: usize) ![]u8 {
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+
+    const io = threaded.io();
+    return try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(max_bytes));
+}
+
+fn computeTextBounds(font: *const ByteFont, size_pixels: f32, text: []const u8) TextBounds {
+    if (text.len == 0) return .{};
+
+    const face = @constCast(&font.ByteTypeFace);
+    var pen_x: f32 = 0.0;
+    var min_x: f32 = 0.0;
+    var min_y: f32 = 0.0;
+    var max_x: f32 = 0.0;
+    var max_y: f32 = 0.0;
+    var have_bounds = false;
+    var prev_glyph: ?u32 = null;
+    var i: usize = 0;
+    while (i < text.len) {
+        const cp = nextCodepointValue(text, &i);
+        if (cp == '\r' or cp == '\n') continue;
+
+        const glyph_index = face.getGlyphIndex(cp);
+
+        if (prev_glyph) |prev| {
+            pen_x += face.getKerningPx(prev, glyph_index, size_pixels);
+        }
+
+        const placement = resolveTextGlyphPlacement(font, pen_x);
+        const glyph_bounds = face.loadGlyphBounds(glyph_index, size_pixels, placement.shift_x, 0.0) orelse bt.GlyphBounds{};
+        if (glyph_bounds.x_max > glyph_bounds.x_min and glyph_bounds.y_max > glyph_bounds.y_min) {
+            const gx0 = placement.origin_x + glyph_bounds.x_min;
+            const gy0 = -glyph_bounds.y_max;
+            const gx1 = placement.origin_x + glyph_bounds.x_max;
+            const gy1 = -glyph_bounds.y_min;
+            if (!have_bounds) {
+                min_x = gx0;
+                min_y = gy0;
+                max_x = gx1;
+                max_y = gy1;
+                have_bounds = true;
+            } else {
+                min_x = @min(min_x, gx0);
+                min_y = @min(min_y, gy0);
+                max_x = @max(max_x, gx1);
+                max_y = @max(max_y, gy1);
             }
         }
 
-        if (!gdipOk(c.GdipPrivateAddFontFile(collection, wide_path.ptr))) return null;
-        if (!extractFamilyNameFromCollection(collection.?, &family_name_utf8, &family_name_utf16)) return null;
-        errdefer allocator.free(family_name_utf8);
-        errdefer allocator.free(family_name_utf16);
+        pen_x += glyph_bounds.advance_x;
+        prev_glyph = glyph_index;
     }
+
+    if (!have_bounds) {
+        return .{ .Width = pen_x };
+    }
+
+    return .{
+        .X = min_x,
+        .Y = min_y,
+        .Width = @max(max_x, pen_x) - min_x,
+        .Height = max_y - min_y,
+    };
+}
+
+fn addFontFromFile(self: *ByteFontAtlas, file_path: []const u8, size_pixels: f32, font_cfg: ?*const ByteFontConfig) ?*ByteFont {
+    const font_data = readFileAllocAbsoluteOrRelative(file_path, 64 * 1024 * 1024) catch return null;
+    errdefer allocator.free(font_data);
+
+    return initOwnedFont(self, font_data, file_path, size_pixels, font_cfg);
+}
+
+fn addFontFromMemory(self: *ByteFontAtlas, font_data: []const u8, debug_name: []const u8, size_pixels: f32, font_cfg: ?*const ByteFontConfig) ?*ByteFont {
+    const owned_font_data = allocator.dupe(u8, font_data) catch return null;
+    errdefer allocator.free(owned_font_data);
+
+    return initOwnedFont(self, owned_font_data, debug_name, size_pixels, font_cfg);
+}
+
+fn initOwnedFont(self: *ByteFontAtlas, owned_font_data: []u8, debug_name: []const u8, size_pixels: f32, font_cfg: ?*const ByteFontConfig) ?*ByteFont {
+    errdefer allocator.free(owned_font_data);
+
+    const debug_name_copy = allocator.dupe(u8, debug_name) catch return null;
+    errdefer allocator.free(debug_name_copy);
+
+    const font = allocator.create(ByteFont) catch return null;
+    errdefer allocator.destroy(font);
 
     font.* = .{
         .LegacySize = size_pixels,
-        .FamilyName = family_name_utf8,
-        .FilePath = allocator.dupe(u8, file_path) catch return null,
-        .FontStyle = detectFontStyleFromPath(file_path),
-        .FontCollection = collection,
-        .FamilyNameWide = family_name_utf16,
+        .FilePath = debug_name_copy,
+        .FontStyle = detectFontStyleFromPath(debug_name),
         .PixelSnapH = if (font_cfg) |cfg| cfg.PixelSnapH else false,
+        .OversampleH = if (font_cfg) |cfg| fontConfigOversample(cfg.OversampleH) else 1,
+        .OversampleV = if (font_cfg) |cfg| fontConfigOversample(cfg.OversampleV) else 1,
+        .FontData = owned_font_data,
     };
-    errdefer allocator.free(font.FilePath);
+
+    font.ByteTypeFace = bt.FontFace.init(font.FontData, 0) orelse return null;
 
     self.Fonts.append(allocator, font) catch return null;
     clearTextCache();
@@ -2572,7 +2678,7 @@ fn nextCodepointEnd(text: []const u8, start: usize) usize {
 
 fn appendTextLine(result: *TextLayoutResult, session: *TextMeasureSession, text: []const u8, start: usize, end: usize, line_width: f32) !void {
     const line_text = text[start..end];
-    const bounds = if (line_text.len > 0) session.measureBounds(line_text) orelse return error.MeasureFailed else std.mem.zeroes(c.RectF);
+    const bounds = if (line_text.len > 0) session.measureBounds(line_text) else TextBounds{};
 
     try result.lines.append(allocator, .{
         .start = start,
@@ -2584,7 +2690,7 @@ fn appendTextLine(result: *TextLayoutResult, session: *TextMeasureSession, text:
     const line_index = result.lines.items.len - 1;
     const line_y = @as(f32, @floatFromInt(line_index)) * result.line_height;
     result.width = @max(result.width, bounds.Width);
-    result.height = @max(result.height, line_y + @max(result.line_height, bounds.Height));
+    result.height = @max(result.height, line_y + result.line_height);
 }
 
 fn fitTextChunk(session: *TextMeasureSession, text: []const u8, start: usize, end: usize, max_width: f32) usize {
@@ -2695,192 +2801,271 @@ fn layoutText(font: *const ByteFont, size_pixels: f32, text: []const u8, wrap_wi
     return result;
 }
 
-fn measureTextWithGdiPlus(font: *const ByteFont, size_pixels: f32, text: []const u8, wrap_width: f32) ByteVec2 {
-    var layout = layoutText(font, size_pixels * kTextSupersample, text, if (wrap_width > 0.0) wrap_width * kTextSupersample else 0.0) orelse return .{};
+fn measureTextWithRasterizer(font: *const ByteFont, size_pixels: f32, text: []const u8, wrap_width: f32) ByteVec2 {
+    const supersample = textSupersampleForFont(font);
+    var layout = layoutText(font, size_pixels * supersample, text, if (wrap_width > 0.0) wrap_width * supersample else 0.0) orelse return .{};
     defer layout.deinit();
-    return .{ .x = layout.width / kTextSupersample, .y = layout.height / kTextSupersample };
+    return .{ .x = layout.width / supersample, .y = layout.height / supersample };
 }
 
-fn textRenderInsetPx(size_pixels: f32) f32 {
-    const pad_px = alignUpInt(@max(2, @as(i32, @intFromFloat(@ceil(size_pixels * 0.12 * kTextSupersample)))), kTextSupersampleI);
-    return @as(f32, @floatFromInt(pad_px)) / kTextSupersample;
+fn textRenderInsetPx(font: *const ByteFont, size_pixels: f32) f32 {
+    _ = font;
+    _ = size_pixels;
+    return 0.0;
 }
 
-fn succeeded(hr: c.HRESULT) bool {
-    return hr >= 0;
-}
+fn blendGlyphCoverageIntoRgba(rgba: []u8, buffer_width: u32, buffer_height: u32, glyph: []const u8, glyph_w: usize, glyph_h: usize, dst_x: i32, dst_y: i32, rgb_value: u8) void {
+    for (0..glyph_h) |row| {
+        const y = dst_y + @as(i32, @intCast(row));
+        if (y < 0 or y >= @as(i32, @intCast(buffer_height))) continue;
 
-fn failed(hr: c.HRESULT) bool {
-    return hr < 0;
-}
+        for (0..glyph_w) |col| {
+            const x = dst_x + @as(i32, @intCast(col));
+            if (x < 0 or x >= @as(i32, @intCast(buffer_width))) continue;
 
-fn releaseUnknown(obj: anytype) void {
-    if (obj) |ptr| {
-        _ = ptr.lpVtbl.*.Release.?(@ptrCast(ptr));
+            const src_a: u32 = glyph[row * glyph_w + col];
+            if (src_a == 0) continue;
+
+            const dst_index = (@as(usize, @intCast(y)) * @as(usize, buffer_width) + @as(usize, @intCast(x))) * 4;
+            const dst_a: u32 = rgba[dst_index + 3];
+            const out_a = src_a + @divTrunc(dst_a * (255 - src_a), 255);
+            rgba[dst_index + 0] = rgb_value;
+            rgba[dst_index + 1] = rgb_value;
+            rgba[dst_index + 2] = rgb_value;
+            rgba[dst_index + 3] = @intCast(@min(out_a, 255));
+        }
     }
 }
 
-fn addRefUnknown(obj: anytype) void {
-    if (obj) |ptr| {
-        _ = ptr.lpVtbl.*.AddRef.?(@ptrCast(ptr));
+fn rasterizeTextLineIntoRgba(rgba: []u8, pixel_w: u32, pixel_h: u32, session: *const TextMeasureSession, line_text: []const u8, line_bounds: TextBounds, line_y: f32, pad_px: i32, rgb_value: u8) bool {
+    const face = @constCast(&session.font.ByteTypeFace);
+    var pen_x = @as(f32, @floatFromInt(pad_px)) - line_bounds.X;
+    const baseline_y = @as(f32, @floatFromInt(pad_px)) + line_y + session.ascender_px;
+    const baseline_y_floor = @floor(baseline_y);
+    const baseline_y_px: i32 = @intFromFloat(baseline_y_floor);
+    const shift_y = baseline_y - baseline_y_floor;
+
+    var prev_glyph: ?u32 = null;
+    var i: usize = 0;
+    while (i < line_text.len) {
+        const cp = nextCodepointValue(line_text, &i);
+        if (cp == '\r' or cp == '\n') continue;
+
+        const glyph_index = face.getGlyphIndex(cp);
+
+        if (prev_glyph) |prev| {
+            pen_x += face.getKerningPx(prev, glyph_index, session.size_pixels);
+        }
+
+        const placement = resolveTextGlyphPlacement(session.font, pen_x);
+        const pen_x_px: i32 = @intFromFloat(placement.origin_x);
+        var rendered = face.renderGlyph(allocator, glyph_index, session.size_pixels, placement.shift_x, shift_y) orelse return false;
+        defer rendered.deinit(allocator);
+        if (rendered.width > 0 and rendered.height > 0) {
+            const dst_x = pen_x_px + rendered.left;
+            const dst_y = baseline_y_px - rendered.top;
+            blendGlyphCoverageIntoRgba(rgba, pixel_w, pixel_h, rendered.pixels, rendered.width, rendered.height, dst_x, dst_y, rgb_value);
+        }
+
+        const advance_bounds = face.loadGlyphBounds(glyph_index, session.size_pixels, placement.shift_x, shift_y) orelse bt.GlyphBounds{};
+        pen_x += advance_bounds.advance_x;
+        prev_glyph = glyph_index;
     }
+
+    return true;
 }
 
-fn queryInterface(obj: anytype, iid: *const c.IID, out: *?*anyopaque) c.HRESULT {
-    const ptr = obj orelse return -1;
-    return ptr.lpVtbl.*.QueryInterface.?(@ptrCast(ptr), iid, @ptrCast(out));
-}
+fn rasterizeTextImageFromFont(font: *const ByteFont, size_pixels: f32, text: []const u8, supersample: f32, pad_scale: f32, wrap_width: f32, layout_scale: f32, rgb_value: u8) ?RasterizedTextImage {
+    if (size_pixels <= 0.0 or text.len == 0) return null;
+    const raster_size = size_pixels * supersample;
+    const effective_wrap = if (wrap_width > 0.0) wrap_width * supersample else 0.0;
+    var layout = layoutText(font, raster_size, text, effective_wrap) orelse return null;
+    defer layout.deinit();
 
-fn releaseShaderResourceView(view: ?*c.ID3D11ShaderResourceView) void {
-    releaseUnknown(view);
-}
+    const align_to = @max(1, @as(i32, @intFromFloat(@round(supersample))));
+    const raster_scale = ByteGui_ImplWin32_GetDpiScale() * supersample;
+    const pad_px = alignUpInt(@max(2, @as(i32, @intFromFloat(@ceil(raster_scale * pad_scale)))), align_to);
+    const content_w = alignUpInt(@max(1, @as(i32, @intFromFloat(@ceil(layout.width)))), align_to);
+    const tight_h: f32 = layout.height;
+    const content_h = alignUpInt(@max(1, @as(i32, @intFromFloat(@ceil(tight_h)))), align_to);
+    const pixel_w: u32 = @intCast(alignUpInt(@max(1, content_w + pad_px * 2), align_to));
+    const pixel_h: u32 = @intCast(alignUpInt(@max(1, content_h + pad_px * 2), align_to));
 
-fn createTextureFromGdipBitmap(bitmap: ?*c.GpBitmap) ?*c.ID3D11ShaderResourceView {
-    const device = ByteGui_ImplDX11_GetDevice() orelse return null;
-    const context = ByteGui_ImplDX11_GetDeviceContext();
-    if (bitmap == null) return null;
+    var session = TextMeasureSession.init(font, raster_size) orelse return null;
+    defer session.deinit();
 
-    var width: c.UINT = 0;
-    var height: c.UINT = 0;
-    _ = c.GdipGetImageWidth(@ptrCast(bitmap), &width);
-    _ = c.GdipGetImageHeight(@ptrCast(bitmap), &height);
-    if (width == 0 or height == 0) return null;
+    const pixel_count = @as(usize, pixel_w) * @as(usize, pixel_h);
+    const rgba = allocator.alloc(u8, pixel_count * 4) catch return null;
+    for (0..pixel_count) |pixel_index| {
+        const base = pixel_index * 4;
+        rgba[base + 0] = rgb_value;
+        rgba[base + 1] = rgb_value;
+        rgba[base + 2] = rgb_value;
+        rgba[base + 3] = 0;
+    }
 
-    var rect = c.Rect{
-        .X = 0,
-        .Y = 0,
-        .Width = @intCast(width),
-        .Height = @intCast(height),
+    for (layout.lines.items, 0..) |line, line_index| {
+        const line_text = text[line.start..line.end];
+        const line_y = @as(f32, @floatFromInt(line_index)) * layout.line_height;
+        if (!rasterizeTextLineIntoRgba(rgba, pixel_w, pixel_h, &session, line_text, line.bounds, line_y, pad_px, rgb_value)) {
+            allocator.free(rgba);
+            return null;
+        }
+    }
+
+    const pad_f = @as(f32, @floatFromInt(pad_px));
+
+    // Box-filter downsample the supersample-resolution RGBA buffer to 1× resolution.
+    // This produces much better anti-aliasing than relying on GL_LINEAR for minification.
+    const ss = @as(u32, @intFromFloat(@round(supersample)));
+    if (ss > 1 and pixel_w >= ss and pixel_h >= ss) {
+        const ds_w = pixel_w / ss;
+        const ds_h = pixel_h / ss;
+        const ds_count = @as(usize, ds_w) * @as(usize, ds_h);
+        const ds_rgba = allocator.alloc(u8, ds_count * 4) catch {
+            allocator.free(rgba);
+            return null;
+        };
+        const src_stride = @as(usize, pixel_w) * 4;
+        const dst_stride = @as(usize, ds_w) * 4;
+        const ss_usize: usize = @intCast(ss);
+        const divisor = ss_usize * ss_usize;
+        for (0..@as(usize, ds_h)) |dy| {
+            for (0..@as(usize, ds_w)) |dx| {
+                var sum_r: u32 = 0;
+                var sum_g: u32 = 0;
+                var sum_b: u32 = 0;
+                var sum_a: u32 = 0;
+                for (0..ss_usize) |sy| {
+                    for (0..ss_usize) |sx| {
+                        const si = (dy * ss_usize + sy) * src_stride + (dx * ss_usize + sx) * 4;
+                        sum_r += rgba[si + 0];
+                        sum_g += rgba[si + 1];
+                        sum_b += rgba[si + 2];
+                        sum_a += rgba[si + 3];
+                    }
+                }
+                const di = dy * dst_stride + dx * 4;
+                ds_rgba[di + 0] = @intCast(sum_r / divisor);
+                ds_rgba[di + 1] = @intCast(sum_g / divisor);
+                ds_rgba[di + 2] = @intCast(sum_b / divisor);
+                ds_rgba[di + 3] = @intCast(sum_a / divisor);
+            }
+        }
+        allocator.free(rgba);
+
+        const ds_pad_f = pad_f / @as(f32, @floatFromInt(ss));
+        const ds_content_origin = ByteVec2{ .x = ds_pad_f, .y = ds_pad_f };
+        const ds_layout_w = layout.width / supersample;
+        const ds_tight_h = tight_h / supersample;
+        const ds_pixel_w_f = @as(f32, @floatFromInt(ds_w));
+        const ds_pixel_h_f = @as(f32, @floatFromInt(ds_h));
+
+        return .{
+            .rgba = ds_rgba,
+            .pixel_w = ds_w,
+            .pixel_h = ds_h,
+            .display_size_px = .{
+                .x = ds_pixel_w_f * layout_scale,
+                .y = ds_pixel_h_f * layout_scale,
+            },
+            .content_size_px = .{
+                .x = ds_layout_w * layout_scale,
+                .y = ds_tight_h * layout_scale,
+            },
+            .content_origin_px = ds_content_origin,
+            .uv_min = .{
+                .x = std.math.clamp(ds_content_origin.x / ds_pixel_w_f, 0.0, 1.0),
+                .y = std.math.clamp(ds_content_origin.y / ds_pixel_h_f, 0.0, 1.0),
+            },
+            .uv_max = .{
+                .x = std.math.clamp((ds_content_origin.x + ds_layout_w) / ds_pixel_w_f, 0.0, 1.0),
+                .y = std.math.clamp((ds_content_origin.y + ds_tight_h) / ds_pixel_h_f, 0.0, 1.0),
+            },
+        };
+    }
+
+    const content_origin_px = ByteVec2{ .x = pad_f, .y = pad_f };
+    const content_size_px: ByteVec2 = .{
+        .x = layout.width / supersample * layout_scale,
+        .y = tight_h / supersample * layout_scale,
     };
-    var bitmap_data = std.mem.zeroes(c.BitmapData);
-    if (!gdipOk(c.GdipBitmapLockBits(bitmap, &rect, c.ImageLockModeRead, c.PixelFormat32bppARGB, &bitmap_data))) return null;
-    defer _ = c.GdipBitmapUnlockBits(bitmap, &bitmap_data);
+    const uv_min: ByteVec2 = .{
+        .x = std.math.clamp(content_origin_px.x / @as(f32, @floatFromInt(pixel_w)), 0.0, 1.0),
+        .y = std.math.clamp(content_origin_px.y / @as(f32, @floatFromInt(pixel_h)), 0.0, 1.0),
+    };
+    const uv_max: ByteVec2 = .{
+        .x = std.math.clamp((content_origin_px.x + layout.width) / @as(f32, @floatFromInt(pixel_w)), 0.0, 1.0),
+        .y = std.math.clamp((content_origin_px.y + tight_h) / @as(f32, @floatFromInt(pixel_h)), 0.0, 1.0),
+    };
 
-    if (context != null) {
-        var mip_desc = std.mem.zeroes(c.D3D11_TEXTURE2D_DESC);
-        mip_desc.Width = width;
-        mip_desc.Height = height;
-        mip_desc.MipLevels = 0;
-        mip_desc.ArraySize = 1;
-        mip_desc.Format = c.DXGI_FORMAT_B8G8R8A8_UNORM;
-        mip_desc.SampleDesc.Count = 1;
-        mip_desc.Usage = c.D3D11_USAGE_DEFAULT;
-        mip_desc.BindFlags = c.D3D11_BIND_SHADER_RESOURCE | c.D3D11_BIND_RENDER_TARGET;
-        mip_desc.MiscFlags = c.D3D11_RESOURCE_MISC_GENERATE_MIPS;
-
-        var mip_texture: ?*c.ID3D11Texture2D = null;
-        if (!failed(device.lpVtbl.*.CreateTexture2D.?(device, &mip_desc, null, &mip_texture)) and mip_texture != null) {
-            defer releaseUnknown(mip_texture);
-
-            context.?.lpVtbl.*.UpdateSubresource.?(context.?, @ptrCast(mip_texture), 0, null, bitmap_data.Scan0, @intCast(bitmap_data.Stride), 0);
-
-            var mip_srv_desc = std.mem.zeroes(c.D3D11_SHADER_RESOURCE_VIEW_DESC);
-            mip_srv_desc.Format = mip_desc.Format;
-            mip_srv_desc.ViewDimension = c.D3D11_SRV_DIMENSION_TEXTURE2D;
-            mip_srv_desc.unnamed_0.Texture2D.MostDetailedMip = 0;
-            mip_srv_desc.unnamed_0.Texture2D.MipLevels = std.math.maxInt(c.UINT);
-
-            var mip_srv: ?*c.ID3D11ShaderResourceView = null;
-            if (!failed(device.lpVtbl.*.CreateShaderResourceView.?(device, @ptrCast(mip_texture), &mip_srv_desc, &mip_srv)) and mip_srv != null) {
-                context.?.lpVtbl.*.GenerateMips.?(context.?, mip_srv);
-                return mip_srv;
-            }
-        }
-    }
-
-    var desc = std.mem.zeroes(c.D3D11_TEXTURE2D_DESC);
-    desc.Width = width;
-    desc.Height = height;
-    desc.MipLevels = 1;
-    desc.ArraySize = 1;
-    desc.Format = c.DXGI_FORMAT_B8G8R8A8_UNORM;
-    desc.SampleDesc.Count = 1;
-    desc.Usage = c.D3D11_USAGE_DEFAULT;
-    desc.BindFlags = c.D3D11_BIND_SHADER_RESOURCE;
-
-    var init_data = std.mem.zeroes(c.D3D11_SUBRESOURCE_DATA);
-    init_data.pSysMem = bitmap_data.Scan0;
-    init_data.SysMemPitch = @intCast(bitmap_data.Stride);
-
-    var texture: ?*c.ID3D11Texture2D = null;
-    if (failed(device.lpVtbl.*.CreateTexture2D.?(device, &desc, &init_data, &texture)) or texture == null) return null;
-    defer releaseUnknown(texture);
-
-    var srv_desc = std.mem.zeroes(c.D3D11_SHADER_RESOURCE_VIEW_DESC);
-    srv_desc.Format = desc.Format;
-    srv_desc.ViewDimension = c.D3D11_SRV_DIMENSION_TEXTURE2D;
-    srv_desc.unnamed_0.Texture2D.MostDetailedMip = 0;
-    srv_desc.unnamed_0.Texture2D.MipLevels = 1;
-
-    var srv: ?*c.ID3D11ShaderResourceView = null;
-    if (failed(device.lpVtbl.*.CreateShaderResourceView.?(device, @ptrCast(texture), &srv_desc, &srv)) or srv == null) return null;
-    return srv;
+    return .{
+        .rgba = rgba,
+        .pixel_w = pixel_w,
+        .pixel_h = pixel_h,
+        .display_size_px = .{
+            .x = (@as(f32, @floatFromInt(pixel_w)) / supersample) * layout_scale,
+            .y = (@as(f32, @floatFromInt(pixel_h)) / supersample) * layout_scale,
+        },
+        .content_size_px = content_size_px,
+        .content_origin_px = content_origin_px,
+        .uv_min = uv_min,
+        .uv_max = uv_max,
+    };
 }
 
-fn createTextureFromBGRA(pixels: []const u8, width: u32, height: u32) ?*c.ID3D11ShaderResourceView {
-    const device = ByteGui_ImplDX11_GetDevice() orelse return null;
-    const context = ByteGui_ImplDX11_GetDeviceContext();
-    if (width == 0 or height == 0) return null;
+fn buildTextTextureFromFont(font: *const ByteFont, size_pixels: f32, text: []const u8, supersample: f32, pad_scale: f32, wrap_width: f32, layout_scale: f32, rgb_value: u8, filter: TextureFilter) ?BuiltTextTexture {
+    if (!ByteGui_ImplOpenGL_HasContext()) return null;
 
-    if (context != null) {
-        var mip_desc = std.mem.zeroes(c.D3D11_TEXTURE2D_DESC);
-        mip_desc.Width = width;
-        mip_desc.Height = height;
-        mip_desc.MipLevels = 0;
-        mip_desc.ArraySize = 1;
-        mip_desc.Format = c.DXGI_FORMAT_B8G8R8A8_UNORM;
-        mip_desc.SampleDesc.Count = 1;
-        mip_desc.Usage = c.D3D11_USAGE_DEFAULT;
-        mip_desc.BindFlags = c.D3D11_BIND_SHADER_RESOURCE | c.D3D11_BIND_RENDER_TARGET;
-        mip_desc.MiscFlags = c.D3D11_RESOURCE_MISC_GENERATE_MIPS;
+    var raster = rasterizeTextImageFromFont(font, size_pixels, text, supersample, pad_scale, wrap_width, layout_scale, rgb_value) orelse return null;
+    defer raster.deinit();
 
-        var mip_texture: ?*c.ID3D11Texture2D = null;
-        if (!failed(device.lpVtbl.*.CreateTexture2D.?(device, &mip_desc, null, &mip_texture)) and mip_texture != null) {
-            defer releaseUnknown(mip_texture);
+    const texture = createTextureFromRGBA(raster.rgba, raster.pixel_w, raster.pixel_h, filter) orelse return null;
+    return .{
+        .texture = texture,
+        .display_size_px = raster.display_size_px,
+        .content_size_px = raster.content_size_px,
+        .uv_min = raster.uv_min,
+        .uv_max = raster.uv_max,
+    };
+}
+fn textureIdFromHandle(handle: gl.GLuint) ByteTextureID {
+    if (handle == 0) return null;
+    return @ptrFromInt(handle);
+}
 
-            context.?.lpVtbl.*.UpdateSubresource.?(context.?, @ptrCast(mip_texture), 0, null, pixels.ptr, width * 4, 0);
+fn textureHandleFromId(texture: ByteTextureID) gl.GLuint {
+    return if (texture) |ptr| @intCast(@intFromPtr(ptr)) else 0;
+}
 
-            var mip_srv_desc = std.mem.zeroes(c.D3D11_SHADER_RESOURCE_VIEW_DESC);
-            mip_srv_desc.Format = mip_desc.Format;
-            mip_srv_desc.ViewDimension = c.D3D11_SRV_DIMENSION_TEXTURE2D;
-            mip_srv_desc.unnamed_0.Texture2D.MostDetailedMip = 0;
-            mip_srv_desc.unnamed_0.Texture2D.MipLevels = std.math.maxInt(c.UINT);
+fn releaseTexture(texture: ByteTextureID) void {
+    const handle = textureHandleFromId(texture);
+    if (handle == 0) return;
+    const textures = [_]gl.GLuint{handle};
+    gl.glDeleteTextures(1, &textures);
+}
 
-            var mip_srv: ?*c.ID3D11ShaderResourceView = null;
-            if (!failed(device.lpVtbl.*.CreateShaderResourceView.?(device, @ptrCast(mip_texture), &mip_srv_desc, &mip_srv)) and mip_srv != null) {
-                context.?.lpVtbl.*.GenerateMips.?(context.?, mip_srv);
-                return mip_srv;
-            }
-        }
-    }
+fn createTextureFromRGBA(pixels: []const u8, width: u32, height: u32, filter: TextureFilter) ByteTextureID {
+    if (!ByteGui_ImplOpenGL_HasContext() or width == 0 or height == 0) return null;
 
-    var desc = std.mem.zeroes(c.D3D11_TEXTURE2D_DESC);
-    desc.Width = width;
-    desc.Height = height;
-    desc.MipLevels = 1;
-    desc.ArraySize = 1;
-    desc.Format = c.DXGI_FORMAT_B8G8R8A8_UNORM;
-    desc.SampleDesc.Count = 1;
-    desc.Usage = c.D3D11_USAGE_DEFAULT;
-    desc.BindFlags = c.D3D11_BIND_SHADER_RESOURCE;
+    var textures = [_]gl.GLuint{0};
+    gl.glGenTextures(1, &textures);
+    const handle = textures[0];
+    if (handle == 0) return null;
 
-    var init_data = std.mem.zeroes(c.D3D11_SUBRESOURCE_DATA);
-    init_data.pSysMem = pixels.ptr;
-    init_data.SysMemPitch = width * 4;
-
-    var texture: ?*c.ID3D11Texture2D = null;
-    if (failed(device.lpVtbl.*.CreateTexture2D.?(device, &desc, &init_data, &texture)) or texture == null) return null;
-    defer releaseUnknown(texture);
-
-    var srv_desc = std.mem.zeroes(c.D3D11_SHADER_RESOURCE_VIEW_DESC);
-    srv_desc.Format = desc.Format;
-    srv_desc.ViewDimension = c.D3D11_SRV_DIMENSION_TEXTURE2D;
-    srv_desc.unnamed_0.Texture2D.MostDetailedMip = 0;
-    srv_desc.unnamed_0.Texture2D.MipLevels = 1;
-
-    var srv: ?*c.ID3D11ShaderResourceView = null;
-    if (failed(device.lpVtbl.*.CreateShaderResourceView.?(device, @ptrCast(texture), &srv_desc, &srv)) or srv == null) return null;
-    return srv;
+    gl.glBindTexture(gl.TEXTURE_2D, handle);
+    gl.glTexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.glTexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const gl_filter = switch (filter) {
+        .nearest => gl.NEAREST,
+        .linear => gl.LINEAR,
+    };
+    gl.glTexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl_filter);
+    gl.glTexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl_filter);
+    gl.glTexEnvi(gl.TEXTURE_ENV, gl.TEXTURE_ENV_MODE, gl.MODULATE);
+    gl.glPixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.glTexImage2D(gl.TEXTURE_2D, 0, @intCast(gl.RGBA), @intCast(width), @intCast(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels.ptr);
+    return textureIdFromHandle(handle);
 }
 
 fn clearTextCache() void {
@@ -2892,7 +3077,7 @@ fn clearTextCache() void {
 fn getOrCreateTextTexture(font_opt: ?*ByteFont, size_pixels: f32, wrap_width: f32, text: []const u8) ?*TextCacheEntry {
     const ctx = GByteGui orelse return null;
     const font = font_opt orelse return null;
-    if (ByteGui_ImplDX11_GetDevice() == null or text.len == 0) return null;
+    if (!ByteGui_ImplOpenGL_HasContext() or text.len == 0) return null;
 
     const pixel_size100: i32 = @intFromFloat(@round(size_pixels * 100.0));
     const wrap_width100: i32 = @intFromFloat(@round(wrap_width * 100.0));
@@ -2902,74 +3087,10 @@ fn getOrCreateTextTexture(font_opt: ?*ByteFont, size_pixels: f32, wrap_width: f3
         }
     }
 
-    var layout = layoutText(font, size_pixels * kTextSupersample, text, if (wrap_width > 0.0) wrap_width * kTextSupersample else 0.0) orelse return null;
-    defer layout.deinit();
-
-    const pad_px = alignUpInt(@max(2, @as(i32, @intFromFloat(@ceil(size_pixels * 0.12 * kTextSupersample)))), kTextSupersampleI);
-    const content_w = alignUpInt(@max(1, @as(i32, @intFromFloat(@ceil(layout.width)))), kTextSupersampleI);
-    const content_h = alignUpInt(@max(1, @as(i32, @intFromFloat(@ceil(layout.height)))), kTextSupersampleI);
-    const pixel_w: u32 = @intCast(alignUpInt(@max(1, content_w + pad_px * 2), kTextSupersampleI));
-    const pixel_h: u32 = @intCast(alignUpInt(@max(1, content_h + pad_px * 2), kTextSupersampleI));
-
-    var session = TextMeasureSession.init(font, size_pixels * kTextSupersample) orelse return null;
-    defer session.deinit();
-
-    const bitmap = createGdipBitmap(@intCast(pixel_w), @intCast(pixel_h)) orelse return null;
-    defer _ = c.GdipDisposeImage(@ptrCast(bitmap));
-
-    const graphics = createGdipGraphicsForImage(@ptrCast(bitmap)) orelse return null;
-    defer _ = c.GdipDeleteGraphics(graphics);
-
-    _ = c.GdipSetSmoothingMode(graphics, c.SmoothingModeHighQuality);
-    _ = c.GdipSetPixelOffsetMode(graphics, c.PixelOffsetModeHighQuality);
-    _ = c.GdipSetInterpolationMode(graphics, c.InterpolationModeHighQualityBicubic);
-    _ = c.GdipSetCompositingQuality(graphics, c.CompositingQualityHighQuality);
-    _ = c.GdipSetTextRenderingHint(graphics, c.TextRenderingHintAntiAliasGridFit);
-    _ = c.GdipGraphicsClear(graphics, 0);
-
-    var brush: ?*c.GpSolidFill = null;
-    if (!gdipOk(c.GdipCreateSolidFill(0xFFFFFFFF, &brush)) or brush == null) return null;
-    defer _ = c.GdipDeleteBrush(@ptrCast(brush));
-
-    for (layout.lines.items, 0..) |line, line_index| {
-        const line_text = text[line.start..line.end];
-        if (line_text.len == 0) continue;
-
-        const wide_text = std.unicode.utf8ToUtf16LeAllocZ(allocator, line_text) catch return null;
-        defer allocator.free(wide_text);
-
-        var draw_rect = c.RectF{
-            .X = @round(@as(f32, @floatFromInt(pad_px)) - line.bounds.X),
-            .Y = @round(@as(f32, @floatFromInt(pad_px)) + @as(f32, @floatFromInt(line_index)) * layout.line_height - line.bounds.Y),
-            .Width = @as(f32, @floatFromInt(pixel_w)),
-            .Height = @as(f32, @floatFromInt(pixel_h)),
-        };
-        if (!gdipOk(c.GdipDrawString(graphics, wide_text.ptr, -1, session.font, &draw_rect, session.format, @ptrCast(brush)))) return null;
-    }
-
-    var bgra = allocator.alloc(u8, @as(usize, pixel_w) * @as(usize, pixel_h) * 4) catch return null;
-    defer allocator.free(bgra);
-
-    var bitmap_data = std.mem.zeroes(c.BitmapData);
-    var lock_rect = c.Rect{ .X = 0, .Y = 0, .Width = @intCast(pixel_w), .Height = @intCast(pixel_h) };
-    if (!gdipOk(c.GdipBitmapLockBits(bitmap, &lock_rect, c.ImageLockModeRead, c.PixelFormat32bppARGB, &bitmap_data))) return null;
-    defer _ = c.GdipBitmapUnlockBits(bitmap, &bitmap_data);
-
-    const src_stride: usize = @intCast(@abs(bitmap_data.Stride));
-    const src_base: [*]const u8 = @ptrCast(@alignCast(bitmap_data.Scan0.?));
-    for (0..pixel_h) |row| {
-        const src_offset = if (bitmap_data.Stride >= 0)
-            row * src_stride
-        else
-            (@as(usize, pixel_h - 1 - @as(u32, @intCast(row))) * src_stride);
-        const dst_row = bgra[row * @as(usize, pixel_w) * 4 ..][0 .. @as(usize, pixel_w) * 4];
-        const src_row = src_base[src_offset..][0 .. @as(usize, pixel_w) * 4];
-        @memcpy(dst_row, src_row);
-    }
-
-    const texture = createTextureFromBGRA(bgra, pixel_w, pixel_h) orelse return null;
+    const built = buildTextTextureFromFont(font, size_pixels, text, textSupersampleForFont(font), 0.12, wrap_width, 1.0, 255, .nearest) orelse return null;
+    const texture = built.texture;
     const text_copy = allocator.dupe(u8, text) catch {
-        releaseShaderResourceView(texture);
+        releaseTexture(texture);
         return null;
     };
 
@@ -2979,13 +3100,12 @@ fn getOrCreateTextTexture(font_opt: ?*ByteFont, size_pixels: f32, wrap_width: f3
         .WrapWidth100 = wrap_width100,
         .Text = text_copy,
         .Texture = texture,
-        .DisplaySize = .{
-            .x = @as(f32, @floatFromInt(pixel_w)) / kTextSupersample,
-            .y = @as(f32, @floatFromInt(pixel_h)) / kTextSupersample,
-        },
+        .DisplaySize = built.content_size_px,
+        .UvMin = built.uv_min,
+        .UvMax = built.uv_max,
     }) catch {
         allocator.free(text_copy);
-        releaseShaderResourceView(texture);
+        releaseTexture(texture);
         return null;
     };
 
@@ -3015,7 +3135,7 @@ fn getWin32BackendData() ?*MiniWin32BackendData {
     return if (ctx.IO.BackendPlatformUserData) |ptr| @ptrCast(@alignCast(ptr)) else null;
 }
 
-fn getDx11BackendData() ?*MiniDx11BackendData {
+fn getOpenGLBackendData() ?*MiniOpenGLBackendData {
     const ctx = GByteGui orelse return null;
     return if (ctx.IO.BackendRendererUserData) |ptr| @ptrCast(@alignCast(ptr)) else null;
 }
@@ -3033,242 +3153,219 @@ fn ensureWin32BackendData() bool {
     return true;
 }
 
-fn ensureDx11BackendData() bool {
+fn ensureOpenGLBackendData() bool {
     const ctx = GByteGui orelse return false;
-    if (getDx11BackendData() != null) return true;
+    if (getOpenGLBackendData() != null) return true;
 
-    const bd = allocator.create(MiniDx11BackendData) catch return false;
+    const bd = allocator.create(MiniOpenGLBackendData) catch return false;
     bd.* = .{};
     ctx.IO.BackendRendererUserData = bd;
-    ctx.IO.BackendRendererName = "bytegui_impl_dx11_mini";
+    ctx.IO.BackendRendererName = "bytegui_impl_opengl_legacy";
     return true;
 }
 
-fn cleanupCompositionRenderTarget(bd: *MiniDx11BackendData) void {
-    releaseUnknown(bd.MainRTV);
-    bd.MainRTV = null;
+fn createWhiteTexture() ByteTextureID {
+    const pixel = [_]u8{ 255, 255, 255, 255 };
+    return createTextureFromRGBA(pixel[0..], 1, 1, .nearest);
 }
 
-fn createCompositionRenderTarget(bd: *MiniDx11BackendData) bool {
-    const swap_chain = bd.SwapChain orelse return false;
-    const device = bd.Device orelse return false;
+fn setupLegacyOpenGLState(draw_data: *const ByteDrawData) void {
+    const viewport_w = @as(i32, @intFromFloat(draw_data.DisplaySize.x * draw_data.FramebufferScale.x));
+    const viewport_h = @as(i32, @intFromFloat(draw_data.DisplaySize.y * draw_data.FramebufferScale.y));
 
-    cleanupCompositionRenderTarget(bd);
-
-    var back_buffer: ?*c.ID3D11Texture2D = null;
-    const hr = swap_chain.lpVtbl.*.GetBuffer.?(swap_chain, 0, &dxids.IID_ID3D11Texture2D, @ptrCast(&back_buffer));
-    if (failed(hr) or back_buffer == null) return false;
-    defer releaseUnknown(back_buffer);
-
-    return succeeded(device.lpVtbl.*.CreateRenderTargetView.?(device, @ptrCast(back_buffer), null, &bd.MainRTV));
-}
-
-fn createWhiteTexture(bd: *MiniDx11BackendData) void {
-    const device = bd.Device orelse return;
-    if (bd.WhiteTextureView != null) return;
-
-    const pixel: u32 = 0xFFFFFFFF;
-    var desc = std.mem.zeroes(c.D3D11_TEXTURE2D_DESC);
-    desc.Width = 1;
-    desc.Height = 1;
-    desc.MipLevels = 1;
-    desc.ArraySize = 1;
-    desc.Format = c.DXGI_FORMAT_R8G8B8A8_UNORM;
-    desc.SampleDesc.Count = 1;
-    desc.Usage = c.D3D11_USAGE_DEFAULT;
-    desc.BindFlags = c.D3D11_BIND_SHADER_RESOURCE;
-
-    var init_data = std.mem.zeroes(c.D3D11_SUBRESOURCE_DATA);
-    init_data.pSysMem = &pixel;
-    init_data.SysMemPitch = @sizeOf(u32);
-
-    var texture: ?*c.ID3D11Texture2D = null;
-    if (succeeded(device.lpVtbl.*.CreateTexture2D.?(device, &desc, &init_data, &texture)) and texture != null) {
-        _ = device.lpVtbl.*.CreateShaderResourceView.?(device, @ptrCast(texture), null, &bd.WhiteTextureView);
-        releaseUnknown(texture);
+    gl.glViewport(0, 0, viewport_w, viewport_h);
+    gl.glDisable(gl.CULL_FACE);
+    gl.glDisable(gl.DEPTH_TEST);
+    gl.glDisable(gl.LIGHTING);
+    gl.glEnable(gl.BLEND);
+    if (g_glBlendFuncSeparate) |blendSeparate| {
+        blendSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    } else {
+        gl.glBlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     }
+    gl.glEnable(gl.TEXTURE_2D);
+    gl.glShadeModel(gl.SMOOTH);
+    gl.glTexEnvi(gl.TEXTURE_ENV, gl.TEXTURE_ENV_MODE, gl.MODULATE);
+
+    gl.glMatrixMode(gl.PROJECTION);
+    gl.glLoadIdentity();
+    gl.glOrtho(0.0, draw_data.DisplaySize.x, draw_data.DisplaySize.y, 0.0, -1.0, 1.0);
+    gl.glMatrixMode(gl.MODELVIEW);
+    gl.glLoadIdentity();
 }
 
-fn destroyDeviceObjects(bd: *MiniDx11BackendData) void {
-    releaseUnknown(bd.WhiteTextureView);
-    bd.WhiteTextureView = null;
-    releaseUnknown(bd.LinearSampler);
-    bd.LinearSampler = null;
-    releaseUnknown(bd.IndexBuffer);
-    bd.IndexBuffer = null;
-    releaseUnknown(bd.VertexBuffer);
-    bd.VertexBuffer = null;
-    releaseUnknown(bd.BlendState);
-    bd.BlendState = null;
-    releaseUnknown(bd.DepthStencilState);
-    bd.DepthStencilState = null;
-    releaseUnknown(bd.RasterizerState);
-    bd.RasterizerState = null;
-    releaseUnknown(bd.PixelShader);
-    bd.PixelShader = null;
-    releaseUnknown(bd.VertexConstantBuffer);
-    bd.VertexConstantBuffer = null;
-    releaseUnknown(bd.InputLayout);
-    bd.InputLayout = null;
-    releaseUnknown(bd.VertexShader);
-    bd.VertexShader = null;
+fn bindDrawListVertexArrays(draw_list: *const ByteDrawList) void {
+    const base: [*]const u8 = @ptrCast(draw_list.VtxBuffer.items.ptr);
+    const stride: gl.GLsizei = @sizeOf(ByteDrawVert);
+
+    gl.glEnableClientState(gl.VERTEX_ARRAY);
+    gl.glEnableClientState(gl.COLOR_ARRAY);
+    gl.glEnableClientState(gl.TEXTURE_COORD_ARRAY);
+    gl.glVertexPointer(2, gl.FLOAT, stride, @ptrCast(base + @offsetOf(ByteDrawVert, "pos")));
+    gl.glTexCoordPointer(2, gl.FLOAT, stride, @ptrCast(base + @offsetOf(ByteDrawVert, "uv")));
+    gl.glColorPointer(4, gl.UNSIGNED_BYTE, stride, @ptrCast(base + @offsetOf(ByteDrawVert, "col")));
 }
 
-fn createDeviceObjects(bd: *MiniDx11BackendData) bool {
-    const device = bd.Device orelse return false;
-    destroyDeviceObjects(bd);
+fn unbindDrawListVertexArrays() void {
+    gl.glDisableClientState(gl.TEXTURE_COORD_ARRAY);
+    gl.glDisableClientState(gl.COLOR_ARRAY);
+    gl.glDisableClientState(gl.VERTEX_ARRAY);
+}
 
-    const vertex_shader_src =
-        \\cbuffer vertexBuffer : register(b0) {
-        \\float4x4 ProjectionMatrix;
-        \\};
-        \\struct VS_INPUT { float2 pos : POSITION; float4 col : COLOR0; float2 uv : TEXCOORD0; };
-        \\struct PS_INPUT { float4 pos : SV_POSITION; float4 col : COLOR0; float2 uv : TEXCOORD0; };
-        \\PS_INPUT main(VS_INPUT input) {
-        \\PS_INPUT output;
-        \\output.pos = mul(ProjectionMatrix, float4(input.pos.xy, 0.f, 1.f));
-        \\output.col = input.col;
-        \\output.uv = input.uv;
-        \\return output;
-        \\}
-    ;
+pub fn ByteGui_ImplOpenGL_HasContext() bool {
+    return if (getOpenGLBackendData()) |bd| bd.RenderContext != null else false;
+}
 
-    var vertex_blob: ?*c.ID3DBlob = null;
-    if (failed(c.D3DCompile(vertex_shader_src.ptr, vertex_shader_src.len, null, null, null, "main", "vs_4_0", 0, 0, &vertex_blob, null)) or vertex_blob == null) return false;
-    defer releaseUnknown(vertex_blob);
+pub fn ByteGui_ImplOpenGL_Init(hwnd: ?c.HWND, width: c.UINT, height: c.UINT) bool {
+    if (hwnd == null or width == 0 or height == 0) return false;
 
-    const vertex_bytes = vertex_blob.?.lpVtbl.*.GetBufferPointer.?(vertex_blob);
-    const vertex_size = vertex_blob.?.lpVtbl.*.GetBufferSize.?(vertex_blob);
-    if (failed(device.lpVtbl.*.CreateVertexShader.?(device, vertex_bytes, vertex_size, null, &bd.VertexShader)) or bd.VertexShader == null) return false;
+    setByteGuiTrace("gl:init:start");
+    if (getOpenGLBackendData() != null) ByteGui_ImplOpenGL_Shutdown();
+    if (!ensureOpenGLBackendData()) return false;
+    const bd = getOpenGLBackendData().?;
+    const native_hwnd: w32.HWND = @ptrFromInt(@intFromPtr(hwnd.?));
+    const window_dc = w32.GetDC(native_hwnd) orelse return false;
+    setByteGuiTrace("gl:init:dc");
 
-    const input_layout = [_]c.D3D11_INPUT_ELEMENT_DESC{
-        .{ .SemanticName = "POSITION", .SemanticIndex = 0, .Format = c.DXGI_FORMAT_R32G32_FLOAT, .InputSlot = 0, .AlignedByteOffset = @offsetOf(ByteDrawVert, "pos"), .InputSlotClass = c.D3D11_INPUT_PER_VERTEX_DATA, .InstanceDataStepRate = 0 },
-        .{ .SemanticName = "TEXCOORD", .SemanticIndex = 0, .Format = c.DXGI_FORMAT_R32G32_FLOAT, .InputSlot = 0, .AlignedByteOffset = @offsetOf(ByteDrawVert, "uv"), .InputSlotClass = c.D3D11_INPUT_PER_VERTEX_DATA, .InstanceDataStepRate = 0 },
-        .{ .SemanticName = "COLOR", .SemanticIndex = 0, .Format = c.DXGI_FORMAT_R8G8B8A8_UNORM, .InputSlot = 0, .AlignedByteOffset = @offsetOf(ByteDrawVert, "col"), .InputSlotClass = c.D3D11_INPUT_PER_VERTEX_DATA, .InstanceDataStepRate = 0 },
-    };
-    if (failed(device.lpVtbl.*.CreateInputLayout.?(device, &input_layout, input_layout.len, vertex_bytes, vertex_size, &bd.InputLayout)) or bd.InputLayout == null) return false;
+    var pfd = std.mem.zeroes(w32.PIXELFORMATDESCRIPTOR);
+    pfd.nSize = @sizeOf(w32.PIXELFORMATDESCRIPTOR);
+    pfd.nVersion = 1;
+    pfd.dwFlags = w32.PFD_DRAW_TO_WINDOW | w32.PFD_SUPPORT_OPENGL | w32.PFD_DOUBLEBUFFER;
+    pfd.iPixelType = w32.PFD_TYPE_RGBA;
+    pfd.cColorBits = 32;
+    pfd.cAlphaBits = 8;
+    pfd.cDepthBits = 24;
+    pfd.cStencilBits = 8;
+    pfd.iLayerType = w32.PFD_MAIN_PLANE;
+    setByteGuiTrace("gl:init:pfd");
 
-    var cb_desc = std.mem.zeroes(c.D3D11_BUFFER_DESC);
-    cb_desc.ByteWidth = @sizeOf(VertexConstantBufferDx11);
-    cb_desc.Usage = c.D3D11_USAGE_DYNAMIC;
-    cb_desc.BindFlags = c.D3D11_BIND_CONSTANT_BUFFER;
-    cb_desc.CPUAccessFlags = c.D3D11_CPU_ACCESS_WRITE;
-    if (failed(device.lpVtbl.*.CreateBuffer.?(device, &cb_desc, null, &bd.VertexConstantBuffer)) or bd.VertexConstantBuffer == null) return false;
-
-    const pixel_shader_src =
-        \\struct PS_INPUT { float4 pos : SV_POSITION; float4 col : COLOR0; float2 uv : TEXCOORD0; };
-        \\sampler sampler0;
-        \\Texture2D texture0;
-        \\float4 main(PS_INPUT input) : SV_Target {
-        \\return input.col * texture0.Sample(sampler0, input.uv);
-        \\}
-    ;
-
-    var pixel_blob: ?*c.ID3DBlob = null;
-    if (failed(c.D3DCompile(pixel_shader_src.ptr, pixel_shader_src.len, null, null, null, "main", "ps_4_0", 0, 0, &pixel_blob, null)) or pixel_blob == null) return false;
-    defer releaseUnknown(pixel_blob);
-
-    const pixel_bytes = pixel_blob.?.lpVtbl.*.GetBufferPointer.?(pixel_blob);
-    const pixel_size = pixel_blob.?.lpVtbl.*.GetBufferSize.?(pixel_blob);
-    if (failed(device.lpVtbl.*.CreatePixelShader.?(device, pixel_bytes, pixel_size, null, &bd.PixelShader)) or bd.PixelShader == null) return false;
-
-    var blend_desc = std.mem.zeroes(c.D3D11_BLEND_DESC);
-    blend_desc.RenderTarget[0].BlendEnable = c.TRUE;
-    blend_desc.RenderTarget[0].SrcBlend = c.D3D11_BLEND_SRC_ALPHA;
-    blend_desc.RenderTarget[0].DestBlend = c.D3D11_BLEND_INV_SRC_ALPHA;
-    blend_desc.RenderTarget[0].BlendOp = c.D3D11_BLEND_OP_ADD;
-    blend_desc.RenderTarget[0].SrcBlendAlpha = c.D3D11_BLEND_ONE;
-    blend_desc.RenderTarget[0].DestBlendAlpha = c.D3D11_BLEND_INV_SRC_ALPHA;
-    blend_desc.RenderTarget[0].BlendOpAlpha = c.D3D11_BLEND_OP_ADD;
-    blend_desc.RenderTarget[0].RenderTargetWriteMask = c.D3D11_COLOR_WRITE_ENABLE_ALL;
-    if (failed(device.lpVtbl.*.CreateBlendState.?(device, &blend_desc, &bd.BlendState)) or bd.BlendState == null) return false;
-
-    var raster_desc = std.mem.zeroes(c.D3D11_RASTERIZER_DESC);
-    raster_desc.FillMode = c.D3D11_FILL_SOLID;
-    raster_desc.CullMode = c.D3D11_CULL_NONE;
-    raster_desc.ScissorEnable = c.TRUE;
-    raster_desc.DepthClipEnable = c.TRUE;
-    if (failed(device.lpVtbl.*.CreateRasterizerState.?(device, &raster_desc, &bd.RasterizerState)) or bd.RasterizerState == null) return false;
-
-    var depth_desc = std.mem.zeroes(c.D3D11_DEPTH_STENCIL_DESC);
-    depth_desc.DepthEnable = c.FALSE;
-    depth_desc.DepthWriteMask = c.D3D11_DEPTH_WRITE_MASK_ALL;
-    depth_desc.DepthFunc = c.D3D11_COMPARISON_ALWAYS;
-    depth_desc.StencilEnable = c.FALSE;
-    depth_desc.FrontFace.StencilFailOp = c.D3D11_STENCIL_OP_KEEP;
-    depth_desc.FrontFace.StencilDepthFailOp = c.D3D11_STENCIL_OP_KEEP;
-    depth_desc.FrontFace.StencilPassOp = c.D3D11_STENCIL_OP_KEEP;
-    depth_desc.FrontFace.StencilFunc = c.D3D11_COMPARISON_ALWAYS;
-    depth_desc.BackFace = depth_desc.FrontFace;
-    if (failed(device.lpVtbl.*.CreateDepthStencilState.?(device, &depth_desc, &bd.DepthStencilState)) or bd.DepthStencilState == null) return false;
-
-    var sampler_desc = std.mem.zeroes(c.D3D11_SAMPLER_DESC);
-    sampler_desc.Filter = c.D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
-    sampler_desc.AddressU = c.D3D11_TEXTURE_ADDRESS_CLAMP;
-    sampler_desc.AddressV = c.D3D11_TEXTURE_ADDRESS_CLAMP;
-    sampler_desc.AddressW = c.D3D11_TEXTURE_ADDRESS_CLAMP;
-    sampler_desc.MipLODBias = -0.75;
-    sampler_desc.ComparisonFunc = c.D3D11_COMPARISON_ALWAYS;
-    sampler_desc.MinLOD = 0.0;
-    sampler_desc.MaxLOD = c.D3D11_FLOAT32_MAX;
-    if (failed(device.lpVtbl.*.CreateSamplerState.?(device, &sampler_desc, &bd.LinearSampler)) or bd.LinearSampler == null) return false;
-
-    createWhiteTexture(bd);
-    if (bd.WhiteTextureView == null) {
-        destroyDeviceObjects(bd);
+    const pixel_format = w32.ChoosePixelFormat(window_dc, &pfd);
+    if (pixel_format == 0 or w32.SetPixelFormat(window_dc, pixel_format, &pfd) == w32.FALSE) {
+        _ = w32.ReleaseDC(native_hwnd, window_dc);
         return false;
     }
+    setByteGuiTrace("gl:init:pixel_format");
+
+    const render_context = w32.wglCreateContext(window_dc) orelse {
+        _ = w32.ReleaseDC(native_hwnd, window_dc);
+        return false;
+    };
+    if (w32.wglMakeCurrent(window_dc, render_context) == w32.FALSE) {
+        _ = w32.wglDeleteContext(render_context);
+        _ = w32.ReleaseDC(native_hwnd, window_dc);
+        return false;
+    }
+    g_glBlendFuncSeparate = @ptrCast(w32.wglGetProcAddress("glBlendFuncSeparate"));
+    setByteGuiTrace("gl:init:context");
+
+    bd.WindowHwnd = native_hwnd;
+    bd.WindowDc = window_dc;
+    bd.RenderContext = render_context;
+    bd.WhiteTexture = createWhiteTexture();
+    setByteGuiTrace("gl:init:white");
+    if (bd.WhiteTexture == null) {
+        ByteGui_ImplOpenGL_Shutdown();
+        return false;
+    }
+
+    updateHostWindowSizeState(@intCast(width), @intCast(height));
+    setByteGuiTrace("gl:init:done");
     return true;
 }
 
-fn setupRenderState(draw_data: *const ByteDrawData, bd: *MiniDx11BackendData) void {
-    const ctx = bd.Context.?;
+pub fn ByteGui_ImplOpenGL_Shutdown() void {
+    const ctx = GByteGui orelse return;
+    const bd = getOpenGLBackendData() orelse return;
 
-    var vp = std.mem.zeroes(c.D3D11_VIEWPORT);
-    vp.Width = draw_data.DisplaySize.x * draw_data.FramebufferScale.x;
-    vp.Height = draw_data.DisplaySize.y * draw_data.FramebufferScale.y;
-    vp.MinDepth = 0.0;
-    vp.MaxDepth = 1.0;
-    ctx.lpVtbl.*.RSSetViewports.?(ctx, 1, &vp);
+    clearTextCache();
+    releaseTexture(bd.WhiteTexture);
+    bd.WhiteTexture = null;
 
-    var mapped_resource = std.mem.zeroes(c.D3D11_MAPPED_SUBRESOURCE);
-    if (ctx.lpVtbl.*.Map.?(ctx, @ptrCast(bd.VertexConstantBuffer), 0, c.D3D11_MAP_WRITE_DISCARD, 0, &mapped_resource) == c.S_OK) {
-        const constant_buffer: *VertexConstantBufferDx11 = @ptrCast(@alignCast(mapped_resource.pData.?));
-        const L = draw_data.DisplayPos.x;
-        const R = draw_data.DisplayPos.x + draw_data.DisplaySize.x;
-        const T = draw_data.DisplayPos.y;
-        const B = draw_data.DisplayPos.y + draw_data.DisplaySize.y;
-        constant_buffer.mvp = .{
-            .{ 2.0 / (R - L), 0.0, 0.0, 0.0 },
-            .{ 0.0, 2.0 / (T - B), 0.0, 0.0 },
-            .{ 0.0, 0.0, 0.5, 0.0 },
-            .{ (R + L) / (L - R), (T + B) / (B - T), 0.5, 1.0 },
-        };
-        ctx.lpVtbl.*.Unmap.?(ctx, @ptrCast(bd.VertexConstantBuffer), 0);
+    if (bd.WindowDc != null and bd.RenderContext != null) _ = w32.wglMakeCurrent(null, null);
+    if (bd.RenderContext) |render_context| {
+        _ = w32.wglDeleteContext(render_context);
+        bd.RenderContext = null;
+    }
+    if (bd.WindowDc) |window_dc| {
+        if (bd.WindowHwnd) |window_hwnd| _ = w32.ReleaseDC(window_hwnd, window_dc);
+        bd.WindowDc = null;
+    }
+    bd.WindowHwnd = null;
+
+    allocator.destroy(bd);
+    ctx.IO.BackendRendererUserData = null;
+    ctx.IO.BackendRendererName = null;
+    ctx.WhiteTexture = null;
+}
+
+pub fn ByteGui_ImplOpenGL_Resize(width: c.UINT, height: c.UINT) void {
+    if (width == 0 or height == 0) return;
+    updateHostWindowSizeState(@intCast(width), @intCast(height));
+}
+
+pub fn ByteGui_ImplOpenGL_BeginFrame(clear_color: *const [4]f32) bool {
+    const bd = getOpenGLBackendData() orelse return false;
+    if (bd.WindowDc == null or bd.RenderContext == null) return false;
+    if (w32.wglMakeCurrent(bd.WindowDc, bd.RenderContext) == w32.FALSE) return false;
+
+    gl.glClearColor(clear_color[0], clear_color[1], clear_color[2], clear_color[3]);
+    gl.glClear(gl.COLOR_BUFFER_BIT);
+    return true;
+}
+
+pub fn ByteGui_ImplOpenGL_Present() bool {
+    const bd = getOpenGLBackendData() orelse return false;
+    const window_dc = bd.WindowDc orelse return false;
+    return w32.SwapBuffers(window_dc) != w32.FALSE;
+}
+
+pub fn ByteGui_ImplOpenGL_NewFrame() void {
+    const ctx = GByteGui orelse return;
+    const bd = getOpenGLBackendData() orelse return;
+    ctx.WhiteTexture = bd.WhiteTexture;
+}
+
+pub fn ByteGui_ImplOpenGL_RenderDrawData(draw_data: ?*ByteDrawData) void {
+    const dd = draw_data orelse return;
+    if (!dd.Valid or dd.DisplaySize.x <= 0.0 or dd.DisplaySize.y <= 0.0) return;
+
+    const bd = getOpenGLBackendData() orelse return;
+    if (bd.WindowDc == null or bd.RenderContext == null) return;
+
+    setupLegacyOpenGLState(dd);
+
+    const framebuffer_h = dd.DisplaySize.y * dd.FramebufferScale.y;
+    for (dd.CmdLists.items) |draw_list| {
+        if (draw_list.VtxBuffer.items.len == 0 or draw_list.IdxBuffer.items.len == 0) continue;
+        bindDrawListVertexArrays(draw_list);
+        defer unbindDrawListVertexArrays();
+
+        for (draw_list.CmdBuffer.items) |cmd| {
+            if (cmd.ElemCount == 0) continue;
+
+            const clip_left = @max(cmd.ClipRect.x, 0.0);
+            const clip_top = @max(cmd.ClipRect.y, 0.0);
+            const clip_right = @max(cmd.ClipRect.z, clip_left);
+            const clip_bottom = @max(cmd.ClipRect.w, clip_top);
+            const clip_w = @as(i32, @intFromFloat(clip_right - clip_left));
+            const clip_h = @as(i32, @intFromFloat(clip_bottom - clip_top));
+            if (clip_w <= 0 or clip_h <= 0) continue;
+
+            gl.glEnable(gl.SCISSOR_TEST);
+            gl.glScissor(
+                @intFromFloat(clip_left),
+                @intFromFloat(framebuffer_h - clip_bottom),
+                clip_w,
+                clip_h,
+            );
+
+            gl.glBindTexture(gl.TEXTURE_2D, textureHandleFromId(cmd.TextureId));
+            const idx_ptr: [*]const ByteDrawIdx = draw_list.IdxBuffer.items.ptr + @as(usize, cmd.IdxOffset);
+            gl.glDrawElements(gl.TRIANGLES, @intCast(cmd.ElemCount), gl.UNSIGNED_INT, @ptrCast(idx_ptr));
+        }
     }
 
-    const stride: c.UINT = @sizeOf(ByteDrawVert);
-    const offset: c.UINT = 0;
-    var vb = bd.VertexBuffer;
-    ctx.lpVtbl.*.IASetInputLayout.?(ctx, bd.InputLayout);
-    ctx.lpVtbl.*.IASetVertexBuffers.?(ctx, 0, 1, &vb, &stride, &offset);
-    ctx.lpVtbl.*.IASetIndexBuffer.?(ctx, bd.IndexBuffer, c.DXGI_FORMAT_R32_UINT, 0);
-    ctx.lpVtbl.*.IASetPrimitiveTopology.?(ctx, c.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    ctx.lpVtbl.*.VSSetShader.?(ctx, bd.VertexShader, null, 0);
-    var cb = bd.VertexConstantBuffer;
-    ctx.lpVtbl.*.VSSetConstantBuffers.?(ctx, 0, 1, &cb);
-    ctx.lpVtbl.*.PSSetShader.?(ctx, bd.PixelShader, null, 0);
-    var sampler = bd.LinearSampler;
-    ctx.lpVtbl.*.PSSetSamplers.?(ctx, 0, 1, &sampler);
-    ctx.lpVtbl.*.GSSetShader.?(ctx, null, null, 0);
-    ctx.lpVtbl.*.HSSetShader.?(ctx, null, null, 0);
-    ctx.lpVtbl.*.DSSetShader.?(ctx, null, null, 0);
-    ctx.lpVtbl.*.CSSetShader.?(ctx, null, null, 0);
-
-    const blend_factor = [_]f32{ 0.0, 0.0, 0.0, 0.0 };
-    ctx.lpVtbl.*.OMSetBlendState.?(ctx, bd.BlendState, &blend_factor, 0xFFFFFFFF);
-    ctx.lpVtbl.*.OMSetDepthStencilState.?(ctx, bd.DepthStencilState, 0);
-    ctx.lpVtbl.*.RSSetState.?(ctx, bd.RasterizerState);
+    gl.glDisable(gl.SCISSOR_TEST);
 }
 
 pub fn ByteGui_ImplWin32_EnableDpiAwareness() void {
@@ -3296,6 +3393,7 @@ pub noinline fn ByteGui_ImplWin32_CreatePlatformWindow(config: ?*const ByteGuiPl
     const cfg = cfg_ptr.*;
     std.mem.doNotOptimizeAway(cfg);
     if (cfg.Instance == null or cfg.WndProc == null or cfg.LogicalWidth <= 0 or cfg.LogicalHeight <= 0) return false;
+    setByteGuiTrace("win32:create:start");
 
     ByteGui_ImplWin32_EnableDpiAwareness();
     if (GHostWindow.Hwnd != null) ByteGui_ImplWin32_DestroyPlatformWindow();
@@ -3307,13 +3405,16 @@ pub noinline fn ByteGui_ImplWin32_CreatePlatformWindow(config: ?*const ByteGuiPl
     GHostWindow.DpiScale = getSystemDpiScale();
     GHostWindow.WindowWidthPx = ByteGui_ImplWin32_ScaleI(cfg.LogicalWidth);
     GHostWindow.WindowHeightPx = ByteGui_ImplWin32_ScaleI(cfg.LogicalHeight);
+    setByteGuiTrace("win32:create:metrics");
     GHostWindow.ClassName = allocator.dupeZ(u16, std.mem.span(cfg.ClassName)) catch return false;
+    setByteGuiTrace("win32:create:classname");
     const big_icon = if (cfg.IconResourceId != 0) loadIconResource(cfg.Instance, cfg.IconResourceId, c.GetSystemMetrics(c.SM_CXICON), c.GetSystemMetrics(c.SM_CYICON)) else null;
     const small_icon = if (cfg.IconResourceId != 0) loadIconResource(cfg.Instance, cfg.IconResourceId, c.GetSystemMetrics(c.SM_CXSMICON), c.GetSystemMetrics(c.SM_CYSMICON)) else null;
+    setByteGuiTrace("win32:create:icons");
 
     var wc = std.mem.zeroes(c.WNDCLASSEXW);
     wc.cbSize = @sizeOf(c.WNDCLASSEXW);
-    wc.style = c.CS_CLASSDC;
+    wc.style = c.CS_OWNDC;
     wc.lpfnWndProc = cfg.WndProc;
     wc.hInstance = cfg.Instance;
     wc.hIcon = big_icon;
@@ -3321,6 +3422,7 @@ pub noinline fn ByteGui_ImplWin32_CreatePlatformWindow(config: ?*const ByteGuiPl
     wc.hCursor = loadCursorResource(idc_arrow_id);
     wc.lpszClassName = GHostWindow.ClassName.?.ptr;
     if (c.RegisterClassExW(&wc) == 0) return false;
+    setByteGuiTrace("win32:create:registered");
     GHostWindow.ClassRegistered = true;
 
     var pos_x: i32 = c.CW_USEDEFAULT;
@@ -3332,8 +3434,11 @@ pub noinline fn ByteGui_ImplWin32_CreatePlatformWindow(config: ?*const ByteGuiPl
         pos_y = @divTrunc(screen_h - GHostWindow.WindowHeightPx, 2);
     }
 
+    setByteGuiTraceFmt("win32:create:before_window ex={x} style={x}", .{ cfg.ExStyle, cfg.Style });
     GHostWindow.Hwnd = c.CreateWindowExW(cfg.ExStyle, GHostWindow.ClassName.?.ptr, cfg.Title, cfg.Style, pos_x, pos_y, GHostWindow.WindowWidthPx, GHostWindow.WindowHeightPx, null, null, cfg.Instance, null);
+    setByteGuiTrace("win32:create:window");
     if (GHostWindow.Hwnd != null and (big_icon != null or small_icon != null)) applyWindowIcons(GHostWindow.Hwnd.?, big_icon, small_icon);
+    setByteGuiTrace("win32:create:done");
     return GHostWindow.Hwnd != null;
 }
 
@@ -3464,273 +3569,6 @@ pub fn ByteGui_ImplWin32_WndProcHandler(hwnd: ?c.HWND, msg: c.UINT, w_param: c.W
     return 0;
 }
 
-pub fn ByteGui_ImplDX11_InitComposition(hwnd: ?c.HWND, width: c.UINT, height: c.UINT) bool {
-    if (!ensureDx11BackendData() or hwnd == null or width == 0 or height == 0) return false;
-
-    ByteGui_ImplDX11_ShutdownComposition();
-    const bd = getDx11BackendData().?;
-    const levels = [_]c.D3D_FEATURE_LEVEL{ c.D3D_FEATURE_LEVEL_11_0, c.D3D_FEATURE_LEVEL_10_0 };
-    var feature_level: c.D3D_FEATURE_LEVEL = c.D3D_FEATURE_LEVEL_11_0;
-
-    const hr_device = c.D3D11CreateDevice(null, c.D3D_DRIVER_TYPE_HARDWARE, null, c.D3D11_CREATE_DEVICE_BGRA_SUPPORT, &levels, levels.len, c.D3D11_SDK_VERSION, &bd.Device, &feature_level, &bd.Context);
-    if (failed(hr_device)) {
-        return false;
-    }
-
-    var dxgi_device: ?*c.IDXGIDevice = null;
-    if (queryInterface(bd.Device, &dxids.IID_IDXGIDevice, @ptrCast(&dxgi_device)) != 0 or dxgi_device == null) {
-        return false;
-    }
-    defer releaseUnknown(dxgi_device);
-
-    var dxgi_adapter: ?*c.IDXGIAdapter = null;
-    if (failed(dxgi_device.?.lpVtbl.*.GetAdapter.?(dxgi_device, &dxgi_adapter)) or dxgi_adapter == null) {
-        return false;
-    }
-    defer releaseUnknown(dxgi_adapter);
-
-    var dxgi_factory: ?*c.IDXGIFactory2 = null;
-    if (failed(dxgi_adapter.?.lpVtbl.*.GetParent.?(dxgi_adapter, &dxids.IID_IDXGIFactory2, @ptrCast(&dxgi_factory))) or dxgi_factory == null) {
-        return false;
-    }
-    defer releaseUnknown(dxgi_factory);
-
-    var desc = std.mem.zeroes(c.DXGI_SWAP_CHAIN_DESC1);
-    desc.Width = width;
-    desc.Height = height;
-    desc.Format = c.DXGI_FORMAT_B8G8R8A8_UNORM;
-    desc.SampleDesc.Count = 1;
-    desc.BufferUsage = c.DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    desc.BufferCount = 2;
-    desc.Scaling = c.DXGI_SCALING_STRETCH;
-    desc.SwapEffect = c.DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-    desc.AlphaMode = c.DXGI_ALPHA_MODE_PREMULTIPLIED;
-
-    if (failed(dxgi_factory.?.lpVtbl.*.CreateSwapChainForComposition.?(dxgi_factory, @ptrCast(bd.Device), &desc, null, &bd.SwapChain)) or bd.SwapChain == null) {
-        return false;
-    }
-    if (failed(dcomp.DCompositionCreateDevice3(@ptrCast(dxgi_device), &dcomp.IID_IDCompositionDesktopDevice, @ptrCast(&bd.DcompDevice))) or bd.DcompDevice == null) {
-        return false;
-    }
-    if (failed(bd.DcompDevice.?.lpVtbl.*.CreateTargetForHwnd.?(bd.DcompDevice.?, hwnd.?, c.TRUE, &bd.DcompTarget)) or bd.DcompTarget == null) {
-        return false;
-    }
-    if (failed(bd.DcompDevice.?.lpVtbl.*.CreateVisual.?(bd.DcompDevice.?, &bd.DcompVisual)) or bd.DcompVisual == null) {
-        return false;
-    }
-    bd.DcompVisual3 = null;
-    _ = queryInterface(bd.DcompVisual, &dcomp.IID_IDCompositionVisual3, @ptrCast(&bd.DcompVisual3));
-    if (failed(bd.DcompVisual.?.lpVtbl.*.SetContent.?(bd.DcompVisual.?, @ptrCast(bd.SwapChain)))) {
-        return false;
-    }
-    if (failed(bd.DcompTarget.?.lpVtbl.*.SetRoot.?(bd.DcompTarget.?, @ptrCast(bd.DcompVisual)))) {
-        return false;
-    }
-    if (failed(bd.DcompDevice.?.lpVtbl.*.Commit.?(bd.DcompDevice.?))) {
-        return false;
-    }
-
-    updateHostWindowSizeState(@intCast(width), @intCast(height));
-    return createCompositionRenderTarget(bd);
-}
-
-pub fn ByteGui_ImplDX11_ShutdownComposition() void {
-    const bd = getDx11BackendData() orelse return;
-    clearTextCache();
-    destroyDeviceObjects(bd);
-    cleanupCompositionRenderTarget(bd);
-    releaseUnknown(bd.DcompVisual3);
-    bd.DcompVisual3 = null;
-    releaseUnknown(bd.DcompVisual);
-    bd.DcompVisual = null;
-    releaseUnknown(bd.DcompTarget);
-    bd.DcompTarget = null;
-    releaseUnknown(bd.DcompDevice);
-    bd.DcompDevice = null;
-    releaseUnknown(bd.SwapChain);
-    bd.SwapChain = null;
-    releaseUnknown(bd.Context);
-    bd.Context = null;
-    releaseUnknown(bd.Device);
-    bd.Device = null;
-}
-
-pub fn ByteGui_ImplDX11_ResizeComposition(width: c.UINT, height: c.UINT) void {
-    const bd = getDx11BackendData() orelse return;
-    const swap_chain = bd.SwapChain orelse return;
-    if (width == 0 or height == 0) return;
-
-    cleanupCompositionRenderTarget(bd);
-    if (succeeded(swap_chain.lpVtbl.*.ResizeBuffers.?(swap_chain, 0, width, height, c.DXGI_FORMAT_UNKNOWN, 0))) {
-        _ = createCompositionRenderTarget(bd);
-        updateHostWindowSizeState(@intCast(width), @intCast(height));
-        if (bd.DcompDevice) |device| _ = device.lpVtbl.*.Commit.?(device);
-    }
-}
-
-pub fn ByteGui_ImplDX11_BeginCompositionFrame(clear_color: *const [4]f32) bool {
-    const bd = getDx11BackendData() orelse return false;
-    const context = bd.Context orelse return false;
-    const rtv = bd.MainRTV orelse return false;
-
-    var rtv_ptr = rtv;
-    context.lpVtbl.*.OMSetRenderTargets.?(context, 1, &rtv_ptr, null);
-    context.lpVtbl.*.ClearRenderTargetView.?(context, rtv, clear_color);
-    return true;
-}
-
-pub fn ByteGui_ImplDX11_PresentComposition(opacity: f32, sync_interval: c.UINT, flags: c.UINT) bool {
-    const bd = getDx11BackendData() orelse return false;
-    const swap_chain = bd.SwapChain orelse return false;
-
-    if (bd.DcompVisual3) |visual| _ = visual.lpVtbl.*.SetOpacity.?(visual, opacity);
-    if (bd.DcompDevice) |device| _ = device.lpVtbl.*.Commit.?(device);
-    return succeeded(swap_chain.lpVtbl.*.Present.?(swap_chain, sync_interval, flags));
-}
-
-pub fn ByteGui_ImplDX11_GetDevice() ?*c.ID3D11Device {
-    return if (getDx11BackendData()) |bd| bd.Device else null;
-}
-
-pub fn ByteGui_ImplDX11_GetDeviceContext() ?*c.ID3D11DeviceContext {
-    return if (getDx11BackendData()) |bd| bd.Context else null;
-}
-
-pub fn ByteGui_ImplDX11_GetCompositionDevice() ?*dcomp.IDCompositionDesktopDevice {
-    return if (getDx11BackendData()) |bd| bd.DcompDevice else null;
-}
-
-pub fn ByteGui_ImplDX11_GetCompositionVisual3() ?*dcomp.IDCompositionVisual3 {
-    return if (getDx11BackendData()) |bd| bd.DcompVisual3 else null;
-}
-
-pub fn ByteGui_ImplDX11_Init(device: ?*c.ID3D11Device, device_context: ?*c.ID3D11DeviceContext) bool {
-    if (!ensureDx11BackendData() or device == null or device_context == null) return false;
-
-    const bd = getDx11BackendData().?;
-    if (bd.Device != null or bd.Context != null) ByteGui_ImplDX11_ShutdownComposition();
-
-    bd.Device = device;
-    bd.Context = device_context;
-    addRefUnknown(bd.Device);
-    addRefUnknown(bd.Context);
-    return true;
-}
-
-pub fn ByteGui_ImplDX11_Shutdown() void {
-    const ctx = GByteGui orelse return;
-    const bd = getDx11BackendData() orelse return;
-
-    clearTextCache();
-    destroyDeviceObjects(bd);
-    cleanupCompositionRenderTarget(bd);
-    releaseUnknown(bd.DcompVisual3);
-    releaseUnknown(bd.DcompVisual);
-    releaseUnknown(bd.DcompTarget);
-    releaseUnknown(bd.DcompDevice);
-    releaseUnknown(bd.SwapChain);
-    releaseUnknown(bd.Context);
-    releaseUnknown(bd.Device);
-
-    allocator.destroy(bd);
-    ctx.IO.BackendRendererUserData = null;
-    ctx.IO.BackendRendererName = null;
-    ctx.WhiteTexture = null;
-}
-
-pub fn ByteGui_ImplDX11_NewFrame() void {
-    const ctx = GByteGui orelse return;
-    const bd = getDx11BackendData() orelse return;
-
-    if (bd.VertexShader == null) _ = createDeviceObjects(bd);
-    ctx.WhiteTexture = @ptrCast(bd.WhiteTextureView);
-}
-
-pub fn ByteGui_ImplDX11_RenderDrawData(draw_data: ?*ByteDrawData) void {
-    const dd = draw_data orelse return;
-    if (!dd.Valid or dd.DisplaySize.x <= 0.0 or dd.DisplaySize.y <= 0.0) return;
-
-    const bd = getDx11BackendData() orelse return;
-    const context = bd.Context orelse return;
-    const device = bd.Device orelse return;
-
-    if (bd.VertexShader == null and !createDeviceObjects(bd)) return;
-
-    if (bd.VertexBuffer == null or bd.VertexBufferSize < dd.TotalVtxCount) {
-        releaseUnknown(bd.VertexBuffer);
-        bd.VertexBuffer = null;
-        bd.VertexBufferSize = dd.TotalVtxCount + 5000;
-
-        var desc = std.mem.zeroes(c.D3D11_BUFFER_DESC);
-        desc.Usage = c.D3D11_USAGE_DYNAMIC;
-        desc.ByteWidth = @intCast(bd.VertexBufferSize * @as(i32, @sizeOf(ByteDrawVert)));
-        desc.BindFlags = c.D3D11_BIND_VERTEX_BUFFER;
-        desc.CPUAccessFlags = c.D3D11_CPU_ACCESS_WRITE;
-        if (failed(device.lpVtbl.*.CreateBuffer.?(device, &desc, null, &bd.VertexBuffer))) return;
-    }
-
-    if (bd.IndexBuffer == null or bd.IndexBufferSize < dd.TotalIdxCount) {
-        releaseUnknown(bd.IndexBuffer);
-        bd.IndexBuffer = null;
-        bd.IndexBufferSize = dd.TotalIdxCount + 10000;
-
-        var desc = std.mem.zeroes(c.D3D11_BUFFER_DESC);
-        desc.Usage = c.D3D11_USAGE_DYNAMIC;
-        desc.ByteWidth = @intCast(bd.IndexBufferSize * @as(i32, @sizeOf(ByteDrawIdx)));
-        desc.BindFlags = c.D3D11_BIND_INDEX_BUFFER;
-        desc.CPUAccessFlags = c.D3D11_CPU_ACCESS_WRITE;
-        if (failed(device.lpVtbl.*.CreateBuffer.?(device, &desc, null, &bd.IndexBuffer))) return;
-    }
-
-    var vtx_resource = std.mem.zeroes(c.D3D11_MAPPED_SUBRESOURCE);
-    var idx_resource = std.mem.zeroes(c.D3D11_MAPPED_SUBRESOURCE);
-    if (context.lpVtbl.*.Map.?(context, @ptrCast(bd.VertexBuffer), 0, c.D3D11_MAP_WRITE_DISCARD, 0, &vtx_resource) != c.S_OK) return;
-    if (context.lpVtbl.*.Map.?(context, @ptrCast(bd.IndexBuffer), 0, c.D3D11_MAP_WRITE_DISCARD, 0, &idx_resource) != c.S_OK) {
-        context.lpVtbl.*.Unmap.?(context, @ptrCast(bd.VertexBuffer), 0);
-        return;
-    }
-
-    var vtx_dst: [*]ByteDrawVert = @ptrCast(@alignCast(vtx_resource.pData.?));
-    var idx_dst: [*]ByteDrawIdx = @ptrCast(@alignCast(idx_resource.pData.?));
-    for (dd.CmdLists.items) |draw_list| {
-        if (draw_list.VtxBuffer.items.len > 0) {
-            @memcpy(vtx_dst[0..draw_list.VtxBuffer.items.len], draw_list.VtxBuffer.items);
-            vtx_dst += draw_list.VtxBuffer.items.len;
-        }
-        if (draw_list.IdxBuffer.items.len > 0) {
-            @memcpy(idx_dst[0..draw_list.IdxBuffer.items.len], draw_list.IdxBuffer.items);
-            idx_dst += draw_list.IdxBuffer.items.len;
-        }
-    }
-
-    context.lpVtbl.*.Unmap.?(context, @ptrCast(bd.VertexBuffer), 0);
-    context.lpVtbl.*.Unmap.?(context, @ptrCast(bd.IndexBuffer), 0);
-    setupRenderState(dd, bd);
-
-    var global_idx_offset: i32 = 0;
-    var global_vtx_offset: i32 = 0;
-    for (dd.CmdLists.items) |draw_list| {
-        for (draw_list.CmdBuffer.items) |cmd| {
-            if (cmd.ElemCount == 0) continue;
-
-            var clip_rect = c.RECT{
-                .left = @intFromFloat(cmd.ClipRect.x),
-                .top = @intFromFloat(cmd.ClipRect.y),
-                .right = @intFromFloat(cmd.ClipRect.z),
-                .bottom = @intFromFloat(cmd.ClipRect.w),
-            };
-            if (clip_rect.right <= clip_rect.left or clip_rect.bottom <= clip_rect.top) continue;
-
-            var texture_srv: ?*c.ID3D11ShaderResourceView = if (cmd.TextureId) |tex| @ptrCast(@alignCast(tex)) else null;
-            context.lpVtbl.*.RSSetScissorRects.?(context, 1, @ptrCast(&clip_rect));
-            context.lpVtbl.*.PSSetShaderResources.?(context, 0, 1, &texture_srv);
-            context.lpVtbl.*.DrawIndexed.?(context, cmd.ElemCount, @intCast(@as(i32, @intCast(cmd.IdxOffset)) + global_idx_offset), @intCast(@as(i32, @intCast(cmd.VtxOffset)) + global_vtx_offset));
-        }
-
-        global_idx_offset += @intCast(draw_list.IdxBuffer.items.len);
-        global_vtx_offset += @intCast(draw_list.VtxBuffer.items.len);
-    }
-}
 pub fn windowsFontPath(gpa: std.mem.Allocator, comptime file_name: []const u8) ?[]u8 {
     if (builtin.os.tag != .windows) return null;
 
