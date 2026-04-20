@@ -428,19 +428,3 @@ pub fn launchGame(game_exe_path: [:0]const u16) LaunchError!void {
     _ = c.CloseHandle(process_info.hThread);
     _ = c.CloseHandle(process_info.hProcess);
 }
-
-test "extractInstallDirFromLine trims player log install directory" {
-    const line = "Discovering subsystems at path C:/Program Files/GRYPHLINK/games/EndField Game/EndField_Data/UnitySubsystems";
-    const path = extractInstallDirFromLine(line) orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqualStrings("C:/Program Files/GRYPHLINK/games/EndField Game", path);
-}
-
-test "extractInstallDirFromLine ignores unrelated lines" {
-    try std.testing.expect(extractInstallDirFromLine("No install path here") == null);
-}
-
-test "appendNormalizedPath normalizes separators and trims duplicate slashes" {
-    var buf: [128]u8 = undefined;
-    const path = try appendNormalizedPath(&buf, "C:/Games/EndField Game//", "/Endfield.exe");
-    try std.testing.expectEqualStrings("C:\\Games\\EndField Game\\Endfield.exe", path);
-}

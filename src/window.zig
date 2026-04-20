@@ -197,16 +197,10 @@ var g_hwnd: ?c.HWND = null;
 var g_running = true;
 var g_window_opacity: f32 = 0.0;
 
-var g_font_ui: ?*ByteFont = null;
-var g_font_ui_bold: ?*ByteFont = null;
 var g_font_console: ?*ByteFont = null;
 var g_font_version: ?*ByteFont = null;
 var g_font_launch: ?*ByteFont = null;
-var g_font_launch_hover: ?*ByteFont = null;
-var g_font_launch_peak: ?*ByteFont = null;
 var g_font_toggle: ?*ByteFont = null;
-var g_font_toggle_hover: ?*ByteFont = null;
-var g_font_toggle_peak: ?*ByteFont = null;
 
 var g_logo_texture: TextTexture = .{};
 var g_launch_label_texture: TextTexture = .{};
@@ -221,13 +215,6 @@ var g_launch_btn_enabled = false;
 var g_version_display_buf: [64]u8 = undefined;
 var g_version_display: []const u8 = VERSION_STR;
 var g_loader_thread: ?std.Thread = null;
-
-fn setGuiTrace(_: []const u8) void {}
-
-fn setGuiTraceFmt(comptime fmt: []const u8, args: anytype) void {
-    _ = fmt;
-    _ = args;
-}
 var g_loader_control_mutex: ThreadMutex = .{};
 var g_loader_events_mutex: ThreadMutex = .{};
 var g_loader_should_stop = false;
@@ -510,23 +497,19 @@ fn startCountdown(action: CloseCountdown.Action) void {
     appendOwnedStatusLine(line);
 }
 
-fn startCloseCountdown() void {
-    startCountdown(.close);
-}
-
-fn startMinimizeCountdown() void {
-    startCountdown(.minimize);
-}
-
 // Loader Worker
-fn queueLoaderEvent(event: LoaderUiEvent) void {
-    g_loader_events_mutex.lock();
-    defer g_loader_events_mutex.unlock();
-    g_loader_events.append(allocator, event) catch switch (event) {
+fn freeLoaderEvent(event: LoaderUiEvent) void {
+    switch (event) {
         .status_line => |line| allocator.free(line),
         .replace_last_status_line => |line| allocator.free(line),
         else => {},
-    };
+    }
+}
+
+fn queueLoaderEvent(event: LoaderUiEvent) void {
+    g_loader_events_mutex.lock();
+    defer g_loader_events_mutex.unlock();
+    g_loader_events.append(allocator, event) catch freeLoaderEvent(event);
 }
 
 fn queueLoaderStatus(comptime fmt: []const u8, args: anytype) void {
@@ -539,11 +522,16 @@ fn queueLoaderReplaceLastStatus(comptime fmt: []const u8, args: anytype) void {
     queueLoaderEvent(.{ .replace_last_status_line = line });
 }
 
-fn drainLoaderEvents() void {
+fn takeLoaderEvents() std.ArrayListUnmanaged(LoaderUiEvent) {
     var pending: std.ArrayListUnmanaged(LoaderUiEvent) = .empty;
     g_loader_events_mutex.lock();
+    defer g_loader_events_mutex.unlock();
     std.mem.swap(std.ArrayListUnmanaged(LoaderUiEvent), &pending, &g_loader_events);
-    g_loader_events_mutex.unlock();
+    return pending;
+}
+
+fn drainLoaderEvents() void {
+    var pending = takeLoaderEvents();
     defer pending.deinit(allocator);
 
     for (pending.items) |event| {
@@ -554,29 +542,20 @@ fn drainLoaderEvents() void {
             .process_closed => maybeRestoreAfterExit(),
             .minimize_after_inject => {
                 g_minimized_by_toggle = true;
-                if (g_window_anim.typ == .none) startMinimizeCountdown();
+                if (g_window_anim.typ == .none) startCountdown(.minimize);
             },
             .close_after_inject => {
-                if (g_window_anim.typ == .none) startCloseCountdown();
+                if (g_window_anim.typ == .none) startCountdown(.close);
             },
         }
     }
 }
 
 fn clearLoaderEvents() void {
-    var pending: std.ArrayListUnmanaged(LoaderUiEvent) = .empty;
-    g_loader_events_mutex.lock();
-    std.mem.swap(std.ArrayListUnmanaged(LoaderUiEvent), &pending, &g_loader_events);
-    g_loader_events_mutex.unlock();
+    var pending = takeLoaderEvents();
     defer pending.deinit(allocator);
 
-    for (pending.items) |event| {
-        switch (event) {
-            .status_line => |line| allocator.free(line),
-            .replace_last_status_line => |line| allocator.free(line),
-            else => {},
-        }
-    }
+    for (pending.items) |event| freeLoaderEvent(event);
 }
 
 fn setLoaderMinimizeOnLaunch(enabled: bool) void {
@@ -762,16 +741,10 @@ fn applyBaseStyle() void {
 fn loadFonts() void {
     const io = ByteGui.GetIO();
     io.Fonts.?.Clear();
-    g_font_ui = null;
-    g_font_ui_bold = null;
     g_font_console = null;
     g_font_version = null;
     g_font_launch = null;
-    g_font_launch_hover = null;
-    g_font_launch_peak = null;
     g_font_toggle = null;
-    g_font_toggle_hover = null;
-    g_font_toggle_peak = null;
 
     var ui_cfg = ByteFontConfig{};
     ui_cfg.PixelSnapH = true;
@@ -783,15 +756,9 @@ fn loadFonts() void {
     body_cfg.OversampleH = 1;
     body_cfg.OversampleV = 1;
 
-    g_font_ui = io.Fonts.?.AddFontFromMemoryTTF(embedded_inter_regular, "Inter_18pt-Regular.ttf", scaleF(16.0), &ui_cfg);
     g_font_toggle = io.Fonts.?.AddFontFromMemoryTTF(embedded_inter_regular, "Inter_18pt-Regular.ttf", scaleF(16.0), &ui_cfg);
-    g_font_toggle_hover = io.Fonts.?.AddFontFromMemoryTTF(embedded_inter_regular, "Inter_18pt-Regular.ttf", scaleF(17.0), &ui_cfg);
-    g_font_toggle_peak = io.Fonts.?.AddFontFromMemoryTTF(embedded_inter_regular, "Inter_18pt-Regular.ttf", scaleF(18.0), &ui_cfg);
 
-    g_font_ui_bold = io.Fonts.?.AddFontFromMemoryTTF(embedded_inter_semibold, "Inter_18pt-SemiBold.ttf", scaleF(16.0), &ui_cfg);
     g_font_launch = io.Fonts.?.AddFontFromMemoryTTF(embedded_inter_semibold, "Inter_18pt-SemiBold.ttf", scaleF(20.0), &ui_cfg);
-    g_font_launch_hover = io.Fonts.?.AddFontFromMemoryTTF(embedded_inter_semibold, "Inter_18pt-SemiBold.ttf", scaleF(22.0), &ui_cfg);
-    g_font_launch_peak = io.Fonts.?.AddFontFromMemoryTTF(embedded_inter_semibold, "Inter_18pt-SemiBold.ttf", scaleF(24.0), &ui_cfg);
 
     g_font_console = io.Fonts.?.AddFontFromMemoryTTF(embedded_jetbrains_mono, "JetBrainsMono-Regular.ttf", scaleF(13.0), &body_cfg);
     g_font_version = io.Fonts.?.AddFontFromMemoryTTF(embedded_jetbrains_mono, "JetBrainsMono-Regular.ttf", scaleF(12.0), &body_cfg);
@@ -839,17 +806,41 @@ fn setWindowOpacityImmediate(opacity: f32) bool {
     return c.SetLayeredWindowAttributes(hwnd, 0, alpha, c.LWA_ALPHA) != c.FALSE;
 }
 
-fn activateWindow() void {
+fn platformWindowSize() ByteVec2 {
+    return .{
+        .x = @floatFromInt(bytegui.ByteGui_ImplWin32_GetWindowWidth()),
+        .y = @floatFromInt(bytegui.ByteGui_ImplWin32_GetWindowHeight()),
+    };
+}
+
+fn moveWindowNoActivate(hwnd: c.HWND, pos: c.POINT) void {
+    _ = c.SetWindowPos(hwnd, null, pos.x, pos.y, 0, 0, c.SWP_NOSIZE | c.SWP_NOZORDER | c.SWP_NOACTIVATE);
+}
+
+fn bringWindowToFront() void {
     const hwnd = g_hwnd orelse return;
     const fg = c.GetForegroundWindow();
     const our_tid = c.GetCurrentThreadId();
     const fg_tid = if (fg) |w| c.GetWindowThreadProcessId(w, null) else 0;
-    if (fg_tid != 0 and fg_tid != our_tid)
+
+    const needs_thread_attach = fg_tid != 0 and fg_tid != our_tid;
+    if (needs_thread_attach)
         _ = c.AttachThreadInput(our_tid, fg_tid, c.TRUE);
-    _ = c.SetWindowPos(hwnd, c.HWND_TOP, 0, 0, 0, 0, c.SWP_NOMOVE | c.SWP_NOSIZE);
+    defer {
+        if (needs_thread_attach)
+            _ = c.AttachThreadInput(our_tid, fg_tid, c.FALSE);
+    }
+
     _ = c.SetForegroundWindow(hwnd);
-    if (fg_tid != 0 and fg_tid != our_tid)
-        _ = c.AttachThreadInput(our_tid, fg_tid, c.FALSE);
+}
+
+fn showStartupWindow() void {
+    const hwnd = g_hwnd orelse return;
+    _ = setWindowOpacityImmediate(0.0);
+    _ = c.ShowWindow(hwnd, c.SW_SHOW);
+    bringWindowToFront();
+    _ = c.UpdateWindow(hwnd);
+    startWindowAnimation(.slide_in);
 }
 
 fn startWindowAnimation(typ: WindowAnimType) void {
@@ -866,7 +857,7 @@ fn startWindowAnimation(typ: WindowAnimType) void {
             g_window_anim.end_pos = .{ .x = rc.left, .y = rc.top };
             g_window_anim.start_opacity = 0.0;
             g_window_anim.end_opacity = 1.0;
-            _ = c.SetWindowPos(hwnd, null, g_window_anim.start_pos.x, g_window_anim.start_pos.y, 0, 0, c.SWP_NOSIZE | c.SWP_NOZORDER | c.SWP_NOACTIVATE);
+            moveWindowNoActivate(hwnd, g_window_anim.start_pos);
             _ = setWindowOpacityImmediate(0.0);
         },
         .slide_out_close => {
@@ -952,14 +943,13 @@ fn updateAnimations(dt: f32) void {
             const t = if (g_window_anim.duration > 0.0) g_window_anim.elapsed / g_window_anim.duration else 1.0;
             if (t >= 1.0) {
                 _ = setWindowOpacityImmediate(1.0);
-                _ = c.SetWindowPos(hwnd, null, g_window_anim.end_pos.x, g_window_anim.end_pos.y, 0, 0, c.SWP_NOSIZE | c.SWP_NOZORDER | c.SWP_NOACTIVATE);
+                moveWindowNoActivate(hwnd, g_window_anim.end_pos);
                 g_window_anim.typ = .none;
-                activateWindow();
             } else {
                 const move_t = easeInOutCubic(t);
                 const y = @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(g_window_anim.start_pos.y)) + @as(f32, @floatFromInt(g_window_anim.end_pos.y - g_window_anim.start_pos.y)) * move_t)));
                 _ = setWindowOpacityImmediate(easeOutQuad(t));
-                _ = c.SetWindowPos(hwnd, null, g_window_anim.start_pos.x, y, 0, 0, c.SWP_NOSIZE | c.SWP_NOZORDER | c.SWP_NOACTIVATE);
+                moveWindowNoActivate(hwnd, .{ .x = g_window_anim.start_pos.x, .y = y });
             }
         },
         .slide_out_close => {
@@ -967,7 +957,7 @@ fn updateAnimations(dt: f32) void {
             const t = if (g_window_anim.duration > 0.0) g_window_anim.elapsed / g_window_anim.duration else 1.0;
             if (t >= 1.0) {
                 _ = setWindowOpacityImmediate(0.0);
-                _ = c.SetWindowPos(hwnd, null, g_window_anim.end_pos.x, g_window_anim.end_pos.y, 0, 0, c.SWP_NOSIZE | c.SWP_NOZORDER | c.SWP_NOACTIVATE);
+                moveWindowNoActivate(hwnd, g_window_anim.end_pos);
                 _ = c.DestroyWindow(hwnd);
                 g_window_anim.typ = .none;
             } else {
@@ -975,7 +965,7 @@ fn updateAnimations(dt: f32) void {
                 const fade_t = easeOutQuad(t);
                 const y = @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(g_window_anim.start_pos.y)) + @as(f32, @floatFromInt(g_window_anim.end_pos.y - g_window_anim.start_pos.y)) * move_t)));
                 _ = setWindowOpacityImmediate(1.0 - fade_t);
-                _ = c.SetWindowPos(hwnd, null, g_window_anim.start_pos.x, y, 0, 0, c.SWP_NOSIZE | c.SWP_NOZORDER | c.SWP_NOACTIVATE);
+                moveWindowNoActivate(hwnd, .{ .x = g_window_anim.start_pos.x, .y = y });
             }
         },
         .fade_out_minimize => {
@@ -1010,10 +1000,7 @@ fn pointInRoundedRectClient(pt: c.POINT) bool {
     return Ui.PointInCornerOnlyRoundedRect(
         .{ .x = pt.x, .y = pt.y },
         .{},
-        .{
-            .x = @floatFromInt(bytegui.ByteGui_ImplWin32_GetWindowWidth()),
-            .y = @floatFromInt(bytegui.ByteGui_ImplWin32_GetWindowHeight()),
-        },
+        platformWindowSize(),
         @floatFromInt(scaleI(CORNER_RADIUS)),
     );
 }
@@ -1073,7 +1060,7 @@ fn getWindowControlHitRects(min_hit: *bgc.RECT, close_hit: *bgc.RECT) void {
     min_hit.top = 0;
 
     close_hit.top = 0;
-    close_hit.right = bytegui.ByteGui_ImplWin32_GetWindowWidth();
+    close_hit.right = @intFromFloat(platformWindowSize().x);
 }
 
 fn hitTestButton(pt: c.POINT) i32 {
@@ -1122,6 +1109,7 @@ fn updateHoverStates(dt: f32) void {
 }
 
 fn drawYellowRotatedRect(draw: ?*ByteDrawList, opacity: f32) void {
+    const window_size = platformWindowSize();
     const rect_left = scaleF(-95.0);
     const rect_top = scaleF(1.0);
     const rect_width = scaleF(403.0);
@@ -1136,7 +1124,7 @@ fn drawYellowRotatedRect(draw: ?*ByteDrawList, opacity: f32) void {
         .{ .x = pivot_x, .y = pivot_y },
         -45.0 * std.math.pi / 180.0,
         .{ .x = 0.0, .y = 0.0 },
-        .{ .x = @floatFromInt(bytegui.ByteGui_ImplWin32_GetWindowWidth()), .y = @floatFromInt(bytegui.ByteGui_ImplWin32_GetWindowHeight()) },
+        window_size,
         snapPixel(scaleF(CORNER_RADIUS)),
         color,
         std.math.clamp(scaleIF(6.0), 6, 20),
@@ -1195,14 +1183,16 @@ fn drawLogoVisual(draw: ?*ByteDrawList, opacity: f32) void {
 
 fn drawUI() void {
     const render_opacity: f32 = 1.0;
+    const window_size = platformWindowSize();
     ByteGui.SetNextWindowPos(.{});
-    ByteGui.SetNextWindowSize(.{ .x = @floatFromInt(bytegui.ByteGui_ImplWin32_GetWindowWidth()), .y = @floatFromInt(bytegui.ByteGui_ImplWin32_GetWindowHeight()) });
+    ByteGui.SetNextWindowSize(window_size);
 
     const flags: u32 = ByteGuiWindowFlags_NoDecoration | ByteGuiWindowFlags_NoMove | ByteGuiWindowFlags_NoResize | ByteGuiWindowFlags_NoSavedSettings | ByteGuiWindowFlags_NoNav | ByteGuiWindowFlags_NoBackground;
     _ = ByteGui.Begin("##root", null, flags);
+    defer ByteGui.End();
 
     const draw = ByteGui.GetWindowDrawList() orelse return;
-    ByteGui.DrawCornerOnlyRoundedRectFilled(draw, .{}, .{ .x = @floatFromInt(bytegui.ByteGui_ImplWin32_GetWindowWidth()), .y = @floatFromInt(bytegui.ByteGui_ImplWin32_GetWindowHeight()) }, snapPixel(scaleF(CORNER_RADIUS)), toU32(applyOpacity(.{ .x = 1.0, .y = 1.0, .z = 1.0, .w = 1.0 }, render_opacity)), std.math.clamp(scaleIF(6.0), 6, 20));
+    ByteGui.DrawCornerOnlyRoundedRectFilled(draw, .{}, window_size, snapPixel(scaleF(CORNER_RADIUS)), toU32(applyOpacity(.{ .x = 1.0, .y = 1.0, .z = 1.0, .w = 1.0 }, render_opacity)), std.math.clamp(scaleIF(6.0), 6, 20));
     drawYellowRotatedRect(draw, render_opacity);
 
     ByteGui.DrawInfoGlyph(draw, scaleVec2(INFO_X, INFO_Y), scaleVec2(INFO_W, INFO_H), toU32(applyOpacity(g_button_colors[3].current, render_opacity)), toU32(applyOpacity(.{ .x = 1.0, .y = 250.0 / 255.0, .z = 0.0, .w = 1.0 }, render_opacity)), std.math.clamp(scaleIF(72.0), 72, 160));
@@ -1228,8 +1218,6 @@ fn drawUI() void {
     draw.AddText(g_font_version, scaleF(12.0), snapPixelVec2(scaleVec2(VERSION_X, VERSION_Y)), toU32(applyOpacity(g_button_colors[4].current, render_opacity)), g_version_display, null);
     drawAnimatedBoxButtonVisual("toggle_btn", "Minimize on Launch", scaleVec2(TOGGLE_X, TOGGLE_Y + TOGGLE_Y_OFFSET), scaleVec2(TOGGLE_W, TOGGLE_H), g_toggle_anim.value, true, g_toggle_current_color, render_opacity);
     drawAnimatedBoxButtonVisual("launch_btn", "Launch Game", scaleVec2(LAUNCH_X, LAUNCH_Y), scaleVec2(LAUNCH_W, LAUNCH_H), g_launch_anim.value, g_launch_btn_enabled, .{ .x = 1.0, .y = 250.0 / 255.0, .z = 0.0, .w = 1.0 }, render_opacity);
-
-    ByteGui.End();
 }
 
 fn refreshGamePathStatus() void {
@@ -1244,7 +1232,7 @@ fn maybeRestoreAfterExit() void {
     cancelCloseCountdown();
     clearStatusLines();
     _ = c.ShowWindow(g_hwnd.?, c.SW_RESTORE);
-    activateWindow();
+    bringWindowToFront();
     appendStatus(strings.status_ready_for_injection_again, .{});
     appendWaitingForTargetExeStatus();
     g_minimized_by_toggle = false;
@@ -1269,10 +1257,7 @@ fn openReadme() void {
 
 fn openReleaseTag() void {
     var version_buf: [32]u8 = undefined;
-    const normalized = if (VERSION_STR.len > 0 and (VERSION_STR[0] == 'v' or VERSION_STR[0] == 'V'))
-        VERSION_STR
-    else
-        std.fmt.bufPrint(&version_buf, "v{s}", .{VERSION_STR}) catch return;
+    const normalized = app_version.normalizedTag(&version_buf, VERSION_STR) catch return;
 
     var url_utf8_buf: [160]u8 = undefined;
     const url_utf8 = std.fmt.bufPrint(
@@ -1338,7 +1323,7 @@ fn handleMouseMove(hwnd: c.HWND) c.LRESULT {
     if (g_dragging) {
         var cur = std.mem.zeroes(c.POINT);
         _ = c.GetCursorPos(&cur);
-        _ = c.SetWindowPos(hwnd, null, cur.x - g_drag_offset.x, cur.y - g_drag_offset.y, 0, 0, c.SWP_NOSIZE | c.SWP_NOZORDER | c.SWP_NOACTIVATE);
+        moveWindowNoActivate(hwnd, .{ .x = cur.x - g_drag_offset.x, .y = cur.y - g_drag_offset.y });
         return 0;
     }
 
@@ -1374,7 +1359,6 @@ fn handleLButtonUp(l_param: c.LPARAM) c.LRESULT {
 
 fn wndProc(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) callconv(.winapi) c.LRESULT {
     const active_hwnd = hwnd;
-    setGuiTraceFmt("wnd:msg={x}", .{msg});
 
     if (msg == c.WM_NCHITTEST) {
         var pt = c.POINT{ .x = lowWordSigned(l_param), .y = highWordSigned(l_param) };
@@ -1447,63 +1431,7 @@ fn wndProcBridge(hwnd: bgc.HWND, msg: bgc.UINT, w_param: bgc.WPARAM, l_param: bg
     return wndProc(@ptrFromInt(@intFromPtr(hwnd)), msg, w_param, l_param);
 }
 
-noinline fn initGuiApp(instance: ?c.HMODULE) bool {
-    setGuiTrace("init:start");
-    bytegui.BYTEGUI_CHECKVERSION();
-    _ = ByteGui.CreateContext() orelse {
-        setGuiTrace("init:create_context_failed");
-        return false;
-    };
-    setGuiTrace("init:context_ok");
-
-    var window_config = ByteGuiPlatformWindowConfig{};
-    setGuiTrace("init:config_0");
-    window_config.Instance = if (instance) |handle| @ptrFromInt(@intFromPtr(handle)) else null;
-    setGuiTrace("init:config_1");
-    window_config.WndProc = wndProcBridge;
-    setGuiTrace("init:config_2");
-    window_config.ClassName = WINDOW_CLASS;
-    setGuiTrace("init:config_3");
-    window_config.Title = APP_TITLE;
-    setGuiTrace("init:config_4");
-    window_config.ExStyle |= c.WS_EX_LAYERED;
-    window_config.IconResourceId = APP_ICON_RESOURCE_ID;
-    window_config.LogicalWidth = WINDOW_WIDTH;
-    window_config.LogicalHeight = WINDOW_HEIGHT;
-    setGuiTrace("init:config_5");
-    std.mem.doNotOptimizeAway(window_config);
-    setGuiTrace("init:config_6");
-
-    if (!bytegui.ByteGui_ImplWin32_CreatePlatformWindow(&window_config)) {
-        setGuiTrace("init:create_window_failed");
-        return false;
-    }
-    const platform_hwnd = bytegui.ByteGui_ImplWin32_GetPlatformHwnd();
-    g_hwnd = fromByteGuiHwnd(platform_hwnd);
-    if (!initLayeredWindowOpacity()) {
-        setGuiTrace("init:layered_alpha_failed");
-        return false;
-    }
-    setGuiTrace("init:window_ok");
-    if (!bytegui.ByteGui_ImplOpenGL_Init(platform_hwnd, @intCast(bytegui.ByteGui_ImplWin32_GetWindowWidth()), @intCast(bytegui.ByteGui_ImplWin32_GetWindowHeight()))) {
-        setGuiTrace("init:opengl_failed");
-        return false;
-    }
-    setGuiTrace("init:opengl_ok");
-
-    const io = ByteGui.GetIO();
-    io.IniFilename = null;
-    io.LogFilename = null;
-    io.DisplaySize = .{ .x = @floatFromInt(bytegui.ByteGui_ImplWin32_GetWindowWidth()), .y = @floatFromInt(bytegui.ByteGui_ImplWin32_GetWindowHeight()) };
-
-    applyBaseStyle();
-    loadFonts();
-    setGuiTrace("init:fonts_ok");
-    _ = bytegui.ByteGui_ImplWin32_Init(platform_hwnd);
-    _ = rebuildLogoTexture();
-    _ = rebuildButtonLabelTextures();
-    refreshGamePathStatus();
-
+fn appendInitialStatusLines() void {
     if (g_launch_btn_enabled) {
         appendStatus(strings.status_game_found, .{});
         appendStatus(strings.status_launch_here_or_external, .{});
@@ -1512,23 +1440,65 @@ noinline fn initGuiApp(instance: ?c.HMODULE) bool {
         appendStatus(strings.status_game_not_found, .{});
         appendStatus(strings.status_launch_externally, .{});
     }
-    if (!startLoaderWorker()) {
-        appendStatus(strings.status_monitor_failed, .{});
-    }
+}
 
+fn resetButtonColorAnimations() void {
     for (g_button_colors[1..5]) |*color_anim| {
         color_anim.current = kControlIdleColor;
         color_anim.start = kControlIdleColor;
         color_anim.target = kControlIdleColor;
     }
+}
+
+fn initByteGuiIo() void {
+    const io = ByteGui.GetIO();
+    io.IniFilename = null;
+    io.LogFilename = null;
+    io.DisplaySize = platformWindowSize();
+}
+
+fn initGuiResources(platform_hwnd: ?bgc.HWND) void {
+    applyBaseStyle();
+    loadFonts();
+    _ = bytegui.ByteGui_ImplWin32_Init(platform_hwnd);
+    _ = rebuildLogoTexture();
+    _ = rebuildButtonLabelTextures();
+}
+
+fn initializeGuiState() void {
+    refreshGamePathStatus();
+    appendInitialStatusLines();
+    if (!startLoaderWorker()) appendStatus(strings.status_monitor_failed, .{});
+    resetButtonColorAnimations();
+}
+
+noinline fn initGuiApp(instance: ?c.HMODULE) bool {
+    bytegui.BYTEGUI_CHECKVERSION();
+    _ = ByteGui.CreateContext() orelse return false;
+
+    var window_config = ByteGuiPlatformWindowConfig{};
+    window_config.Instance = if (instance) |handle| @ptrFromInt(@intFromPtr(handle)) else null;
+    window_config.WndProc = wndProcBridge;
+    window_config.ClassName = WINDOW_CLASS;
+    window_config.Title = APP_TITLE;
+    window_config.ExStyle |= c.WS_EX_LAYERED;
+    window_config.IconResourceId = APP_ICON_RESOURCE_ID;
+    window_config.LogicalWidth = WINDOW_WIDTH;
+    window_config.LogicalHeight = WINDOW_HEIGHT;
+
+    if (!bytegui.ByteGui_ImplWin32_CreatePlatformWindow(&window_config)) return false;
+    const platform_hwnd = bytegui.ByteGui_ImplWin32_GetPlatformHwnd();
+    g_hwnd = fromByteGuiHwnd(platform_hwnd);
+    if (!initLayeredWindowOpacity()) return false;
+    const window_size = platformWindowSize();
+    if (!bytegui.ByteGui_ImplOpenGL_Init(platform_hwnd, @intFromFloat(window_size.x), @intFromFloat(window_size.y))) return false;
+
+    initByteGuiIo();
+    initGuiResources(platform_hwnd);
+    initializeGuiState();
 
     applyWindowShape();
-    _ = setWindowOpacityImmediate(0.0);
-    _ = c.ShowWindow(g_hwnd.?, c.SW_SHOW);
-    activateWindow();
-    _ = c.UpdateWindow(g_hwnd.?);
-    startWindowAnimation(.slide_in);
-    setGuiTrace("init:done");
+    showStartupWindow();
     return true;
 }
 
@@ -1575,13 +1545,9 @@ fn runGui() !u8 {
         ByteGui.Render();
 
         const clear_color = [4]f32{ 0, 0, 0, 0 };
-        setGuiTrace("frame:begin");
         _ = bytegui.ByteGui_ImplOpenGL_BeginFrame(&clear_color);
-        setGuiTrace("frame:render");
         bytegui.ByteGui_ImplOpenGL_RenderDrawData(ByteGui.GetDrawData());
-        setGuiTrace("frame:present");
         _ = bytegui.ByteGui_ImplOpenGL_Present();
-        setGuiTrace("frame:done");
         c.Sleep(1);
     }
     return 0;

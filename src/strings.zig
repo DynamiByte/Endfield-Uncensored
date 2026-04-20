@@ -1,4 +1,5 @@
 const std = @import("std");
+const app_version = @import("version.zig");
 const loader = @import("loader.zig");
 
 pub const label_launch = "Launch Game";
@@ -36,15 +37,10 @@ fn appendLine(list: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, l
     try list.append(allocator, '\n');
 }
 
-fn trimVersionPrefix(version_str: []const u8) []const u8 {
-    if (version_str.len > 0 and (version_str[0] == 'v' or version_str[0] == 'V')) return version_str[1..];
-    return version_str;
-}
-
 pub fn computeVersionDisplay(out_buf: []u8, version_str: []const u8) ![]const u8 {
     var parts: [4][]const u8 = .{ "", "", "", "" };
     var count: usize = 0;
-    var parts_it = std.mem.splitScalar(u8, trimVersionPrefix(version_str), '.');
+    var parts_it = std.mem.splitScalar(u8, app_version.trimVersionPrefix(version_str), '.');
     while (parts_it.next()) |part| {
         if (count == parts.len) break;
         parts[count] = part;
@@ -72,19 +68,25 @@ pub fn buildMonoSubsetText(allocator: std.mem.Allocator, version_str: []const u8
     try appendLine(&lines, allocator, status_monitor_failed);
 
     var line_buf: [160]u8 = undefined;
-    try appendLine(&lines, allocator, try std.fmt.bufPrint(&line_buf, "Waiting for {s}...", .{loader.target_exe_name}));
+    try appendLine(&lines, allocator, try std.fmt.bufPrint(&line_buf, status_waiting_for_target_fmt, .{loader.target_exe_name}));
     try appendLine(&lines, allocator, status_game_process_closed);
     try appendLine(&lines, allocator, "Process found (PID: 0123456789)");
     try appendLine(&lines, allocator, status_extracting_mod);
-    try appendLine(&lines, allocator, "Failed to prepare temp DLL: ");
+    try appendLine(&lines, allocator, try std.fmt.bufPrint(&line_buf, status_prepare_temp_dll_failed_fmt, .{
+        loader.describeTempDllError(error.TempFileCreateFailed),
+    }));
     try appendLine(&lines, allocator, status_injecting_mod);
     try appendLine(&lines, allocator, status_injected_success);
-    try appendLine(&lines, allocator, "Injection failed: ");
+    try appendLine(&lines, allocator, try std.fmt.bufPrint(&line_buf, status_injection_failed_fmt, .{
+        loader.describeInjectError(error.CreateRemoteThreadFailed),
+    }));
     try appendLine(&lines, allocator, status_try_run_admin);
     try appendLine(&lines, allocator, status_minimized);
     try appendLine(&lines, allocator, status_ready_for_injection_again);
     try appendLine(&lines, allocator, status_launch_requested_unavailable);
-    try appendLine(&lines, allocator, "Failed to launch game: ");
+    try appendLine(&lines, allocator, try std.fmt.bufPrint(&line_buf, status_launch_failed_fmt, .{
+        loader.describeLaunchError(error.CreateProcessFailed),
+    }));
     try appendLine(&lines, allocator, status_launching_game);
     try appendLine(&lines, allocator, try std.fmt.bufPrint(&line_buf, "{s} in 0123456789 second...", .{countdown_action_minimize}));
     try appendLine(&lines, allocator, try std.fmt.bufPrint(&line_buf, "{s} in 0123456789 seconds...", .{countdown_action_minimize}));
