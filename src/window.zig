@@ -481,10 +481,6 @@ fn appendStatus(comptime fmt: []const u8, args: anytype) void {
     appendOwnedStatusLine(line);
 }
 
-fn appendWaitingForTargetExeStatus() void {
-    appendStatus(strings.status_waiting_for_target_fmt, .{loader.target_exe_name});
-}
-
 fn appendOwnedStatusLine(line: []u8) void {
     g_output_lines.append(allocator, line) catch allocator.free(line);
 }
@@ -624,9 +620,6 @@ fn loaderWorkerTick(state: *LoaderWorkerState) void {
                 queueLoaderEvent(.{ .clear_status = {} });
             }
             queueLoaderStatus(strings.status_game_process_closed, .{});
-            if (state.tracked_mode == .startup_blocked) {
-                queueLoaderStatus(strings.status_waiting_for_target_fmt, .{loader.target_exe_name});
-            }
             state.tracked_pid = 0;
             state.last_failed_pid = 0;
             state.tracked_mode = .none;
@@ -1363,7 +1356,6 @@ fn maybeRestoreAfterExit() void {
     }
     appendLaunchModeHintStatus();
     appendStatus(strings.status_ready_for_injection_again, .{});
-    appendWaitingForTargetExeStatus();
     g_minimized_by_toggle = false;
     g_stayed_open_by_toggle = false;
 }
@@ -1638,7 +1630,6 @@ fn appendInitialStatusLines() void {
     } else if (g_game_exe_path != null) {
         appendStatus(strings.status_game_found, .{});
         appendStatus(strings.status_launch_here_or_external, .{});
-        appendWaitingForTargetExeStatus();
     } else {
         appendStatus(strings.status_game_not_found, .{});
         appendStatus(strings.status_launch_externally, .{});

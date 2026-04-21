@@ -16,9 +16,9 @@ pub const countdown_action_minimize = "Minimizing";
 pub const countdown_action_close = "Closing";
 
 pub const status_game_found = "Game found!";
-pub const status_launch_here_or_external = "You can now launch the game here or externally.";
+pub const status_launch_here_or_external = "You can now launch the game here or externally...";
 pub const status_game_not_found = "Game not found.";
-pub const status_launch_externally = "Please launch the game externally.";
+pub const status_launch_externally = "Please launch the game externally...";
 pub const status_monitor_failed = "Background game monitor failed to start.";
 pub const status_game_process_closed = "Game process closed. Ready.";
 pub const status_game_already_running_startup = "The game is already running! The mod can only be applied at startup!";
