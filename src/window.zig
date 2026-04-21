@@ -769,8 +769,8 @@ fn windowCornerRadiusPx() f32 {
 fn applyWindowShape() void {
     const hwnd = g_hwnd orelse return;
     if (!windowUsesLayeredOpacity()) return;
-    // Enable per-pixel alpha compositing via DWM - this allows the OpenGL
-    // framebuffer's alpha channel to control window transparency, giving us
+    // Enable per-pixel alpha compositing via DWM, allowing OpenGL
+    // framebuffer's alpha channel to control window transparency, giving
     // proper AA on rounded corners without SetWindowRgn clipping.
     const margins = c.MARGINS{ .cxLeftWidth = -1, .cxRightWidth = -1, .cyTopHeight = -1, .cyBottomHeight = -1 };
     _ = c.DwmExtendFrameIntoClientArea(hwnd, &margins);
