@@ -1,11 +1,13 @@
 const builtin = @import("builtin");
 const std = @import("std");
 
+const app_version = @import("version.zig");
 const loader = @import("loader.zig");
 const strings = @import("strings.zig");
 const c = @import("win32.zig");
 
 const APP_TITLE = std.unicode.utf8ToUtf16LeStringLiteral("Endfield Uncensored");
+const VERSION_STR = app_version.version_str;
 const CLI_CONSOLE_TITLE = std.unicode.utf8ToUtf16LeStringLiteral("Endfield Uncensored CLI");
 const FORCE_WINE_MODE_LONG = "--force-wine-mode";
 const FORCE_WINE_MODE_SHORT = "-fwm";
@@ -314,6 +316,12 @@ fn cliPrint(io: std.Io, comptime fmt: []const u8, args: anytype) void {
     cliWrite(io, message);
 }
 
+fn cliPrintHeader(io: std.Io) void {
+    var version_buf: [64]u8 = undefined;
+    const version_display = strings.computeVersionDisplay(&version_buf, VERSION_STR) catch VERSION_STR;
+    cliPrint(io, "\n[EFU Loader {s}]\n\n", .{version_display});
+}
+
 fn getProcessPathWtf8(pid: u32, out_buf: []u8) !?[]const u8 {
     if (pid == 0) return null;
 
@@ -599,7 +607,7 @@ fn runEfmiCli(allocator: std.mem.Allocator, embedded_dll: []const u8, efmi_launc
     const io = threaded.io();
 
     ensureCliConsole();
-    cliPrint(io, "\n[EFU Loader]\n\n", .{});
+    cliPrintHeader(io);
 
     const startup_pid = loader.findTargetProcess();
     if (startup_pid != 0) {
@@ -662,7 +670,7 @@ pub fn run(allocator: std.mem.Allocator, environ: std.process.Environ, mode: Mod
         const efmi_io = threaded_efmi.io();
 
         ensureCliConsole();
-        cliPrint(efmi_io, "\n[EFU Loader]\n\n", .{});
+        cliPrintHeader(efmi_io);
         cliPrint(efmi_io, "XXMI was not found in the default location.\n", .{});
         cliPrint(efmi_io, "{s}\n", .{EFMI_MISSING_PATH_MESSAGE});
         cliPrint(efmi_io, "Closing in 5 seconds...\n", .{});
@@ -677,7 +685,7 @@ pub fn run(allocator: std.mem.Allocator, environ: std.process.Environ, mode: Mod
     if (mode == .silent) return runSilentCli(allocator, environ, embedded_dll);
 
     ensureCliConsole();
-    cliPrint(io, "\n[EFU Loader]\n\n", .{});
+    cliPrintHeader(io);
 
     const temp_dll_path = loader.writeEmbeddedDllToTemp(allocator, embedded_dll) catch |err| {
         cliPrint(io, "Error: {s}\n", .{loader.describeTempDllError(err)});
