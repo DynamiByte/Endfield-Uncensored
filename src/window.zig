@@ -251,6 +251,7 @@ var g_loader_events_mutex: ThreadMutex = .{};
 var g_loader_should_stop = false;
 var g_loader_minimize_on_launch = false;
 var g_loader_allow_minimize = true;
+var g_loader_target_running = false;
 var g_loader_events: std.ArrayListUnmanaged(LoaderUiEvent) = .empty;
 
 var g_hovered_button: i32 = 0;
@@ -269,9 +270,12 @@ var g_launch_anim: ScalarAnim = .{};
 var g_toggle_anim: ScalarAnim = .{};
 var g_button_colors = [_]ColorAnim{.{}} ** 5;
 var g_toggle_current_color = ByteVec4{ .x = 220.0 / 255.0, .y = 220.0 / 255.0, .z = 220.0 / 255.0, .w = 1.0 };
+var g_launch_current_color = ByteVec4{ .x = 180.0 / 255.0, .y = 180.0 / 255.0, .z = 180.0 / 255.0, .w = 1.0 };
 
 const kControlIdleColor = ByteVec4{ .x = 51.0 / 255.0, .y = 51.0 / 255.0, .z = 51.0 / 255.0, .w = 1.0 };
 const kControlHoverBlue = ByteVec4{ .x = 100.0 / 255.0, .y = 149.0 / 255.0, .z = 237.0 / 255.0, .w = 1.0 };
+const kLaunchEnabledColor = ByteVec4{ .x = 1.0, .y = 250.0 / 255.0, .z = 0.0, .w = 1.0 };
+const kLaunchDisabledColor = ByteVec4{ .x = 180.0 / 255.0, .y = 180.0 / 255.0, .z = 180.0 / 255.0, .w = 1.0 };
 const clamp01 = Ui.Clamp01;
 const easeOutQuad = Ui.EaseOutQuad;
 const easeInOutCubic = Ui.EaseInOutCubic;
@@ -490,6 +494,31 @@ fn loaderPostInjectBehavior() PostInjectBehavior {
     g_loader_control_mutex.lock();
     defer g_loader_control_mutex.unlock();
     return resolvePostInjectBehavior(g_loader_minimize_on_launch, g_loader_allow_minimize);
+}
+
+fn setLoaderTargetRunning(running: bool) void {
+    g_loader_control_mutex.lock();
+    g_loader_target_running = running;
+    g_loader_control_mutex.unlock();
+}
+
+fn loaderTargetRunning() bool {
+    g_loader_control_mutex.lock();
+    defer g_loader_control_mutex.unlock();
+    return g_loader_target_running;
+}
+
+fn computeLaunchButtonEnabled() bool {
+    return g_game_exe_path != null and !loaderTargetRunning();
+}
+
+fn syncLaunchButtonStateImmediate() void {
+    g_launch_btn_enabled = computeLaunchButtonEnabled();
+    g_launch_current_color = if (g_launch_btn_enabled) kLaunchEnabledColor else kLaunchDisabledColor;
+}
+
+fn updateLaunchButtonState() void {
+    g_launch_btn_enabled = computeLaunchButtonEnabled();
 }
 
 fn toggleButtonLabel() []const u8 {
@@ -721,6 +750,7 @@ fn setLoaderMinimizeOnLaunch(enabled: bool) void {
     g_loader_minimize_on_launch = enabled;
     g_loader_control_mutex.unlock();
 }
+
 fn ensureWorkerTempDll(state: *LoaderWorkerState) ![]const u8 {
     if (state.temp_dll_path) |path| return path;
     const path = try loader.writeEmbeddedDllToTemp(allocator, embedded_dll);
@@ -735,7 +765,10 @@ fn loaderWorkerTick(state: *LoaderWorkerState) void {
             queueLoaderStatus(strings.status_game_process_closed, .{});
             state.tracked_pid = 0;
             state.last_failed_pid = 0;
+            setLoaderTargetRunning(false);
             queueLoaderEvent(.{ .process_closed = {} });
+        } else {
+            setLoaderTargetRunning(true);
         }
         return;
     }
@@ -743,8 +776,10 @@ fn loaderWorkerTick(state: *LoaderWorkerState) void {
     const pid = loader.findTargetProcess();
     if (pid == 0) {
         state.last_failed_pid = 0;
+        setLoaderTargetRunning(false);
         return;
     }
+    setLoaderTargetRunning(true);
     if (pid == state.last_failed_pid) return;
 
     queueLoaderEvent(.{ .clear_status = {} });
@@ -1110,6 +1145,7 @@ fn updateAnimations(dt: f32) void {
     else
         ByteVec4{ .x = 220.0 / 255.0, .y = 220.0 / 255.0, .z = 220.0 / 255.0, .w = 1.0 };
     g_toggle_current_color = lerpColor(g_toggle_current_color, toggle_target, clamp01(dt * 12.0));
+    g_launch_current_color = lerpColor(g_launch_current_color, if (g_launch_btn_enabled) kLaunchEnabledColor else kLaunchDisabledColor, clamp01(dt * 12.0));
 
     if (g_close_countdown.active and g_window_anim.typ == .none) {
         g_close_countdown.elapsed += dt;
@@ -1364,11 +1400,12 @@ fn drawAnimatedButtonLabelTexture(draw: ?*ByteDrawList, is_launch: bool, pos: By
 }
 
 fn drawAnimatedBoxButtonVisual(id: []const u8, _: []const u8, base_pos: ByteVec2, base_size: ByteVec2, anim: f32, enabled: bool, base_color: ByteVec4, opacity: f32) void {
+    _ = enabled;
     const is_launch = std.mem.eql(u8, id, "launch_btn");
     const center = ByteVec2{ .x = base_pos.x + base_size.x * 0.5, .y = base_pos.y + base_size.y * 0.5 };
     const size = ByteVec2{ .x = base_size.x + scaleF(12.0) * anim, .y = base_size.y + (if (is_launch) scaleF(4.0) else scaleF(3.0)) * anim };
     const pos = ByteVec2{ .x = center.x - size.x * 0.5, .y = center.y - size.y * 0.5 };
-    const color = if (enabled) base_color else ByteVec4{ .x = 180.0 / 255.0, .y = 180.0 / 255.0, .z = 180.0 / 255.0, .w = 1.0 };
+    const color = base_color;
     const rounding = if (is_launch) scaleF(8.0) + scaleF(4.0) * anim else scaleF(5.0) + scaleF(2.0) * anim;
 
     const draw = ByteGui.GetWindowDrawList() orelse return;
@@ -1430,13 +1467,14 @@ fn drawUI() void {
 
     draw.AddText(g_font_version, scaleF(12.0), snapPixelVec2(scaleVec2(VERSION_X, VERSION_Y)), toU32(applyOpacity(g_button_colors[4].current, render_opacity)), g_version_display, null);
     drawAnimatedBoxButtonVisual("toggle_btn", toggleButtonLabel(), scaleVec2(TOGGLE_X, TOGGLE_Y + TOGGLE_Y_OFFSET), scaleVec2(TOGGLE_W, TOGGLE_H), g_toggle_anim.value, true, g_toggle_current_color, render_opacity);
-    drawAnimatedBoxButtonVisual("launch_btn", "Launch Game", scaleVec2(LAUNCH_X, LAUNCH_Y), scaleVec2(LAUNCH_W, LAUNCH_H), g_launch_anim.value, g_launch_btn_enabled, .{ .x = 1.0, .y = 250.0 / 255.0, .z = 0.0, .w = 1.0 }, render_opacity);
+    drawAnimatedBoxButtonVisual("launch_btn", "Launch Game", scaleVec2(LAUNCH_X, LAUNCH_Y), scaleVec2(LAUNCH_W, LAUNCH_H), g_launch_anim.value, g_launch_btn_enabled, g_launch_current_color, render_opacity);
 }
 
 fn refreshGamePathStatus() void {
     if (g_game_exe_path) |path| allocator.free(path);
     g_game_exe_path = loader.detectGameExe(g_environ, allocator) catch null;
-    g_launch_btn_enabled = g_game_exe_path != null;
+    setLoaderTargetRunning(loader.findTargetProcess() != 0);
+    syncLaunchButtonStateImmediate();
 }
 
 fn maybeRestoreAfterExit() void {
@@ -1464,6 +1502,8 @@ fn launchGameAction() void {
         appendStatus(strings.status_launch_failed_fmt, .{loader.describeLaunchError(err)});
         return;
     };
+    setLoaderTargetRunning(true);
+    updateLaunchButtonState();
     appendStatus(strings.status_launching_game, .{});
 }
 
@@ -1648,7 +1688,7 @@ fn wndProcBridge(hwnd: bgc.HWND, msg: bgc.UINT, w_param: bgc.WPARAM, l_param: bg
 }
 
 fn appendInitialStatusLines() void {
-    if (g_launch_btn_enabled) {
+    if (g_game_exe_path != null) {
         appendStatus(strings.status_game_found, .{});
         appendStatus(strings.status_launch_here_or_external, .{});
         appendWaitingForTargetExeStatus();
@@ -1750,6 +1790,7 @@ fn runGui() !u8 {
         const io = ByteGui.GetIO();
         const dt = @min(if (io.DeltaTime > 0.0) io.DeltaTime else 1.0 / 60.0, 1.0 / 30.0);
         drainLoaderEvents();
+        updateLaunchButtonState();
         updateHoverStates(dt);
         updateAnimations(dt);
         if (!g_running or g_hwnd == null) break;
