@@ -18,6 +18,7 @@ pub const HWND = windows.HWND;
 pub const INT = windows.INT;
 pub const INVALID_HANDLE_VALUE = windows.INVALID_HANDLE_VALUE;
 pub const LONG = windows.LONG;
+pub const SHORT = i16;
 pub const LPCWSTR = windows.LPCWSTR;
 pub const LPWSTR = windows.LPWSTR;
 pub const MAX_PATH = windows.MAX_PATH;
@@ -114,6 +115,27 @@ pub const PROCESSENTRY32W = extern struct {
     szExeFile: [MAX_PATH]WCHAR,
 };
 
+pub const KEY_EVENT_RECORD = extern struct {
+    bKeyDown: BOOL,
+    wRepeatCount: WORD,
+    wVirtualKeyCode: WORD,
+    wVirtualScanCode: WORD,
+    uChar: extern union {
+        UnicodeChar: WCHAR,
+        AsciiChar: u8,
+    },
+    dwControlKeyState: DWORD,
+};
+
+pub const INPUT_RECORD = extern struct {
+    EventType: WORD,
+    _padding: WORD,
+    Event: extern union {
+        KeyEvent: KEY_EVENT_RECORD,
+        Raw: [16]u8,
+    },
+};
+
 fn winBool(value: bool) BOOL {
     return switch (@typeInfo(BOOL)) {
         .int => if (value) 1 else 0,
@@ -139,6 +161,7 @@ pub const WAIT_OBJECT_0: DWORD = 0x00000000;
 pub const WAIT_TIMEOUT: DWORD = 0x00000102;
 pub const WAIT_FAILED: DWORD = 0xFFFFFFFF;
 pub const STILL_ACTIVE: DWORD = 0x00000103;
+pub const STD_INPUT_HANDLE: DWORD = @as(DWORD, @bitCast(@as(i32, -10)));
 pub const MEM_COMMIT: DWORD = 0x00001000;
 pub const MEM_RESERVE: DWORD = 0x00002000;
 pub const MEM_RELEASE: DWORD = 0x00008000;
@@ -149,6 +172,7 @@ pub const ERROR_PATH_NOT_FOUND: DWORD = 3;
 pub const ERROR_ACCESS_DENIED: DWORD = 5;
 pub const ERROR_INVALID_PARAMETER: DWORD = 87;
 pub const ERROR_INVALID_NAME: DWORD = 123;
+pub const KEY_EVENT: WORD = 0x0001;
 
 pub const WM_DESTROY: UINT = 0x0002;
 pub const WM_SIZE: UINT = 0x0005;
@@ -214,6 +238,7 @@ pub extern "kernel32" fn OpenProcess(dw_desired_access: DWORD, b_inherit_handle:
 pub extern "kernel32" fn CloseHandle(h_object: HANDLE) callconv(.winapi) BOOL;
 pub extern "kernel32" fn GetLastError() callconv(.winapi) DWORD;
 pub extern "kernel32" fn GetCurrentProcessId() callconv(.winapi) DWORD;
+pub extern "kernel32" fn GetStdHandle(n_std_handle: DWORD) callconv(.winapi) ?HANDLE;
 pub extern "kernel32" fn GetModuleFileNameW(h_module: ?HMODULE, lp_filename: [*]WCHAR, n_size: DWORD) callconv(.winapi) DWORD;
 pub extern "kernel32" fn GetTickCount64() callconv(.winapi) u64;
 pub extern "kernel32" fn WaitForSingleObject(h_handle: HANDLE, dw_milliseconds: DWORD) callconv(.winapi) DWORD;
@@ -230,6 +255,8 @@ pub extern "kernel32" fn Sleep(dw_milliseconds: DWORD) callconv(.winapi) void;
 pub extern "kernel32" fn FreeConsole() callconv(.winapi) BOOL;
 pub extern "kernel32" fn AllocConsole() callconv(.winapi) BOOL;
 pub extern "kernel32" fn SetConsoleTitleW(lp_console_title: LPCWSTR) callconv(.winapi) BOOL;
+pub extern "kernel32" fn PeekConsoleInputW(h_console_input: HANDLE, lp_buffer: [*]INPUT_RECORD, n_length: DWORD, lp_number_of_events_read: *DWORD) callconv(.winapi) BOOL;
+pub extern "kernel32" fn ReadConsoleInputW(h_console_input: HANDLE, lp_buffer: [*]INPUT_RECORD, n_length: DWORD, lp_number_of_events_read: *DWORD) callconv(.winapi) BOOL;
 
 pub extern "user32" fn GetWindowRect(hwnd: HWND, lp_rect: *RECT) callconv(.winapi) BOOL;
 pub extern "user32" fn GetDC(hwnd: ?HWND) callconv(.winapi) ?HDC;
@@ -250,6 +277,7 @@ pub extern "user32" fn ScreenToClient(hwnd: HWND, lp_point: *POINT) callconv(.wi
 pub extern "user32" fn SetCursor(h_cursor: ?HCURSOR) callconv(.winapi) ?HCURSOR;
 pub extern "user32" fn SetCapture(hwnd: HWND) callconv(.winapi) ?HWND;
 pub extern "user32" fn ReleaseCapture() callconv(.winapi) BOOL;
+pub extern "user32" fn GetAsyncKeyState(v_key: INT) callconv(.winapi) SHORT;
 pub extern "user32" fn PtInRect(lprc: *const RECT, pt: POINT) callconv(.winapi) BOOL;
 pub extern "user32" fn DefWindowProcW(hwnd: HWND, msg: UINT, w_param: WPARAM, l_param: LPARAM) callconv(.winapi) LRESULT;
 pub extern "user32" fn CreateWindowExW(ex_style: DWORD, class_name: LPCWSTR, window_name: LPCWSTR, style: DWORD, x: INT, y: INT, width: INT, height: INT, parent: ?HWND, menu: ?HMENU, instance: ?HINSTANCE, param: ?*anyopaque) callconv(.winapi) ?HWND;

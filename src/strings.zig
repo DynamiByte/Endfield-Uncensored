@@ -20,7 +20,8 @@ pub const status_launch_here_or_external = "You can now launch the game here or 
 pub const status_game_not_found = "Game not found.";
 pub const status_launch_externally = "Please launch the game externally.";
 pub const status_monitor_failed = "Background game monitor failed to start.";
-pub const status_game_process_closed = "Game process closed. Ready again.";
+pub const status_game_process_closed = "Game process closed. Ready.";
+pub const status_game_already_running_startup = "The game is already running! The mod can only be applied at startup!";
 pub const status_process_found_fmt = "Process found (PID: {d})";
 pub const status_extracting_mod = "Extracting mod to temp...";
 pub const status_prepare_temp_dll_failed_fmt = "Failed to prepare temp DLL: {s}";
@@ -68,6 +69,7 @@ pub fn buildMonoSubsetText(allocator: std.mem.Allocator, version_str: []const u8
     try appendLine(&lines, allocator, status_game_not_found);
     try appendLine(&lines, allocator, status_launch_externally);
     try appendLine(&lines, allocator, status_monitor_failed);
+    try appendLine(&lines, allocator, status_game_already_running_startup);
 
     var line_buf: [160]u8 = undefined;
     try appendLine(&lines, allocator, try std.fmt.bufPrint(&line_buf, status_waiting_for_target_fmt, .{loader.target_exe_name}));

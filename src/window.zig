@@ -168,6 +168,12 @@ const LoaderUiEvent = union(enum) {
     close_after_inject: void,
 };
 
+const TrackedProcessMode = enum {
+    none,
+    injected,
+    startup_blocked,
+};
+
 const ThreadMutex = if (@hasDecl(std.Thread, "Mutex"))
     std.Thread.Mutex
 else
@@ -179,6 +185,7 @@ else
 const LoaderWorkerState = struct {
     tracked_pid: u32 = 0,
     last_failed_pid: u32 = 0,
+    tracked_mode: TrackedProcessMode = .none,
     temp_dll_path: ?[]u8 = null,
 
     fn cleanupTempDll(self: *LoaderWorkerState) void {
@@ -226,6 +233,7 @@ var g_running = true;
 var g_window_opacity: f32 = 0.0;
 var g_wine_mode = false;
 var g_allow_minimize = true;
+var g_startup_target_pid: u32 = 0;
 
 var g_font_console: ?*ByteFont = null;
 var g_font_version: ?*ByteFont = null;
@@ -557,6 +565,90 @@ fn getProcessPathWtf8(pid: u32, out_buf: []u8) !?[]const u8 {
     return try wtf16LeToWtf8Slice(wide_buf[0..wide_len], out_buf);
 }
 
+const CliWaitResult = union(enum) {
+    quit,
+    process_found: u32,
+};
+
+fn cliInputHandle() ?c.HANDLE {
+    const handle = c.GetStdHandle(c.STD_INPUT_HANDLE) orelse return null;
+    if (handle == c.INVALID_HANDLE_VALUE) return null;
+    return handle;
+}
+
+fn cliReadCommand() ?u8 {
+    const input = cliInputHandle() orelse return null;
+    var record: c.INPUT_RECORD = undefined;
+    var events_read: c.DWORD = 0;
+
+    while (true) {
+        if (c.PeekConsoleInputW(input, @ptrCast(&record), 1, &events_read) == c.FALSE or events_read == 0) return null;
+        if (c.ReadConsoleInputW(input, @ptrCast(&record), 1, &events_read) == c.FALSE or events_read == 0) return null;
+        if (record.EventType != c.KEY_EVENT) continue;
+
+        const key_event = record.Event.KeyEvent;
+        if (key_event.bKeyDown == c.FALSE) continue;
+        if (key_event.uChar.UnicodeChar == 0 or key_event.uChar.UnicodeChar > 0x7F) continue;
+
+        return std.ascii.toUpper(@intCast(key_event.uChar.UnicodeChar));
+    }
+}
+
+fn cliWaitForProcessExitOrQuit(io: std.Io, pid: u32, allow_launch_info: bool) bool {
+    while (loader.isProcessAlive(pid)) {
+        if (cliReadCommand()) |cmd| {
+            switch (cmd) {
+                'Q' => return false,
+                'L' => if (allow_launch_info) cliPrint(io, "{s}\n\n", .{strings.status_game_already_running_startup}),
+                else => {},
+            }
+        }
+        c.Sleep(50);
+    }
+    return true;
+}
+
+fn cliPrintReadyState(io: std.Io, game_exe_path: ?[:0]const u16) void {
+    if (game_exe_path != null) {
+        cliPrint(io, "{s}\n", .{strings.status_game_found});
+        cliPrint(io, "{s}\n", .{strings.status_launch_here_or_external});
+        cliPrint(io, "Press L to launch game. Press Q to quit.\n", .{});
+    } else {
+        cliPrint(io, "{s}\n", .{strings.status_game_not_found});
+        cliPrint(io, "{s}\n", .{strings.status_launch_externally});
+        cliPrint(io, "Press Q to quit.\n", .{});
+    }
+    cliPrint(io, "Waiting for {s}...\n\n", .{loader.target_exe_name});
+}
+
+fn cliWaitForTargetProcessOrCommand(io: std.Io, game_exe_path: ?[:0]const u16) CliWaitResult {
+    var launch_requested = false;
+
+    while (true) {
+        const pid = loader.findTargetProcess();
+        if (pid != 0) return .{ .process_found = pid };
+
+        if (cliReadCommand()) |cmd| {
+            switch (cmd) {
+                'Q' => return .quit,
+                'L' => {
+                    if (game_exe_path != null and !launch_requested) {
+                        loader.launchGame(game_exe_path.?) catch |err| {
+                            cliPrint(io, "Launch failed: {s}\n\n", .{loader.describeLaunchError(err)});
+                            continue;
+                        };
+                        launch_requested = true;
+                        cliPrint(io, "{s}\n\n", .{strings.status_launching_game});
+                    }
+                },
+                else => {},
+            }
+        }
+
+        c.Sleep(50);
+    }
+}
+
 fn runCli() !u8 {
     var threaded: std.Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();
@@ -576,13 +668,29 @@ fn runCli() !u8 {
         allocator.free(temp_dll_path);
     }
 
-    cliPrint(io, "Ready.\nWaiting for {s}...\n\n", .{loader.target_exe_name});
+    const game_exe_path = loader.detectGameExe(g_environ, allocator) catch null;
+    defer if (game_exe_path) |path| allocator.free(path);
 
-    var pid: u32 = 0;
-    while (pid == 0) {
-        pid = loader.findTargetProcess();
-        if (pid == 0) c.Sleep(100);
+    const startup_pid = loader.findTargetProcess();
+    if (startup_pid != 0) {
+        cliPrint(io, "{s}\n", .{strings.status_game_already_running_startup});
+        if (game_exe_path != null) {
+            cliPrint(io, "Press L for launch info. Press Q to quit.\n", .{});
+        } else {
+            cliPrint(io, "Press Q to quit.\n", .{});
+        }
+        cliPrint(io, "Waiting for the game to close...\n\n", .{});
+        if (!cliWaitForProcessExitOrQuit(io, startup_pid, game_exe_path != null)) return 0;
+        cliPrint(io, "{s}\n", .{strings.status_game_process_closed});
     }
+
+    cliPrint(io, "Ready.\n", .{});
+    cliPrintReadyState(io, game_exe_path);
+
+    const pid = switch (cliWaitForTargetProcessOrCommand(io, game_exe_path)) {
+        .quit => return 0,
+        .process_found => |value| value,
+    };
 
     cliPrint(io, "Process found (PID: {d})\n", .{pid});
 
@@ -762,9 +870,16 @@ fn loaderWorkerTick(state: *LoaderWorkerState) void {
     if (state.tracked_pid != 0) {
         if (!loader.isProcessAlive(state.tracked_pid)) {
             state.cleanupTempDll();
+            if (state.tracked_mode == .startup_blocked) {
+                queueLoaderEvent(.{ .clear_status = {} });
+            }
             queueLoaderStatus(strings.status_game_process_closed, .{});
+            if (state.tracked_mode == .startup_blocked) {
+                queueLoaderStatus(strings.status_waiting_for_target_fmt, .{loader.target_exe_name});
+            }
             state.tracked_pid = 0;
             state.last_failed_pid = 0;
+            state.tracked_mode = .none;
             setLoaderTargetRunning(false);
             queueLoaderEvent(.{ .process_closed = {} });
         } else {
@@ -796,6 +911,7 @@ fn loaderWorkerTick(state: *LoaderWorkerState) void {
         queueLoaderReplaceLastStatus(strings.status_injected_success, .{});
         state.tracked_pid = pid;
         state.last_failed_pid = 0;
+        state.tracked_mode = .injected;
         switch (loaderPostInjectBehavior()) {
             .close => queueLoaderEvent(.{ .close_after_inject = {} }),
             .minimize => queueLoaderEvent(.{ .minimize_after_inject = {} }),
@@ -810,9 +926,14 @@ fn loaderWorkerTick(state: *LoaderWorkerState) void {
     }
 }
 
-fn loaderWorkerMain() void {
+fn loaderWorkerMain(startup_target_pid: u32) void {
     var state = LoaderWorkerState{};
     defer state.deinit();
+    if (startup_target_pid != 0 and loader.isProcessAlive(startup_target_pid)) {
+        state.tracked_pid = startup_target_pid;
+        state.tracked_mode = .startup_blocked;
+        setLoaderTargetRunning(true);
+    }
 
     while (true) {
         g_loader_control_mutex.lock();
@@ -832,7 +953,7 @@ fn startLoaderWorker() bool {
     g_loader_allow_minimize = g_allow_minimize;
     g_loader_control_mutex.unlock();
 
-    g_loader_thread = std.Thread.spawn(.{}, loaderWorkerMain, .{}) catch return false;
+    g_loader_thread = std.Thread.spawn(.{}, loaderWorkerMain, .{g_startup_target_pid}) catch return false;
     return true;
 }
 
@@ -1473,7 +1594,8 @@ fn drawUI() void {
 fn refreshGamePathStatus() void {
     if (g_game_exe_path) |path| allocator.free(path);
     g_game_exe_path = loader.detectGameExe(g_environ, allocator) catch null;
-    setLoaderTargetRunning(loader.findTargetProcess() != 0);
+    g_startup_target_pid = loader.findTargetProcess();
+    setLoaderTargetRunning(g_startup_target_pid != 0);
     syncLaunchButtonStateImmediate();
 }
 
@@ -1688,7 +1810,10 @@ fn wndProcBridge(hwnd: bgc.HWND, msg: bgc.UINT, w_param: bgc.WPARAM, l_param: bg
 }
 
 fn appendInitialStatusLines() void {
-    if (g_game_exe_path != null) {
+    if (g_startup_target_pid != 0) {
+        if (g_game_exe_path != null) appendStatus(strings.status_game_found, .{});
+        appendStatus(strings.status_game_already_running_startup, .{});
+    } else if (g_game_exe_path != null) {
         appendStatus(strings.status_game_found, .{});
         appendStatus(strings.status_launch_here_or_external, .{});
         appendWaitingForTargetExeStatus();
