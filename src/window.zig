@@ -214,8 +214,14 @@ const PostInjectBehavior = enum {
     stay_open,
 };
 
+const CliMode = enum {
+    visible,
+    silent,
+};
+
 const LaunchConfig = struct {
     cli: bool = false,
+    silent: bool = false,
     wine_mode_override: BoolOverride = .auto,
     allow_minimize_override: BoolOverride = .auto,
 };
@@ -226,6 +232,7 @@ const ParseArgsError = error{
     MissingAllowMinimizeValue,
     InvalidAllowMinimizeValue,
     MutuallyExclusiveCliAndForceWineMode,
+    MutuallyExclusiveSilentAndGui,
 };
 
 var g_hwnd: ?c.HWND = null;
@@ -375,15 +382,28 @@ const CLI_CONSOLE_TITLE = std.unicode.utf8ToUtf16LeStringLiteral("Endfield Uncen
 const FORCE_WINE_MODE_LONG = "--force-wine-mode";
 const FORCE_WINE_MODE_SHORT = "-fwm";
 const ALLOW_MINIMIZE_LONG = "--allow-minimize";
+const SILENT_LONG = "--silent";
 
 fn isCliArg(arg: []const u8) bool {
-    return std.ascii.eqlIgnoreCase(arg, "-cli") or
+    return std.ascii.eqlIgnoreCase(arg, "-c") or
+        std.ascii.eqlIgnoreCase(arg, "--c") or
+        std.ascii.eqlIgnoreCase(arg, "-cli") or
         std.ascii.eqlIgnoreCase(arg, "--cli") or
         std.ascii.eqlIgnoreCase(arg, "/cli");
 }
 
+fn isSilentArg(arg: []const u8) bool {
+    return std.ascii.eqlIgnoreCase(arg, "-s") or
+        std.ascii.eqlIgnoreCase(arg, "--s") or
+        std.ascii.eqlIgnoreCase(arg, "-silent") or
+        std.ascii.eqlIgnoreCase(arg, SILENT_LONG) or
+        std.ascii.eqlIgnoreCase(arg, "/silent");
+}
+
 fn isForceWineModeArg(arg: []const u8) bool {
     return std.ascii.eqlIgnoreCase(arg, FORCE_WINE_MODE_LONG) or
+        std.ascii.eqlIgnoreCase(arg, "-wm") or
+        std.ascii.eqlIgnoreCase(arg, "--wm") or
         std.ascii.eqlIgnoreCase(arg, "-force-wine-mode") or
         std.ascii.eqlIgnoreCase(arg, "/force-wine-mode") or
         std.ascii.eqlIgnoreCase(arg, FORCE_WINE_MODE_SHORT) or
@@ -392,7 +412,9 @@ fn isForceWineModeArg(arg: []const u8) bool {
 }
 
 fn isAllowMinimizeArg(arg: []const u8) bool {
-    return std.ascii.eqlIgnoreCase(arg, ALLOW_MINIMIZE_LONG) or
+    return std.ascii.eqlIgnoreCase(arg, "-am") or
+        std.ascii.eqlIgnoreCase(arg, "--am") or
+        std.ascii.eqlIgnoreCase(arg, ALLOW_MINIMIZE_LONG) or
         std.ascii.eqlIgnoreCase(arg, "-allow-minimize") or
         std.ascii.eqlIgnoreCase(arg, "/allow-minimize");
 }
@@ -427,10 +449,20 @@ fn parseLaunchConfig(args: std.process.Args) !LaunchConfig {
             continue;
         }
 
+        if (isSilentArg(arg)) {
+            config.silent = true;
+            continue;
+        }
+
         if (isForceWineModeArg(arg)) {
             const value = args_it.next() orelse return error.MissingForceWineModeValue;
             if (isCliArg(value)) {
                 config.cli = true;
+                saw_force_wine_mode = true;
+                continue;
+            }
+            if (isSilentArg(value)) {
+                config.silent = true;
                 saw_force_wine_mode = true;
                 continue;
             }
@@ -445,8 +477,11 @@ fn parseLaunchConfig(args: std.process.Args) !LaunchConfig {
         }
     }
 
-    if (config.cli and saw_force_wine_mode) {
+    if ((config.cli or config.silent) and saw_force_wine_mode) {
         return error.MutuallyExclusiveCliAndForceWineMode;
+    }
+    if (config.silent and !config.cli) {
+        config.cli = true;
     }
 
     return config;
@@ -459,13 +494,18 @@ fn describeParseArgsError(err: ParseArgsError) []const u8 {
         error.MissingAllowMinimizeValue => "Missing value for --allow-minimize. Use on/off, yes/no, or y/n.",
         error.InvalidAllowMinimizeValue => "Invalid value for --allow-minimize. Use on/off, yes/no, or y/n.",
         error.MutuallyExclusiveCliAndForceWineMode => "-cli and --force-wine-mode are mutually exclusive.",
+        error.MutuallyExclusiveSilentAndGui => "-silent is mutually exclusive with GUI mode.",
     };
 }
 
-fn showArgumentError(message: []const u8) void {
+fn showErrorMessage(message: []const u8) void {
     var message_buf: [256]u16 = undefined;
     const message_utf16 = wtf8ToWtf16LeZ(message, &message_buf) catch return;
     _ = c.MessageBoxW(null, message_utf16.ptr, APP_TITLE, c.MB_OK | c.MB_ICONERROR);
+}
+
+fn showArgumentError(message: []const u8) void {
+    showErrorMessage(message);
 }
 
 fn isRunningUnderWine() bool {
@@ -594,6 +634,13 @@ fn cliReadCommand() ?u8 {
     }
 }
 
+fn silentCliError(comptime fmt: []const u8, args: anytype) noreturn {
+    var buf: [512]u8 = undefined;
+    const message = std.fmt.bufPrint(&buf, fmt, args) catch "Silent mode failed.";
+    showErrorMessage(message);
+    std.process.exit(1);
+}
+
 fn cliWaitForProcessExitOrQuit(io: std.Io, pid: u32, allow_launch_info: bool) bool {
     while (loader.isProcessAlive(pid)) {
         if (cliReadCommand()) |cmd| {
@@ -649,10 +696,53 @@ fn cliWaitForTargetProcessOrCommand(io: std.Io, game_exe_path: ?[:0]const u16) C
     }
 }
 
-fn runCli() !u8 {
+fn runSilentCli() !u8 {
+    const game_exe_path = loader.detectGameExe(g_environ, allocator) catch null;
+    defer if (game_exe_path) |path| allocator.free(path);
+
+    const startup_pid = loader.findTargetProcess();
+    if (startup_pid != 0) silentCliError("{s}", .{strings.status_game_already_running_startup});
+    if (game_exe_path == null) silentCliError("{s}\nYou cannot use silent mode when the game path cannot be found.", .{strings.status_game_not_found});
+
+    const temp_dll_path = loader.writeEmbeddedDllToTemp(allocator, embedded_dll) catch |err| {
+        silentCliError("Error: {s}", .{loader.describeTempDllError(err)});
+    };
+    defer {
+        loader.deleteTempDll(allocator, temp_dll_path);
+        allocator.free(temp_dll_path);
+    }
+
+    loader.launchGame(game_exe_path.?) catch |err| {
+        silentCliError("Launch failed: {s}", .{loader.describeLaunchError(err)});
+    };
+
+    var pid: u32 = 0;
+    while (pid == 0) {
+        pid = loader.findTargetProcess();
+        if (pid == 0) c.Sleep(100);
+    }
+
+    c.Sleep(10);
+
+    loader.injectDll(pid, temp_dll_path) catch |err| {
+        var buf: [512]u8 = undefined;
+        if (loader.injectErrorSuggestsElevation(err)) {
+            const message = std.fmt.bufPrint(&buf, "Injection failed: {s}\nTry running as administrator.", .{loader.describeInjectError(err)}) catch "Injection failed.";
+            showErrorMessage(message);
+            std.process.exit(1);
+        }
+        silentCliError("Injection failed: {s}", .{loader.describeInjectError(err)});
+    };
+
+    return 0;
+}
+
+fn runCli(mode: CliMode) !u8 {
     var threaded: std.Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
+
+    if (mode == .silent) return runSilentCli();
 
     ensureCliConsole();
     cliPrint(io, "\n[EFU Loader]\n\n", .{});
@@ -1953,7 +2043,7 @@ pub fn main(init: std.process.Init.Minimal) void {
     g_allow_minimize = if (config.cli) true else resolveAllowMinimize(config, g_wine_mode);
 
     const code = if (config.cli)
-        runCli() catch 1
+        runCli(if (config.silent) .silent else .visible) catch 1
     else blk: {
         break :blk runGui() catch 1;
     };
