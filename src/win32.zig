@@ -16,6 +16,7 @@ pub const HMENU = windows.HMENU;
 pub const HMODULE = windows.HMODULE;
 pub const HWND = windows.HWND;
 pub const INT = windows.INT;
+pub const INVALID_FILE_ATTRIBUTES = windows.INVALID_FILE_ATTRIBUTES;
 pub const INVALID_HANDLE_VALUE = windows.INVALID_HANDLE_VALUE;
 pub const LONG = windows.LONG;
 pub const SHORT = i16;
@@ -248,6 +249,7 @@ pub extern "kernel32" fn VirtualFreeEx(h_process: HANDLE, lp_address: *anyopaque
 pub extern "kernel32" fn WriteProcessMemory(h_process: HANDLE, lp_base_address: *anyopaque, lp_buffer: *const anyopaque, n_size: usize, lp_number_of_bytes_written: ?*usize) callconv(.winapi) BOOL;
 pub extern "kernel32" fn GetModuleHandleW(lp_module_name: ?LPCWSTR) callconv(.winapi) ?HMODULE;
 pub extern "kernel32" fn GetProcAddress(h_module: HMODULE, lp_proc_name: [*:0]const u8) callconv(.winapi) ?*anyopaque;
+pub extern "kernel32" fn GetFileAttributesW(lp_file_name: LPCWSTR) callconv(.winapi) DWORD;
 pub extern "kernel32" fn CreateRemoteThread(h_process: HANDLE, lp_thread_attributes: ?*SECURITY_ATTRIBUTES, dw_stack_size: usize, lp_start_address: *const fn (?*anyopaque) callconv(.winapi) DWORD, lp_parameter: ?*anyopaque, dw_creation_flags: DWORD, lp_thread_id: ?*DWORD) callconv(.winapi) ?HANDLE;
 pub extern "kernel32" fn GetExitCodeThread(h_thread: HANDLE, lp_exit_code: *DWORD) callconv(.winapi) BOOL;
 pub extern "kernel32" fn QueryFullProcessImageNameW(h_process: HANDLE, dw_flags: DWORD, lp_exe_name: [*]WCHAR, lpdw_size: *DWORD) callconv(.winapi) BOOL;
