@@ -33,6 +33,7 @@ pub const LaunchConfig = struct {
     cli: bool = false,
     silent: bool = false,
     auto_yes: bool = false,
+    dx11: bool = false,
     efmi_requested: bool = false,
     efmi_launcher_path: ?[]u8 = null,
     wine_mode_override: BoolOverride = .auto,
@@ -44,6 +45,7 @@ pub const ParseArgsError = error{
     InvalidForceWineModeValue,
     MissingAllowMinimizeValue,
     InvalidAllowMinimizeValue,
+    MutuallyExclusiveDx11AndEfmi,
     MutuallyExclusiveCliAndForceWineMode,
     MutuallyExclusiveSilentAndGui,
     MutuallyExclusiveCliAndGuiArgs,
@@ -102,6 +104,12 @@ fn isAutoYesArg(arg: []const u8) bool {
         std.ascii.eqlIgnoreCase(arg, "/yes");
 }
 
+fn isDx11Arg(arg: []const u8) bool {
+    return std.ascii.eqlIgnoreCase(arg, "-dx11") or
+        std.ascii.eqlIgnoreCase(arg, "--dx11") or
+        std.ascii.eqlIgnoreCase(arg, "/dx11");
+}
+
 fn isForceWineModeArg(arg: []const u8) bool {
     return std.ascii.eqlIgnoreCase(arg, FORCE_WINE_MODE_LONG) or
         std.ascii.eqlIgnoreCase(arg, "-wm") or
@@ -130,6 +138,7 @@ fn isEfmiArg(arg: []const u8) bool {
 fn isKnownArg(arg: []const u8) bool {
     return isCliArg(arg) or
         isAutoYesArg(arg) or
+        isDx11Arg(arg) or
         isSilentArg(arg) or
         isForceWineModeArg(arg) or
         isAllowMinimizeArg(arg) or
@@ -235,6 +244,11 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
             continue;
         }
 
+        if (isDx11Arg(arg)) {
+            config.dx11 = true;
+            continue;
+        }
+
         if (isForceWineModeArg(arg)) {
             const value = args_it.next() orelse return error.MissingForceWineModeValue;
             if (isCliArg(value)) {
@@ -278,6 +292,9 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
     if (config.silent and !config.cli) {
         config.cli = true;
     }
+    if (config.dx11 and config.efmi_requested) {
+        return error.MutuallyExclusiveDx11AndEfmi;
+    }
     if (config.cli and (config.wine_mode_override != .auto or config.allow_minimize_override != .auto)) {
         return error.MutuallyExclusiveCliAndGuiArgs;
     }
@@ -291,6 +308,7 @@ pub fn describeParseArgsError(err: ParseArgsError) []const u8 {
         error.InvalidForceWineModeValue => "Invalid value for --force-wine-mode. Use on/off, yes/no, or y/n.",
         error.MissingAllowMinimizeValue => "Missing value for --allow-minimize. Use on/off, yes/no, or y/n.",
         error.InvalidAllowMinimizeValue => "Invalid value for --allow-minimize. Use on/off, yes/no, or y/n.",
+        error.MutuallyExclusiveDx11AndEfmi => "-DX11 is mutually exclusive with -EFMI.",
         error.MutuallyExclusiveCliAndForceWineMode => "-cli and --force-wine-mode are mutually exclusive.",
         error.MutuallyExclusiveSilentAndGui => "-silent is mutually exclusive with GUI mode.",
         error.MutuallyExclusiveCliAndGuiArgs => "CLI arguments are mutually exclusive with GUI-only arguments.",
@@ -483,7 +501,7 @@ fn cliPrintReadyState(io: std.Io, game_exe_path: ?[:0]const u16) void {
     cliPrint(io, "Waiting for {s}...\n\n", .{loader.target_exe_name});
 }
 
-fn cliWaitForTargetProcessOrCommand(io: std.Io, game_exe_path: ?[:0]const u16) CliWaitResult {
+fn cliWaitForTargetProcessOrCommand(io: std.Io, game_exe_path: ?[:0]const u16, dx11: bool) CliWaitResult {
     var launch_requested = false;
 
     while (true) {
@@ -495,12 +513,12 @@ fn cliWaitForTargetProcessOrCommand(io: std.Io, game_exe_path: ?[:0]const u16) C
                 'Q' => return .quit,
                 'L' => {
                     if (game_exe_path != null and !launch_requested) {
-                        loader.launchGame(game_exe_path.?) catch |err| {
+                        launchConfiguredGame(game_exe_path.?, dx11) catch |err| {
                             cliPrint(io, "Launch failed: {s}\n\n", .{loader.describeLaunchError(err)});
                             continue;
                         };
                         launch_requested = true;
-                        cliPrint(io, "{s}\n\n", .{strings.status_launching_game});
+                        cliPrint(io, "{s}\n\n", .{launchConfiguredStatus(dx11)});
                     }
                 },
                 else => {},
@@ -509,6 +527,17 @@ fn cliWaitForTargetProcessOrCommand(io: std.Io, game_exe_path: ?[:0]const u16) C
 
         c.Sleep(50);
     }
+}
+
+fn launchConfiguredGame(game_exe_path: [:0]const u16, dx11: bool) loader.LaunchError!void {
+    if (dx11) {
+        return loader.launchGameWithArgs(game_exe_path, "-force-d3d11");
+    }
+    return loader.launchGame(game_exe_path);
+}
+
+fn launchConfiguredStatus(dx11: bool) []const u8 {
+    return if (dx11) strings.status_launching_game_dx11 else strings.status_launching_game;
 }
 
 fn cliWaitForEfmiLaunchOrQuit(auto_yes: bool) bool {
@@ -527,7 +556,7 @@ fn cliWaitForEfmiLaunchOrQuit(auto_yes: bool) bool {
     }
 }
 
-fn runSilentCli(allocator: std.mem.Allocator, environ: std.process.Environ, embedded_dll: []const u8) !u8 {
+fn runSilentCli(allocator: std.mem.Allocator, environ: std.process.Environ, embedded_dll: []const u8, dx11: bool) !u8 {
     const game_exe_path = loader.detectGameExe(environ, allocator) catch null;
     defer if (game_exe_path) |path| allocator.free(path);
 
@@ -543,7 +572,7 @@ fn runSilentCli(allocator: std.mem.Allocator, environ: std.process.Environ, embe
         allocator.free(temp_dll_path);
     }
 
-    loader.launchGame(game_exe_path.?) catch |err| {
+    launchConfiguredGame(game_exe_path.?, dx11) catch |err| {
         silentCliError("Launch failed: {s}", .{loader.describeLaunchError(err)});
     };
 
@@ -682,7 +711,7 @@ pub fn run(allocator: std.mem.Allocator, environ: std.process.Environ, mode: Mod
     defer threaded.deinit();
     const io = threaded.io();
 
-    if (mode == .silent) return runSilentCli(allocator, environ, embedded_dll);
+    if (mode == .silent) return runSilentCli(allocator, environ, embedded_dll, config.dx11);
 
     ensureCliConsole();
     cliPrintHeader(io);
@@ -717,7 +746,7 @@ pub fn run(allocator: std.mem.Allocator, environ: std.process.Environ, mode: Mod
     cliPrint(io, "Ready.\n", .{});
     cliPrintReadyState(io, game_exe_path);
 
-    const pid = switch (cliWaitForTargetProcessOrCommand(io, game_exe_path)) {
+    const pid = switch (cliWaitForTargetProcessOrCommand(io, game_exe_path, config.dx11)) {
         .quit => return 0,
         .process_found => |value| value,
     };

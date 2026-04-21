@@ -34,6 +34,10 @@ pub const status_ready_for_injection_again = "Ready for injection again.";
 pub const status_launch_requested_unavailable = "Launch requested, but the game path is unavailable.";
 pub const status_launch_failed_fmt = "Failed to launch game: {s}";
 pub const status_launching_game = "Launching game...";
+pub const status_launching_game_dx11 = "Launching game in DX11...";
+pub const status_launching_game_vulkan = "Launching game in Vulkan...";
+pub const status_mode_hint_normal = "Triple right click launch button for DX11.";
+pub const status_mode_hint_dx11 = "Triple right click launch button for Vulkan.";
 
 fn appendLine(list: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, line: []const u8) !void {
     try list.appendSlice(allocator, line);
@@ -70,6 +74,8 @@ pub fn buildMonoSubsetText(allocator: std.mem.Allocator, version_str: []const u8
     try appendLine(&lines, allocator, status_launch_externally);
     try appendLine(&lines, allocator, status_monitor_failed);
     try appendLine(&lines, allocator, status_game_already_running_startup);
+    try appendLine(&lines, allocator, status_mode_hint_normal);
+    try appendLine(&lines, allocator, status_mode_hint_dx11);
 
     var line_buf: [160]u8 = undefined;
     try appendLine(&lines, allocator, try std.fmt.bufPrint(&line_buf, status_waiting_for_target_fmt, .{loader.target_exe_name}));
@@ -92,6 +98,8 @@ pub fn buildMonoSubsetText(allocator: std.mem.Allocator, version_str: []const u8
         loader.describeLaunchError(error.CreateProcessFailed),
     }));
     try appendLine(&lines, allocator, status_launching_game);
+    try appendLine(&lines, allocator, status_launching_game_dx11);
+    try appendLine(&lines, allocator, status_launching_game_vulkan);
     try appendLine(&lines, allocator, try std.fmt.bufPrint(&line_buf, "{s} in 0123456789 second...", .{countdown_action_minimize}));
     try appendLine(&lines, allocator, try std.fmt.bufPrint(&line_buf, "{s} in 0123456789 seconds...", .{countdown_action_minimize}));
     try appendLine(&lines, allocator, try std.fmt.bufPrint(&line_buf, "{s} in 0123456789 second...", .{countdown_action_close}));

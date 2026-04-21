@@ -398,16 +398,25 @@ pub fn injectDll(pid: u32, dll_path: []const u8) InjectError!void {
     if (exit_code == 0 or exit_code == c.STILL_ACTIVE) return error.LoadLibraryRemoteFailed;
 }
 
-pub fn launchGame(game_exe_path: [:0]const u16) LaunchError!void {
+pub fn launchGameWithArgs(game_exe_path: [:0]const u16, launch_args: ?[]const u8) LaunchError!void {
     var startup_info: c.STARTUPINFOW = undefined;
     var process_info: c.PROCESS_INFORMATION = undefined;
     @memset(std.mem.asBytes(&startup_info), 0);
     @memset(std.mem.asBytes(&process_info), 0);
     startup_info.cb = @sizeOf(c.STARTUPINFOW);
 
+    var command_line_buf: [max_path_bytes + 64]u8 = undefined;
+    var command_line_wide_buf: [max_path_bytes + 64]u16 = undefined;
+    const command_line_wide = if (launch_args) |args| blk: {
+        var path_utf8_buf: [max_path_bytes]u8 = undefined;
+        const path_utf8 = wtf16LeToWtf8Slice(game_exe_path, &path_utf8_buf) catch return error.InvalidExecutablePath;
+        const command_line = std.fmt.bufPrint(&command_line_buf, "\"{s}\" {s}", .{ path_utf8, args }) catch return error.InvalidExecutablePath;
+        break :blk wtf8ToWtf16LeZ(command_line, &command_line_wide_buf) catch return error.InvalidExecutablePath;
+    } else null;
+
     if (c.CreateProcessW(
         game_exe_path.ptr,
-        null,
+        if (command_line_wide) |command_line| command_line.ptr else null,
         null,
         null,
         c.FALSE,
@@ -427,4 +436,8 @@ pub fn launchGame(game_exe_path: [:0]const u16) LaunchError!void {
 
     _ = c.CloseHandle(process_info.hThread);
     _ = c.CloseHandle(process_info.hProcess);
+}
+
+pub fn launchGame(game_exe_path: [:0]const u16) LaunchError!void {
+    return launchGameWithArgs(game_exe_path, null);
 }

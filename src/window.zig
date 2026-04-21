@@ -211,6 +211,11 @@ const PostInjectBehavior = enum {
     stay_open,
 };
 
+const GameLaunchMode = enum {
+    normal,
+    dx11,
+};
+
 var g_hwnd: ?c.HWND = null;
 var g_running = true;
 var g_window_opacity: f32 = 0.0;
@@ -243,6 +248,8 @@ var g_loader_should_stop = false;
 var g_loader_minimize_on_launch = false;
 var g_loader_allow_minimize = true;
 var g_loader_target_running = false;
+var g_force_dx11 = false;
+var g_loader_pending_launch_mode: ?GameLaunchMode = null;
 var g_loader_events: std.ArrayListUnmanaged(LoaderUiEvent) = .empty;
 
 var g_hovered_button: i32 = 0;
@@ -254,6 +261,8 @@ var g_press_screen: c.POINT = std.mem.zeroes(c.POINT);
 var g_press_rect: c.RECT = std.mem.zeroes(c.RECT);
 var g_drag_offset: c.POINT = std.mem.zeroes(c.POINT);
 var g_was_minimized = false;
+var g_launch_right_click_count: u8 = 0;
+var g_launch_right_click_last_tick: u64 = 0;
 
 var g_window_anim: WindowAnim = .{};
 var g_close_countdown: CloseCountdown = .{};
@@ -399,6 +408,50 @@ fn loaderTargetRunning() bool {
     g_loader_control_mutex.lock();
     defer g_loader_control_mutex.unlock();
     return g_loader_target_running;
+}
+
+fn setLoaderPendingLaunchMode(mode: ?GameLaunchMode) void {
+    g_loader_control_mutex.lock();
+    g_loader_pending_launch_mode = mode;
+    g_loader_control_mutex.unlock();
+}
+
+fn takeLoaderPendingLaunchMode() ?GameLaunchMode {
+    g_loader_control_mutex.lock();
+    defer g_loader_control_mutex.unlock();
+    const pending = g_loader_pending_launch_mode;
+    g_loader_pending_launch_mode = null;
+    return pending;
+}
+
+fn defaultLaunchMode() GameLaunchMode {
+    return if (g_force_dx11) .dx11 else .normal;
+}
+
+fn alternateLaunchMode() GameLaunchMode {
+    return if (g_force_dx11) .normal else .dx11;
+}
+
+fn appendLaunchModeHintStatus() void {
+    if (g_force_dx11) {
+        appendStatus(strings.status_mode_hint_dx11, .{});
+    } else {
+        appendStatus(strings.status_mode_hint_normal, .{});
+    }
+}
+
+fn appendLaunchModeStatus(mode: GameLaunchMode) void {
+    switch (mode) {
+        .normal => appendStatus(strings.status_launching_game_vulkan, .{}),
+        .dx11 => appendStatus(strings.status_launching_game_dx11, .{}),
+    }
+}
+
+fn queueLaunchModeStatus(mode: GameLaunchMode) void {
+    switch (mode) {
+        .normal => queueLoaderStatus(strings.status_launching_game_vulkan, .{}),
+        .dx11 => queueLoaderStatus(strings.status_launching_game_dx11, .{}),
+    }
 }
 
 fn computeLaunchButtonEnabled() bool {
@@ -595,6 +648,9 @@ fn loaderWorkerTick(state: *LoaderWorkerState) void {
     if (pid == state.last_failed_pid) return;
 
     queueLoaderEvent(.{ .clear_status = {} });
+    if (takeLoaderPendingLaunchMode()) |launch_mode| {
+        queueLaunchModeStatus(launch_mode);
+    }
     queueLoaderStatus(strings.status_process_found_fmt, .{pid});
     queueLoaderStatus(strings.status_extracting_mod, .{});
     const temp_path = ensureWorkerTempDll(state) catch |err| {
@@ -1305,25 +1361,56 @@ fn maybeRestoreAfterExit() void {
         _ = c.ShowWindow(hwnd, c.SW_RESTORE);
         bringWindowToFront();
     }
+    appendLaunchModeHintStatus();
     appendStatus(strings.status_ready_for_injection_again, .{});
     appendWaitingForTargetExeStatus();
     g_minimized_by_toggle = false;
     g_stayed_open_by_toggle = false;
 }
 
-fn launchGameAction() void {
+fn resetLaunchRightClickSequence() void {
+    g_launch_right_click_count = 0;
+    g_launch_right_click_last_tick = 0;
+}
+
+fn registerLaunchRightClick() bool {
+    const now = c.GetTickCount64();
+    const threshold: u64 = @max(1, @as(u64, @intCast(c.GetDoubleClickTime())));
+    if (g_launch_right_click_last_tick == 0 or now - g_launch_right_click_last_tick > threshold) {
+        g_launch_right_click_count = 0;
+    }
+
+    g_launch_right_click_last_tick = now;
+    if (g_launch_right_click_count < 3) g_launch_right_click_count += 1;
+    if (g_launch_right_click_count < 3) return false;
+
+    resetLaunchRightClickSequence();
+    return true;
+}
+
+fn launchGameAction(mode: GameLaunchMode) void {
+    resetLaunchRightClickSequence();
     cancelCloseCountdown();
     if (!g_launch_btn_enabled or g_game_exe_path == null) {
+        setLoaderPendingLaunchMode(null);
         appendStatus(strings.status_launch_requested_unavailable, .{});
         return;
     }
-    loader.launchGame(g_game_exe_path.?) catch |err| {
+
+    setLoaderPendingLaunchMode(mode);
+    const launch_result: loader.LaunchError!void = switch (mode) {
+        .normal => loader.launchGame(g_game_exe_path.?),
+        .dx11 => loader.launchGameWithArgs(g_game_exe_path.?, "-force-d3d11"),
+    };
+    launch_result catch |err| {
+        setLoaderPendingLaunchMode(null);
         appendStatus(strings.status_launch_failed_fmt, .{loader.describeLaunchError(err)});
         return;
     };
+
     setLoaderTargetRunning(true);
     updateLaunchButtonState();
-    appendStatus(strings.status_launching_game, .{});
+    appendLaunchModeStatus(mode);
 }
 
 fn openReadme() void {
@@ -1353,7 +1440,7 @@ fn onButtonActivated(id: i32) void {
         2 => if (g_allow_minimize and g_window_anim.typ == .none) startWindowAnimation(.fade_out_minimize),
         3 => openReadme(),
         4 => openReleaseTag(),
-        5 => launchGameAction(),
+        5 => launchGameAction(defaultLaunchMode()),
         6 => setLoaderMinimizeOnLaunch(!g_minimize_on_launch),
         else => {},
     }
@@ -1432,6 +1519,35 @@ fn handleLButtonUp(l_param: c.LPARAM) c.LRESULT {
     return -1;
 }
 
+fn handleRButtonDown(l_param: c.LPARAM) c.LRESULT {
+    const pt = c.POINT{ .x = lowWordSigned(l_param), .y = highWordSigned(l_param) };
+    if (!pointInRoundedRectClient(pt)) {
+        resetLaunchRightClickSequence();
+        return -1;
+    }
+
+    if (hitTestButton(pt) == 5) return 0;
+
+    resetLaunchRightClickSequence();
+    return -1;
+}
+
+fn handleRButtonUp(l_param: c.LPARAM) c.LRESULT {
+    const pt = c.POINT{ .x = lowWordSigned(l_param), .y = highWordSigned(l_param) };
+    if (!pointInRoundedRectClient(pt)) {
+        resetLaunchRightClickSequence();
+        return -1;
+    }
+
+    if (hitTestButton(pt) != 5) {
+        resetLaunchRightClickSequence();
+        return -1;
+    }
+
+    if (registerLaunchRightClick()) launchGameAction(alternateLaunchMode());
+    return 0;
+}
+
 fn wndProc(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) callconv(.winapi) c.LRESULT {
     const active_hwnd = hwnd;
 
@@ -1456,6 +1572,14 @@ fn wndProc(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) call
         },
         c.WM_LBUTTONUP => {
             const result = handleLButtonUp(l_param);
+            if (result != -1) return result;
+        },
+        c.WM_RBUTTONDOWN => {
+            const result = handleRButtonDown(l_param);
+            if (result != -1) return result;
+        },
+        c.WM_RBUTTONUP => {
+            const result = handleRButtonUp(l_param);
             if (result != -1) return result;
         },
         c.WM_SIZE => {
@@ -1507,6 +1631,7 @@ fn wndProcBridge(hwnd: bgc.HWND, msg: bgc.UINT, w_param: bgc.WPARAM, l_param: bg
 }
 
 fn appendInitialStatusLines() void {
+    appendLaunchModeHintStatus();
     if (g_startup_target_pid != 0) {
         if (g_game_exe_path != null) appendStatus(strings.status_game_found, .{});
         appendStatus(strings.status_game_already_running_startup, .{});
@@ -1641,12 +1766,14 @@ pub fn main(init: std.process.Init.Minimal) void {
             error.InvalidForceWineModeValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidForceWineModeValue)),
             error.MissingAllowMinimizeValue => cli.showArgumentError(cli.describeParseArgsError(error.MissingAllowMinimizeValue)),
             error.InvalidAllowMinimizeValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidAllowMinimizeValue)),
+            error.MutuallyExclusiveDx11AndEfmi => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveDx11AndEfmi)),
             error.MutuallyExclusiveCliAndGuiArgs => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveCliAndGuiArgs)),
         }
         std.process.exit(1);
     };
     defer if (config.efmi_launcher_path) |path| allocator.free(path);
 
+    g_force_dx11 = config.dx11;
     g_wine_mode = if (config.cli) false else resolveWineMode(config);
     g_allow_minimize = if (config.cli) true else resolveAllowMinimize(config, g_wine_mode);
 

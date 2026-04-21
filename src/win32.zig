@@ -185,6 +185,8 @@ pub const WM_NCHITTEST: UINT = 0x0084;
 pub const WM_MOUSEMOVE: UINT = 0x0200;
 pub const WM_LBUTTONDOWN: UINT = 0x0201;
 pub const WM_LBUTTONUP: UINT = 0x0202;
+pub const WM_RBUTTONDOWN: UINT = 0x0204;
+pub const WM_RBUTTONUP: UINT = 0x0205;
 pub const WM_DPICHANGED: UINT = 0x02E0;
 
 pub const HTTRANSPARENT: LRESULT = -1;
@@ -293,6 +295,7 @@ pub extern "user32" fn TranslateMessage(lp_msg: *const MSG) callconv(.winapi) BO
 pub extern "user32" fn DispatchMessageW(lp_msg: *const MSG) callconv(.winapi) LRESULT;
 pub extern "user32" fn PostQuitMessage(exit_code: INT) callconv(.winapi) void;
 pub extern "user32" fn UpdateWindow(hwnd: HWND) callconv(.winapi) BOOL;
+pub extern "user32" fn GetDoubleClickTime() callconv(.winapi) UINT;
 pub extern "user32" fn MessageBoxW(hwnd: ?HWND, text: LPCWSTR, caption: LPCWSTR, typ: UINT) callconv(.winapi) INT;
 
 pub extern "gdi32" fn ChoosePixelFormat(hdc: HDC, ppfd: *const PIXELFORMATDESCRIPTOR) callconv(.winapi) INT;
