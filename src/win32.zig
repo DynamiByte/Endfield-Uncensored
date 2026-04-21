@@ -174,6 +174,8 @@ pub const SW_SHOWNORMAL: INT = 1;
 pub const SW_SHOW: INT = 5;
 pub const SW_MINIMIZE: INT = 6;
 pub const SW_RESTORE: INT = 9;
+pub const MB_OK: UINT = 0x00000000;
+pub const MB_ICONERROR: UINT = 0x00000010;
 
 pub const SWP_NOSIZE: UINT = 0x0001;
 pub const SWP_NOMOVE: UINT = 0x0002;
@@ -261,6 +263,7 @@ pub extern "user32" fn TranslateMessage(lp_msg: *const MSG) callconv(.winapi) BO
 pub extern "user32" fn DispatchMessageW(lp_msg: *const MSG) callconv(.winapi) LRESULT;
 pub extern "user32" fn PostQuitMessage(exit_code: INT) callconv(.winapi) void;
 pub extern "user32" fn UpdateWindow(hwnd: HWND) callconv(.winapi) BOOL;
+pub extern "user32" fn MessageBoxW(hwnd: ?HWND, text: LPCWSTR, caption: LPCWSTR, typ: UINT) callconv(.winapi) INT;
 
 pub extern "gdi32" fn ChoosePixelFormat(hdc: HDC, ppfd: *const PIXELFORMATDESCRIPTOR) callconv(.winapi) INT;
 pub extern "gdi32" fn SetPixelFormat(hdc: HDC, format: INT, ppfd: *const PIXELFORMATDESCRIPTOR) callconv(.winapi) BOOL;

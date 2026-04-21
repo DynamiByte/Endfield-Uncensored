@@ -193,9 +193,27 @@ const LoaderWorkerState = struct {
     }
 };
 
+const WineModeOverride = enum {
+    auto,
+    on,
+    off,
+};
+
+const LaunchConfig = struct {
+    cli: bool = false,
+    wine_mode_override: WineModeOverride = .auto,
+};
+
+const ParseArgsError = error{
+    MissingForceWineModeValue,
+    InvalidForceWineModeValue,
+    MutuallyExclusiveCliAndForceWineMode,
+};
+
 var g_hwnd: ?c.HWND = null;
 var g_running = true;
 var g_window_opacity: f32 = 0.0;
+var g_wine_mode = false;
 
 var g_font_console: ?*ByteFont = null;
 var g_font_version: ?*ByteFont = null;
@@ -328,22 +346,88 @@ fn fromByteGuiRect(rect: bgc.RECT) c.RECT {
 
 // CLI Mode
 const CLI_CONSOLE_TITLE = std.unicode.utf8ToUtf16LeStringLiteral("Endfield Uncensored CLI");
+const FORCE_WINE_MODE_LONG = "--force-wine-mode";
+const FORCE_WINE_MODE_SHORT = "-fwm";
 
-fn shouldRunCli(args: std.process.Args) bool {
-    var args_it = std.process.Args.Iterator.initAllocator(args, allocator) catch return false;
+fn isCliArg(arg: []const u8) bool {
+    return std.ascii.eqlIgnoreCase(arg, "-cli") or
+        std.ascii.eqlIgnoreCase(arg, "--cli") or
+        std.ascii.eqlIgnoreCase(arg, "/cli");
+}
+
+fn isForceWineModeArg(arg: []const u8) bool {
+    return std.ascii.eqlIgnoreCase(arg, FORCE_WINE_MODE_LONG) or
+        std.ascii.eqlIgnoreCase(arg, "-force-wine-mode") or
+        std.ascii.eqlIgnoreCase(arg, "/force-wine-mode") or
+        std.ascii.eqlIgnoreCase(arg, FORCE_WINE_MODE_SHORT) or
+        std.ascii.eqlIgnoreCase(arg, "--fwm") or
+        std.ascii.eqlIgnoreCase(arg, "/fwm");
+}
+
+fn parseWineModeValue(arg: []const u8) ParseArgsError!WineModeOverride {
+    if (std.ascii.eqlIgnoreCase(arg, "on")) return .on;
+    if (std.ascii.eqlIgnoreCase(arg, "off")) return .off;
+    return error.InvalidForceWineModeValue;
+}
+
+fn parseLaunchConfig(args: std.process.Args) !LaunchConfig {
+    var args_it = std.process.Args.Iterator.initAllocator(args, allocator) catch return error.OutOfMemory;
     defer args_it.deinit();
+
+    var config = LaunchConfig{};
+    var saw_force_wine_mode = false;
 
     _ = args_it.next();
     while (args_it.next()) |arg| {
-        if (std.ascii.eqlIgnoreCase(arg, "-cli") or
-            std.ascii.eqlIgnoreCase(arg, "--cli") or
-            std.ascii.eqlIgnoreCase(arg, "/cli"))
-        {
-            return true;
+        if (isCliArg(arg)) {
+            config.cli = true;
+            continue;
+        }
+
+        if (isForceWineModeArg(arg)) {
+            const value = args_it.next() orelse return error.MissingForceWineModeValue;
+            if (isCliArg(value)) {
+                config.cli = true;
+                saw_force_wine_mode = true;
+                continue;
+            }
+            config.wine_mode_override = try parseWineModeValue(value);
+            saw_force_wine_mode = true;
         }
     }
 
-    return false;
+    if (config.cli and saw_force_wine_mode) {
+        return error.MutuallyExclusiveCliAndForceWineMode;
+    }
+
+    return config;
+}
+
+fn describeParseArgsError(err: ParseArgsError) []const u8 {
+    return switch (err) {
+        error.MissingForceWineModeValue => "Missing value for --force-wine-mode. Use on or off.",
+        error.InvalidForceWineModeValue => "Invalid value for --force-wine-mode. Use on or off.",
+        error.MutuallyExclusiveCliAndForceWineMode => "-cli and --force-wine-mode are mutually exclusive.",
+    };
+}
+
+fn showArgumentError(message: []const u8) void {
+    var message_buf: [256]u16 = undefined;
+    const message_utf16 = wtf8ToWtf16LeZ(message, &message_buf) catch return;
+    _ = c.MessageBoxW(null, message_utf16.ptr, APP_TITLE, c.MB_OK | c.MB_ICONERROR);
+}
+
+fn isRunningUnderWine() bool {
+    const ntdll = c.GetModuleHandleW(std.unicode.utf8ToUtf16LeStringLiteral("ntdll.dll")) orelse return false;
+    return c.GetProcAddress(ntdll, "wine_get_version") != null;
+}
+
+fn resolveWineMode(config: LaunchConfig) bool {
+    return switch (config.wine_mode_override) {
+        .auto => isRunningUnderWine(),
+        .on => true,
+        .off => false,
+    };
 }
 
 fn ensureCliConsole() void {
@@ -698,8 +782,17 @@ fn cleanupRenderResources() void {
     cleanupButtonLabelTextures();
 }
 
+fn windowUsesLayeredOpacity() bool {
+    return !g_wine_mode;
+}
+
+fn windowCornerRadiusPx() f32 {
+    return if (g_wine_mode) 0.0 else snapPixel(scaleF(CORNER_RADIUS));
+}
+
 fn applyWindowShape() void {
     const hwnd = g_hwnd orelse return;
+    if (!windowUsesLayeredOpacity()) return;
     // Enable per-pixel alpha compositing via DWM - this allows the OpenGL
     // framebuffer's alpha channel to control window transparency, giving us
     // proper AA on rounded corners without SetWindowRgn clipping.
@@ -795,12 +888,17 @@ fn startButtonColorAnim(id: i32, target: ByteVec4) void {
 }
 
 fn initLayeredWindowOpacity() bool {
+    if (!windowUsesLayeredOpacity()) {
+        g_window_opacity = 1.0;
+        return true;
+    }
     const hwnd = g_hwnd orelse return false;
     return c.SetLayeredWindowAttributes(hwnd, 0, 255, c.LWA_ALPHA) != c.FALSE;
 }
 
 fn setWindowOpacityImmediate(opacity: f32) bool {
     g_window_opacity = clamp01(opacity);
+    if (!windowUsesLayeredOpacity()) return true;
     const hwnd = g_hwnd orelse return false;
     const alpha: c.BYTE = @intFromFloat(@round(g_window_opacity * 255.0));
     return c.SetLayeredWindowAttributes(hwnd, 0, alpha, c.LWA_ALPHA) != c.FALSE;
@@ -836,6 +934,13 @@ fn bringWindowToFront() void {
 
 fn showStartupWindow() void {
     const hwnd = g_hwnd orelse return;
+    if (g_wine_mode) {
+        _ = c.ShowWindow(hwnd, c.SW_SHOW);
+        bringWindowToFront();
+        _ = c.UpdateWindow(hwnd);
+        _ = setWindowOpacityImmediate(1.0);
+        return;
+    }
     _ = setWindowOpacityImmediate(0.0);
     _ = c.ShowWindow(hwnd, c.SW_SHOW);
     bringWindowToFront();
@@ -849,6 +954,30 @@ fn startWindowAnimation(typ: WindowAnimType) void {
     _ = c.GetWindowRect(hwnd, &rc);
 
     cancelCloseCountdown();
+    if (g_wine_mode) {
+        g_window_anim = .{};
+        switch (typ) {
+            .slide_in, .fade_in_restore => {
+                moveWindowNoActivate(hwnd, .{ .x = rc.left, .y = rc.top });
+                _ = setWindowOpacityImmediate(1.0);
+            },
+            .slide_out_close => {
+                _ = setWindowOpacityImmediate(1.0);
+                _ = c.DestroyWindow(hwnd);
+            },
+            .fade_out_minimize => {
+                _ = setWindowOpacityImmediate(1.0);
+                if (g_minimized_by_toggle) {
+                    const line = allocOwnedLine(strings.status_minimized, .{});
+                    if (line) |owned_line| setLastOwnedStatusLine(owned_line);
+                }
+                _ = c.ShowWindow(hwnd, c.SW_MINIMIZE);
+            },
+            .none => {},
+        }
+        return;
+    }
+
     g_window_anim = .{ .typ = typ };
     switch (typ) {
         .slide_in => {
@@ -1001,7 +1130,7 @@ fn pointInRoundedRectClient(pt: c.POINT) bool {
         .{ .x = pt.x, .y = pt.y },
         .{},
         platformWindowSize(),
-        @floatFromInt(scaleI(CORNER_RADIUS)),
+        windowCornerRadiusPx(),
     );
 }
 
@@ -1117,6 +1246,23 @@ fn drawYellowRotatedRect(draw: ?*ByteDrawList, opacity: f32) void {
     const pivot_x = rect_left + rect_width * 0.3;
     const pivot_y = rect_top + rect_height * 0.5;
     const color = toU32(applyOpacity(.{ .x = 1.0, .y = 250.0 / 255.0, .z = 0.0, .w = 1.0 }, opacity));
+    if (g_wine_mode) {
+        const active_draw = draw orelse return;
+        const ccos = @cos(-45.0 * std.math.pi / 180.0);
+        const ssin = @sin(-45.0 * std.math.pi / 180.0);
+        const subject = [_]ByteVec2{
+            Ui.RotatePoint(rect_left, rect_top, pivot_x, pivot_y, ccos, ssin),
+            Ui.RotatePoint(rect_left + rect_width, rect_top, pivot_x, pivot_y, ccos, ssin),
+            Ui.RotatePoint(rect_left + rect_width, rect_top + rect_height, pivot_x, pivot_y, ccos, ssin),
+            Ui.RotatePoint(rect_left, rect_top + rect_height, pivot_x, pivot_y, ccos, ssin),
+        };
+        var clip = ByteGui.BuildRectPolygon(0.0, 0.0, window_size.x, window_size.y);
+        defer clip.deinit(allocator);
+        var clipped = ByteGui.ClipPolygonAgainstConvexPolygon(subject[0..], clip.items);
+        defer clipped.deinit(allocator);
+        if (clipped.items.len >= 3) active_draw.AddConvexPolyFilled(clipped.items, color);
+        return;
+    }
     Ui.DrawRotatedRectClippedToCornerOnlyRoundedRect(
         draw,
         .{ .x = rect_left, .y = rect_top },
@@ -1125,7 +1271,7 @@ fn drawYellowRotatedRect(draw: ?*ByteDrawList, opacity: f32) void {
         -45.0 * std.math.pi / 180.0,
         .{ .x = 0.0, .y = 0.0 },
         window_size,
-        snapPixel(scaleF(CORNER_RADIUS)),
+        windowCornerRadiusPx(),
         color,
         std.math.clamp(scaleIF(6.0), 6, 20),
     );
@@ -1192,7 +1338,7 @@ fn drawUI() void {
     defer ByteGui.End();
 
     const draw = ByteGui.GetWindowDrawList() orelse return;
-    ByteGui.DrawCornerOnlyRoundedRectFilled(draw, .{}, window_size, snapPixel(scaleF(CORNER_RADIUS)), toU32(applyOpacity(.{ .x = 1.0, .y = 1.0, .z = 1.0, .w = 1.0 }, render_opacity)), std.math.clamp(scaleIF(6.0), 6, 20));
+    ByteGui.DrawCornerOnlyRoundedRectFilled(draw, .{}, window_size, windowCornerRadiusPx(), toU32(applyOpacity(.{ .x = 1.0, .y = 1.0, .z = 1.0, .w = 1.0 }, render_opacity)), std.math.clamp(scaleIF(6.0), 6, 20));
     drawYellowRotatedRect(draw, render_opacity);
 
     ByteGui.DrawInfoGlyph(draw, scaleVec2(INFO_X, INFO_Y), scaleVec2(INFO_W, INFO_H), toU32(applyOpacity(g_button_colors[3].current, render_opacity)), toU32(applyOpacity(.{ .x = 1.0, .y = 250.0 / 255.0, .z = 0.0, .w = 1.0 }, render_opacity)), std.math.clamp(scaleIF(72.0), 72, 160));
@@ -1481,7 +1627,7 @@ noinline fn initGuiApp(instance: ?c.HMODULE) bool {
     window_config.WndProc = wndProcBridge;
     window_config.ClassName = WINDOW_CLASS;
     window_config.Title = APP_TITLE;
-    window_config.ExStyle |= c.WS_EX_LAYERED;
+    if (windowUsesLayeredOpacity()) window_config.ExStyle |= c.WS_EX_LAYERED;
     window_config.IconResourceId = APP_ICON_RESOURCE_ID;
     window_config.LogicalWidth = WINDOW_WIDTH;
     window_config.LogicalHeight = WINDOW_HEIGHT;
@@ -1555,7 +1701,19 @@ fn runGui() !u8 {
 
 pub fn main(init: std.process.Init.Minimal) void {
     g_environ = init.environ;
-    const code = if (shouldRunCli(init.args))
+    const config = parseLaunchConfig(init.args) catch |err| {
+        switch (err) {
+            error.OutOfMemory => showArgumentError("Not enough memory to parse command line."),
+            error.MissingForceWineModeValue => showArgumentError(describeParseArgsError(error.MissingForceWineModeValue)),
+            error.InvalidForceWineModeValue => showArgumentError(describeParseArgsError(error.InvalidForceWineModeValue)),
+            error.MutuallyExclusiveCliAndForceWineMode => showArgumentError(describeParseArgsError(error.MutuallyExclusiveCliAndForceWineMode)),
+        }
+        std.process.exit(1);
+    };
+
+    g_wine_mode = if (config.cli) false else resolveWineMode(config);
+
+    const code = if (config.cli)
         runCli() catch 1
     else blk: {
         break :blk runGui() catch 1;
