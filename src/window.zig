@@ -41,6 +41,7 @@ const WINDOW_CLASS = std.unicode.utf8ToUtf16LeStringLiteral("EndfieldUncensoredG
 const README_URL = std.unicode.utf8ToUtf16LeStringLiteral("https://github.com/DynamiByte/Endfield-Uncensored/blob/master/README.md");
 const LABEL_LAUNCH = strings.label_launch;
 const LABEL_MINIMIZE = strings.label_minimize;
+const LABEL_STAY_OPEN = strings.label_stay_open;
 const APP_ICON_RESOURCE_ID: u16 = 1;
 
 const WINDOW_WIDTH = 500;
@@ -163,6 +164,7 @@ const LoaderUiEvent = union(enum) {
     replace_last_status_line: []u8,
     process_closed: void,
     minimize_after_inject: void,
+    stay_open_after_inject: void,
     close_after_inject: void,
 };
 
@@ -193,20 +195,29 @@ const LoaderWorkerState = struct {
     }
 };
 
-const WineModeOverride = enum {
+const BoolOverride = enum {
     auto,
     on,
     off,
 };
 
+const PostInjectBehavior = enum {
+    close,
+    minimize,
+    stay_open,
+};
+
 const LaunchConfig = struct {
     cli: bool = false,
-    wine_mode_override: WineModeOverride = .auto,
+    wine_mode_override: BoolOverride = .auto,
+    allow_minimize_override: BoolOverride = .auto,
 };
 
 const ParseArgsError = error{
     MissingForceWineModeValue,
     InvalidForceWineModeValue,
+    MissingAllowMinimizeValue,
+    InvalidAllowMinimizeValue,
     MutuallyExclusiveCliAndForceWineMode,
 };
 
@@ -214,6 +225,7 @@ var g_hwnd: ?c.HWND = null;
 var g_running = true;
 var g_window_opacity: f32 = 0.0;
 var g_wine_mode = false;
+var g_allow_minimize = true;
 
 var g_font_console: ?*ByteFont = null;
 var g_font_version: ?*ByteFont = null;
@@ -227,6 +239,7 @@ var g_toggle_label_texture: TextTexture = .{};
 var g_output_lines: std.ArrayListUnmanaged([]u8) = .empty;
 var g_minimize_on_launch = false;
 var g_minimized_by_toggle = false;
+var g_stayed_open_by_toggle = false;
 var g_game_exe_path: ?[:0]u16 = null;
 var g_environ: std.process.Environ = .empty;
 var g_launch_btn_enabled = false;
@@ -237,6 +250,7 @@ var g_loader_control_mutex: ThreadMutex = .{};
 var g_loader_events_mutex: ThreadMutex = .{};
 var g_loader_should_stop = false;
 var g_loader_minimize_on_launch = false;
+var g_loader_allow_minimize = true;
 var g_loader_events: std.ArrayListUnmanaged(LoaderUiEvent) = .empty;
 
 var g_hovered_button: i32 = 0;
@@ -348,6 +362,7 @@ fn fromByteGuiRect(rect: bgc.RECT) c.RECT {
 const CLI_CONSOLE_TITLE = std.unicode.utf8ToUtf16LeStringLiteral("Endfield Uncensored CLI");
 const FORCE_WINE_MODE_LONG = "--force-wine-mode";
 const FORCE_WINE_MODE_SHORT = "-fwm";
+const ALLOW_MINIMIZE_LONG = "--allow-minimize";
 
 fn isCliArg(arg: []const u8) bool {
     return std.ascii.eqlIgnoreCase(arg, "-cli") or
@@ -364,10 +379,26 @@ fn isForceWineModeArg(arg: []const u8) bool {
         std.ascii.eqlIgnoreCase(arg, "/fwm");
 }
 
-fn parseWineModeValue(arg: []const u8) ParseArgsError!WineModeOverride {
-    if (std.ascii.eqlIgnoreCase(arg, "on")) return .on;
-    if (std.ascii.eqlIgnoreCase(arg, "off")) return .off;
-    return error.InvalidForceWineModeValue;
+fn isAllowMinimizeArg(arg: []const u8) bool {
+    return std.ascii.eqlIgnoreCase(arg, ALLOW_MINIMIZE_LONG) or
+        std.ascii.eqlIgnoreCase(arg, "-allow-minimize") or
+        std.ascii.eqlIgnoreCase(arg, "/allow-minimize");
+}
+
+fn parseBoolOverrideValue(arg: []const u8) ?BoolOverride {
+    if (std.ascii.eqlIgnoreCase(arg, "on") or
+        std.ascii.eqlIgnoreCase(arg, "yes") or
+        std.ascii.eqlIgnoreCase(arg, "y"))
+    {
+        return .on;
+    }
+    if (std.ascii.eqlIgnoreCase(arg, "off") or
+        std.ascii.eqlIgnoreCase(arg, "no") or
+        std.ascii.eqlIgnoreCase(arg, "n"))
+    {
+        return .off;
+    }
+    return null;
 }
 
 fn parseLaunchConfig(args: std.process.Args) !LaunchConfig {
@@ -391,8 +422,14 @@ fn parseLaunchConfig(args: std.process.Args) !LaunchConfig {
                 saw_force_wine_mode = true;
                 continue;
             }
-            config.wine_mode_override = try parseWineModeValue(value);
+            config.wine_mode_override = parseBoolOverrideValue(value) orelse return error.InvalidForceWineModeValue;
             saw_force_wine_mode = true;
+            continue;
+        }
+
+        if (isAllowMinimizeArg(arg)) {
+            const value = args_it.next() orelse return error.MissingAllowMinimizeValue;
+            config.allow_minimize_override = parseBoolOverrideValue(value) orelse return error.InvalidAllowMinimizeValue;
         }
     }
 
@@ -405,8 +442,10 @@ fn parseLaunchConfig(args: std.process.Args) !LaunchConfig {
 
 fn describeParseArgsError(err: ParseArgsError) []const u8 {
     return switch (err) {
-        error.MissingForceWineModeValue => "Missing value for --force-wine-mode. Use on or off.",
-        error.InvalidForceWineModeValue => "Invalid value for --force-wine-mode. Use on or off.",
+        error.MissingForceWineModeValue => "Missing value for --force-wine-mode. Use on/off, yes/no, or y/n.",
+        error.InvalidForceWineModeValue => "Invalid value for --force-wine-mode. Use on/off, yes/no, or y/n.",
+        error.MissingAllowMinimizeValue => "Missing value for --allow-minimize. Use on/off, yes/no, or y/n.",
+        error.InvalidAllowMinimizeValue => "Invalid value for --allow-minimize. Use on/off, yes/no, or y/n.",
         error.MutuallyExclusiveCliAndForceWineMode => "-cli and --force-wine-mode are mutually exclusive.",
     };
 }
@@ -428,6 +467,33 @@ fn resolveWineMode(config: LaunchConfig) bool {
         .on => true,
         .off => false,
     };
+}
+
+fn resolveAllowMinimize(config: LaunchConfig, wine_mode: bool) bool {
+    return switch (config.allow_minimize_override) {
+        .auto => !wine_mode,
+        .on => true,
+        .off => false,
+    };
+}
+
+fn resolvePostInjectBehavior(toggle_enabled: bool, allow_minimize: bool) PostInjectBehavior {
+    if (!toggle_enabled) return .close;
+    return if (allow_minimize) .minimize else .stay_open;
+}
+
+fn guiPostInjectBehavior() PostInjectBehavior {
+    return resolvePostInjectBehavior(g_minimize_on_launch, g_allow_minimize);
+}
+
+fn loaderPostInjectBehavior() PostInjectBehavior {
+    g_loader_control_mutex.lock();
+    defer g_loader_control_mutex.unlock();
+    return resolvePostInjectBehavior(g_loader_minimize_on_launch, g_loader_allow_minimize);
+}
+
+fn toggleButtonLabel() []const u8 {
+    return if (g_allow_minimize) LABEL_MINIMIZE else LABEL_STAY_OPEN;
 }
 
 fn ensureCliConsole() void {
@@ -626,9 +692,16 @@ fn drainLoaderEvents() void {
             .process_closed => maybeRestoreAfterExit(),
             .minimize_after_inject => {
                 g_minimized_by_toggle = true;
+                g_stayed_open_by_toggle = false;
                 if (g_window_anim.typ == .none) startCountdown(.minimize);
             },
+            .stay_open_after_inject => {
+                g_minimized_by_toggle = false;
+                g_stayed_open_by_toggle = true;
+            },
             .close_after_inject => {
+                g_minimized_by_toggle = false;
+                g_stayed_open_by_toggle = false;
                 if (g_window_anim.typ == .none) startCountdown(.close);
             },
         }
@@ -648,13 +721,6 @@ fn setLoaderMinimizeOnLaunch(enabled: bool) void {
     g_loader_minimize_on_launch = enabled;
     g_loader_control_mutex.unlock();
 }
-
-fn loaderMinimizeOnLaunch() bool {
-    g_loader_control_mutex.lock();
-    defer g_loader_control_mutex.unlock();
-    return g_loader_minimize_on_launch;
-}
-
 fn ensureWorkerTempDll(state: *LoaderWorkerState) ![]const u8 {
     if (state.temp_dll_path) |path| return path;
     const path = try loader.writeEmbeddedDllToTemp(allocator, embedded_dll);
@@ -695,10 +761,10 @@ fn loaderWorkerTick(state: *LoaderWorkerState) void {
         queueLoaderReplaceLastStatus(strings.status_injected_success, .{});
         state.tracked_pid = pid;
         state.last_failed_pid = 0;
-        if (loaderMinimizeOnLaunch()) {
-            queueLoaderEvent(.{ .minimize_after_inject = {} });
-        } else {
-            queueLoaderEvent(.{ .close_after_inject = {} });
+        switch (loaderPostInjectBehavior()) {
+            .close => queueLoaderEvent(.{ .close_after_inject = {} }),
+            .minimize => queueLoaderEvent(.{ .minimize_after_inject = {} }),
+            .stay_open => queueLoaderEvent(.{ .stay_open_after_inject = {} }),
         }
     } else |err| {
         queueLoaderReplaceLastStatus(strings.status_injection_failed_fmt, .{loader.describeInjectError(err)});
@@ -728,6 +794,7 @@ fn startLoaderWorker() bool {
     g_loader_control_mutex.lock();
     g_loader_should_stop = false;
     g_loader_minimize_on_launch = g_minimize_on_launch;
+    g_loader_allow_minimize = g_allow_minimize;
     g_loader_control_mutex.unlock();
 
     g_loader_thread = std.Thread.spawn(.{}, loaderWorkerMain, .{}) catch return false;
@@ -768,7 +835,7 @@ fn cleanupButtonLabelTextures() void {
 
 fn rebuildButtonLabelTextures() bool {
     const launch_ok = Ui.BuildTextTexture(&g_launch_label_texture, g_font_launch, 24.0, LABEL_LAUNCH, BUTTON_LABEL_SUPERSAMPLE, 0.9, 1.0);
-    const toggle_ok = Ui.BuildTextTexture(&g_toggle_label_texture, g_font_toggle, 20.0, LABEL_MINIMIZE, BUTTON_LABEL_SUPERSAMPLE, 0.45, 1.0);
+    const toggle_ok = Ui.BuildTextTexture(&g_toggle_label_texture, g_font_toggle, 20.0, toggleButtonLabel(), BUTTON_LABEL_SUPERSAMPLE, 0.45, 1.0);
     return launch_ok and toggle_ok;
 }
 
@@ -1204,7 +1271,7 @@ fn hitTestButton(pt: c.POINT) i32 {
 
     if (pointInRect(toggle_hit, pt)) return 6;
     if (pointInRect(close_hit, pt)) return 1;
-    if (pointInRect(min_hit, pt)) return 2;
+    if (g_allow_minimize and pointInRect(min_hit, pt)) return 2;
     if (pointInRect(info_hit, pt)) return 3;
     if (pointInRect(version_hit, pt)) return 4;
     if (pointInRect(launch_hit, pt) and g_launch_btn_enabled) return 5;
@@ -1342,7 +1409,7 @@ fn drawUI() void {
     drawYellowRotatedRect(draw, render_opacity);
 
     ByteGui.DrawInfoGlyph(draw, scaleVec2(INFO_X, INFO_Y), scaleVec2(INFO_W, INFO_H), toU32(applyOpacity(g_button_colors[3].current, render_opacity)), toU32(applyOpacity(.{ .x = 1.0, .y = 250.0 / 255.0, .z = 0.0, .w = 1.0 }, render_opacity)), std.math.clamp(scaleIF(72.0), 72, 160));
-    ByteGui.DrawWindowControlGlyph(draw, scaleVec2(MIN_X, MIN_Y + MIN_Y_OFFSET), scaleVec2(MIN_W, MIN_H), toU32(applyOpacity(g_button_colors[2].current, render_opacity)), false);
+    if (g_allow_minimize) ByteGui.DrawWindowControlGlyph(draw, scaleVec2(MIN_X, MIN_Y + MIN_Y_OFFSET), scaleVec2(MIN_W, MIN_H), toU32(applyOpacity(g_button_colors[2].current, render_opacity)), false);
     ByteGui.DrawWindowControlGlyph(draw, scaleVec2(CLOSE_X, CLOSE_Y + CLOSE_Y_OFFSET), scaleVec2(CLOSE_W, CLOSE_H), toU32(applyOpacity(g_button_colors[1].current, render_opacity)), true);
     drawLogoVisual(draw, render_opacity);
 
@@ -1362,7 +1429,7 @@ fn drawUI() void {
     ByteGui.EndChild();
 
     draw.AddText(g_font_version, scaleF(12.0), snapPixelVec2(scaleVec2(VERSION_X, VERSION_Y)), toU32(applyOpacity(g_button_colors[4].current, render_opacity)), g_version_display, null);
-    drawAnimatedBoxButtonVisual("toggle_btn", "Minimize on Launch", scaleVec2(TOGGLE_X, TOGGLE_Y + TOGGLE_Y_OFFSET), scaleVec2(TOGGLE_W, TOGGLE_H), g_toggle_anim.value, true, g_toggle_current_color, render_opacity);
+    drawAnimatedBoxButtonVisual("toggle_btn", toggleButtonLabel(), scaleVec2(TOGGLE_X, TOGGLE_Y + TOGGLE_Y_OFFSET), scaleVec2(TOGGLE_W, TOGGLE_H), g_toggle_anim.value, true, g_toggle_current_color, render_opacity);
     drawAnimatedBoxButtonVisual("launch_btn", "Launch Game", scaleVec2(LAUNCH_X, LAUNCH_Y), scaleVec2(LAUNCH_W, LAUNCH_H), g_launch_anim.value, g_launch_btn_enabled, .{ .x = 1.0, .y = 250.0 / 255.0, .z = 0.0, .w = 1.0 }, render_opacity);
 }
 
@@ -1373,15 +1440,18 @@ fn refreshGamePathStatus() void {
 }
 
 fn maybeRestoreAfterExit() void {
-    if (!g_minimized_by_toggle or g_hwnd == null) return;
-    if (c.IsIconic(g_hwnd.?) == c.FALSE) return;
+    const hwnd = g_hwnd orelse return;
+    if (!g_minimized_by_toggle and !g_stayed_open_by_toggle) return;
     cancelCloseCountdown();
     clearStatusLines();
-    _ = c.ShowWindow(g_hwnd.?, c.SW_RESTORE);
-    bringWindowToFront();
+    if (g_minimized_by_toggle and c.IsIconic(hwnd) != c.FALSE) {
+        _ = c.ShowWindow(hwnd, c.SW_RESTORE);
+        bringWindowToFront();
+    }
     appendStatus(strings.status_ready_for_injection_again, .{});
     appendWaitingForTargetExeStatus();
     g_minimized_by_toggle = false;
+    g_stayed_open_by_toggle = false;
 }
 
 fn launchGameAction() void {
@@ -1421,7 +1491,7 @@ fn openReleaseTag() void {
 fn onButtonActivated(id: i32) void {
     switch (id) {
         1 => if (g_window_anim.typ == .none) startWindowAnimation(.slide_out_close),
-        2 => if (g_window_anim.typ == .none) startWindowAnimation(.fade_out_minimize),
+        2 => if (g_allow_minimize and g_window_anim.typ == .none) startWindowAnimation(.fade_out_minimize),
         3 => openReadme(),
         4 => openReleaseTag(),
         5 => launchGameAction(),
@@ -1706,12 +1776,15 @@ pub fn main(init: std.process.Init.Minimal) void {
             error.OutOfMemory => showArgumentError("Not enough memory to parse command line."),
             error.MissingForceWineModeValue => showArgumentError(describeParseArgsError(error.MissingForceWineModeValue)),
             error.InvalidForceWineModeValue => showArgumentError(describeParseArgsError(error.InvalidForceWineModeValue)),
+            error.MissingAllowMinimizeValue => showArgumentError(describeParseArgsError(error.MissingAllowMinimizeValue)),
+            error.InvalidAllowMinimizeValue => showArgumentError(describeParseArgsError(error.InvalidAllowMinimizeValue)),
             error.MutuallyExclusiveCliAndForceWineMode => showArgumentError(describeParseArgsError(error.MutuallyExclusiveCliAndForceWineMode)),
         }
         std.process.exit(1);
     };
 
     g_wine_mode = if (config.cli) false else resolveWineMode(config);
+    g_allow_minimize = if (config.cli) true else resolveAllowMinimize(config, g_wine_mode);
 
     const code = if (config.cli)
         runCli() catch 1

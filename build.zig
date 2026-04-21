@@ -54,7 +54,7 @@ pub fn build(b: *std.Build) void {
         .{
             .input_font_path = "fonts/Inter/Inter_18pt-Regular.ttf",
             .subset_text_name = "Inter_18pt-Regular.subset.txt",
-            .subset_text = strings.label_minimize,
+            .subset_text = strings.ui_toggle_labels_subset,
             .output_name = "Inter_18pt-Regular.ttf",
         },
         .{

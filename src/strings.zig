@@ -4,6 +4,8 @@ const loader = @import("loader.zig");
 
 pub const label_launch = "Launch Game";
 pub const label_minimize = "Minimize on Launch";
+pub const label_stay_open = "Stay open on Launch";
+pub const ui_toggle_labels_subset = label_minimize ++ "\n" ++ label_stay_open;
 
 pub const version_release_fmt = "v{s}.{s}.{s}";
 pub const version_preview_fmt = "v{s}.{s}.{s} PREVIEW {s}";
