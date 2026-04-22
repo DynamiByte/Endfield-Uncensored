@@ -1,4 +1,4 @@
-// ByteGui - A minimal immediate mode GUI library for Endfield Uncensored, built on OpenGL.
+﻿// ByteGui - A minimal immediate mode GUI library for Endfield Uncensored, built on OpenGL.
 
 const builtin = @import("builtin");
 const std = @import("std");
@@ -29,6 +29,8 @@ const gl = struct {
     pub const FLOAT: GLenum = 0x1406;
 
     pub const TRIANGLES: GLenum = 0x0004;
+    pub const TRIANGLE_STRIP: GLenum = 0x0005;
+    pub const TRIANGLE_FAN: GLenum = 0x0006;
 
     pub const TEXTURE_2D: GLenum = 0x0DE1;
     pub const TEXTURE_WRAP_S: GLenum = 0x2802;
@@ -42,11 +44,14 @@ const gl = struct {
     pub const LINEAR: GLint = 0x2601;
     pub const NEAREST: GLint = 0x2600;
     pub const RGBA: GLenum = 0x1908;
+    pub const ALPHA: GLenum = 0x1906;
 
     pub const BLEND: GLenum = 0x0BE2;
     pub const ONE: GLenum = 0x0001;
     pub const SRC_ALPHA: GLenum = 0x0302;
     pub const ONE_MINUS_SRC_ALPHA: GLenum = 0x0303;
+    pub const DST_ALPHA: GLenum = 0x0304;
+    pub const ONE_MINUS_DST_ALPHA: GLenum = 0x0305;
     pub const SCISSOR_TEST: GLenum = 0x0C11;
     pub const CULL_FACE: GLenum = 0x0B44;
     pub const DEPTH_TEST: GLenum = 0x0B71;
@@ -60,6 +65,15 @@ const gl = struct {
     pub const VERTEX_ARRAY: GLenum = 0x8074;
     pub const COLOR_ARRAY: GLenum = 0x8076;
     pub const TEXTURE_COORD_ARRAY: GLenum = 0x8078;
+
+    // Stencil buffer
+    pub const STENCIL_BUFFER_BIT: GLbitfield = 0x00000400;
+    pub const STENCIL_TEST: GLenum = 0x0B90;
+    pub const ALWAYS: GLenum = 0x0207;
+    pub const NOTEQUAL: GLenum = 0x0205;
+    pub const KEEP: GLenum = 0x1E00;
+    pub const INVERT: GLenum = 0x150A;
+    pub const QUADS: GLenum = 0x0007;
 
     pub extern "opengl32" fn glClearColor(red: GLclampf, green: GLclampf, blue: GLclampf, alpha: GLclampf) callconv(.winapi) void;
     pub extern "opengl32" fn glClear(mask: GLbitfield) callconv(.winapi) void;
@@ -98,6 +112,38 @@ const gl = struct {
     pub extern "opengl32" fn glTexCoordPointer(size: GLint, typ: GLenum, stride: GLsizei, pointer: ?*const anyopaque) callconv(.winapi) void;
     pub extern "opengl32" fn glColorPointer(size: GLint, typ: GLenum, stride: GLsizei, pointer: ?*const anyopaque) callconv(.winapi) void;
     pub extern "opengl32" fn glDrawElements(mode: GLenum, count: GLsizei, typ: GLenum, indices: ?*const anyopaque) callconv(.winapi) void;
+
+    // Immediate mode + stencil
+    pub extern "opengl32" fn glBegin(mode: GLenum) callconv(.winapi) void;
+    pub extern "opengl32" fn glEnd() callconv(.winapi) void;
+    pub extern "opengl32" fn glVertex2f(x: GLfloat, y: GLfloat) callconv(.winapi) void;
+    pub extern "opengl32" fn glColor4ub(r: u8, g: u8, b: u8, a: u8) callconv(.winapi) void;
+    pub extern "opengl32" fn glColorMask(r: GLboolean, g: GLboolean, b: GLboolean, a2: GLboolean) callconv(.winapi) void;
+    pub extern "opengl32" fn glClearStencil(s: GLint) callconv(.winapi) void;
+    pub extern "opengl32" fn glStencilMask(mask: GLuint) callconv(.winapi) void;
+    pub extern "opengl32" fn glStencilFunc(func: GLenum, ref: GLint, mask: GLuint) callconv(.winapi) void;
+    pub extern "opengl32" fn glStencilOp(sfail: GLenum, dpfail: GLenum, dppass: GLenum) callconv(.winapi) void;
+};
+
+const glu = struct {
+    pub const GLUtesselator = opaque {};
+    pub const TESS_WINDING_ODD: gl.GLdouble = 100130.0;
+    pub const TESS_BEGIN_DATA: gl.GLenum = 100106;
+    pub const TESS_VERTEX_DATA: gl.GLenum = 100107;
+    pub const TESS_END_DATA: gl.GLenum = 100108;
+    pub const TESS_ERROR_DATA: gl.GLenum = 100109;
+    pub const TESS_COMBINE_DATA: gl.GLenum = 100111;
+    pub const TESS_WINDING_RULE: gl.GLenum = 100140;
+
+    pub extern "glu32" fn gluNewTess() callconv(.winapi) ?*GLUtesselator;
+    pub extern "glu32" fn gluDeleteTess(tess: ?*GLUtesselator) callconv(.winapi) void;
+    pub extern "glu32" fn gluTessBeginPolygon(tess: ?*GLUtesselator, polygon_data: ?*anyopaque) callconv(.winapi) void;
+    pub extern "glu32" fn gluTessEndPolygon(tess: ?*GLUtesselator) callconv(.winapi) void;
+    pub extern "glu32" fn gluTessBeginContour(tess: ?*GLUtesselator) callconv(.winapi) void;
+    pub extern "glu32" fn gluTessEndContour(tess: ?*GLUtesselator) callconv(.winapi) void;
+    pub extern "glu32" fn gluTessVertex(tess: ?*GLUtesselator, coords: [*]const gl.GLdouble, data: ?*anyopaque) callconv(.winapi) void;
+    pub extern "glu32" fn gluTessProperty(tess: ?*GLUtesselator, which: gl.GLenum, value: gl.GLdouble) callconv(.winapi) void;
+    pub extern "glu32" fn gluTessCallback(tess: ?*GLUtesselator, which: gl.GLenum, callback_fn: ?*const anyopaque) callconv(.winapi) void;
 };
 
 const GlBlendFuncSeparateFn = *const fn (gl.GLenum, gl.GLenum, gl.GLenum, gl.GLenum) callconv(.winapi) void;
@@ -214,12 +260,16 @@ pub const ByteDrawVert = extern struct {
     col: ByteU32 = 0,
 };
 
+pub const ByteDrawCallback = *const fn (*const ByteDrawList, *const ByteDrawCmd) callconv(.c) void;
+
 pub const ByteDrawCmd = struct {
     ElemCount: u32 = 0,
     IdxOffset: u32 = 0,
     VtxOffset: u32 = 0,
     ClipRect: ByteVec4 = .{},
     TextureId: ByteTextureID = null,
+    UserCallback: ?ByteDrawCallback = null,
+    UserCallbackData: ?*anyopaque = null,
 };
 
 pub const ByteVec2List = std.ArrayListUnmanaged(ByteVec2);
@@ -407,14 +457,7 @@ pub const ByteDrawList = struct {
             for (points, 0..) |point, i| {
                 const n0 = normals[(i + points.len - 1) % points.len];
                 const n1 = normals[i];
-                var avg = ByteVec2{ .x = (n0.x + n1.x) * 0.5, .y = (n0.y + n1.y) * 0.5 };
-                const len = @sqrt(byteLengthSqr(avg));
-                if (len > 0.0) {
-                    avg.x /= len;
-                    avg.y /= len;
-                }
-                avg.x *= 0.5;
-                avg.y *= 0.5;
+                const avg = computeAAMiterOffset(n0, n1, 0.5);
 
                 self.addVertex(.{ .x = point.x - avg.x, .y = point.y - avg.y }, uv, col) catch return;
                 self.addVertex(.{ .x = point.x + avg.x, .y = point.y + avg.y }, uv, transparent) catch return;
@@ -586,7 +629,7 @@ pub const ByteDrawList = struct {
         const index_start: u32 = @intCast(self.IdxBuffer.items.len - index_count);
         if (self.CmdBuffer.items.len > 0) {
             const last = &self.CmdBuffer.items[self.CmdBuffer.items.len - 1];
-            if (last.TextureId == texture_id and equalClipRect(last.ClipRect, self.CurrentClipRect) and last.IdxOffset + last.ElemCount == index_start) {
+            if (last.UserCallback == null and last.TextureId == texture_id and equalClipRect(last.ClipRect, self.CurrentClipRect) and last.IdxOffset + last.ElemCount == index_start) {
                 last.ElemCount += index_count;
                 return;
             }
@@ -908,6 +951,10 @@ pub const ByteGui = struct {
         const pos = ByteVec2{ .x = @floor(ctx.CursorScreenPos.x + 0.5), .y = @floor(ctx.CursorScreenPos.y + 0.5) };
         ctx.DrawList.AddImage(texture, pos, .{ .x = pos.x + entry.DisplaySize.x, .y = pos.y + entry.DisplaySize.y }, entry.UvMin, entry.UvMax, col_u32);
         ctx.CursorScreenPos.y += entry.DisplaySize.y;
+    }
+
+    pub fn PrewarmTextTexture(font: ?*ByteFont, font_size: f32, wrap_width: f32, text: []const u8) bool {
+        return getOrCreateTextTexture(font, font_size, wrap_width, text) != null;
     }
 
     pub fn CalcTextSize(font: ?*ByteFont, font_size: f32, text: []const u8, text_end: ?usize, wrap_width: f32) ByteVec2 {
@@ -1264,8 +1311,6 @@ pub const ByteGui = struct {
 };
 
 // UI Helper Layer
-// These helpers keep application-facing window code focused on state and flow,
-// while ByteGui owns the reusable math, drawing, and OpenGL texture work.
 pub const Ui = struct {
     pub const TextTexture = struct {
         texture: ByteTextureID = null,
@@ -1434,6 +1479,7 @@ pub const Ui = struct {
         base_factor: f32,
         peak_factor: f32,
         anim: f32,
+        color: ByteVec4,
         opacity: f32,
     ) bool {
         const active_draw = draw orelse return false;
@@ -1458,20 +1504,29 @@ pub const Ui = struct {
             .{ .x = image_pos.x + image_size.x, .y = image_pos.y + image_size.y },
             texture.uv_min,
             texture.uv_max,
-            ColorToU32(ApplyOpacity(.{ .x = 1.0, .y = 1.0, .z = 1.0, .w = 1.0 }, opacity)),
+            ColorToU32(ApplyOpacity(color, opacity)),
         );
         return true;
     }
 
+    pub fn RasterizeTextTexture(font: ?*ByteFont, logical_font_size: f32, text: []const u8, supersample: f32, pad_scale: f32, layout_scale: f32) ?RasterizedTexture {
+        const active_font = font orelse return null;
+        const raster = rasterizeTextImageFromFont(active_font, logical_font_size * ByteGui_ImplWin32_GetDpiScale(), text, supersample, pad_scale, 0.0, layout_scale, 255) orelse return null;
+        return .{
+            .rgba = raster.rgba,
+            .pixel_w = raster.pixel_w,
+            .pixel_h = raster.pixel_h,
+            .display_size_px = raster.content_size_px,
+            .uv_min = raster.uv_min,
+            .uv_max = raster.uv_max,
+        };
+    }
+
     pub fn BuildTextTexture(out_texture: *TextTexture, font: ?*ByteFont, logical_font_size: f32, text: []const u8, supersample: f32, pad_scale: f32, layout_scale: f32) bool {
         CleanupTextTexture(out_texture);
-        const active_font = font orelse return false;
-        const built = buildTextTextureFromFont(active_font, logical_font_size * ByteGui_ImplWin32_GetDpiScale(), text, supersample, pad_scale, 0.0, layout_scale, 0, .linear) orelse return false;
-        out_texture.texture = built.texture;
-        out_texture.display_size_px = built.content_size_px;
-        out_texture.uv_min = built.uv_min;
-        out_texture.uv_max = built.uv_max;
-        return true;
+        var raster = RasterizeTextTexture(font, logical_font_size, text, supersample, pad_scale, layout_scale) orelse return false;
+        defer CleanupRasterizedTexture(&raster);
+        return uploadRasterizedMaskTextureWithFilter(out_texture, &raster, .linear);
     }
 
     pub const SvgTransform = struct {
@@ -1517,7 +1572,7 @@ pub const Ui = struct {
         for (params.paths) |layer| {
             var shape = VectorShape{};
             defer shape.deinit();
-            if (!parseSvgPathToShape(layer.path, &shape)) {
+            if (!parseSvgPathToShape(layer.path, &shape, estimateSvgTransformScale(layer.transform, raster_scale))) {
                 allocator.free(rgba);
                 return null;
             }
@@ -1599,12 +1654,594 @@ pub const Ui = struct {
         return true;
     }
 
+    pub fn UploadRasterizedMaskTexture(out_texture: *TextTexture, raster: *const RasterizedTexture) bool {
+        return uploadRasterizedMaskTextureWithFilter(out_texture, raster, .linear);
+    }
+
+    pub fn BuildAlphaMaskTexture(out_texture: *TextTexture, alpha: []const u8, pixel_w: u32, pixel_h: u32, display_size_px: ByteVec2) bool {
+        CleanupTextTexture(out_texture);
+        if (!ByteGui_ImplOpenGL_HasContext() or pixel_w == 0 or pixel_h == 0 or alpha.len < @as(usize, pixel_w) * @as(usize, pixel_h)) return false;
+
+        out_texture.texture = createTextureFromAlpha(alpha, pixel_w, pixel_h, .linear) orelse return false;
+        out_texture.display_size_px = display_size_px;
+        out_texture.uv_min = .{};
+        out_texture.uv_max = .{ .x = 1.0, .y = 1.0 };
+        return true;
+    }
+
     pub fn BuildSvgTexture(out_texture: *TextTexture, params: SvgTextureBuildParams) bool {
         var raster = RasterizeSvgTexture(params) orelse return false;
         defer CleanupRasterizedTexture(&raster);
-        return UploadRasterizedTexture(out_texture, &raster);
+        return UploadRasterizedMaskTexture(out_texture, &raster);
+    }
+
+    pub const ParsedSvgMeshVertex = struct {
+        pos: ByteVec2 = .{},
+        coverage: u8 = 0xFF,
+    };
+
+    /// Prebuilt vector mesh for one SVG path layer.
+    pub const ParsedSvgLayer = struct {
+        fill_vertices: []ParsedSvgMeshVertex = &.{},
+        fill_indices: []u32 = &.{},
+        fringe_vertices: []ParsedSvgMeshVertex = &.{},
+        fringe_indices: []u32 = &.{},
+        bounds_min: ByteVec2 = .{},
+        bounds_max: ByteVec2 = .{},
+
+        pub fn deinit(self: *ParsedSvgLayer) void {
+            if (self.fill_vertices.len > 0) allocator.free(self.fill_vertices);
+            if (self.fill_indices.len > 0) allocator.free(self.fill_indices);
+            if (self.fringe_vertices.len > 0) allocator.free(self.fringe_vertices);
+            if (self.fringe_indices.len > 0) allocator.free(self.fringe_indices);
+            self.* = .{};
+        }
+    };
+
+    /// Parse, flatten, and triangulate one SVG path layer into a persistent vector mesh.
+    pub fn BuildParsedSvgLayer(layer: SvgPathLayer, dpi_scale: f32) ?ParsedSvgLayer {
+        var shape = VectorShape{};
+        defer shape.deinit();
+        if (!parseSvgPathToShape(layer.path, &shape, estimateSvgTransformScale(layer.transform, dpi_scale))) return null;
+        transformVectorShapeInPlace(&shape, layer.transform);
+        return buildParsedSvgLayerMeshes(&shape, dpi_scale);
+    }
+
+    pub fn DrawParsedSvgLayers(draw: ?*ByteDrawList, layers: []const ParsedSvgLayer, col: ByteU32, dpi_scale: f32) void {
+        const dl = draw orelse return;
+        if ((col & BYTEGUI_COL32_A_MASK) == 0 or layers.len == 0) return;
+
+        var min_x = std.math.floatMax(f32);
+        var min_y = std.math.floatMax(f32);
+        var max_x = -std.math.floatMax(f32);
+        var max_y = -std.math.floatMax(f32);
+        for (layers) |layer| {
+            min_x = @min(min_x, layer.bounds_min.x * dpi_scale);
+            min_y = @min(min_y, layer.bounds_min.y * dpi_scale);
+            max_x = @max(max_x, layer.bounds_max.x * dpi_scale);
+            max_y = @max(max_y, layer.bounds_max.y * dpi_scale);
+        }
+        if (min_x >= max_x or min_y >= max_y) return;
+
+        const layers_copy = allocator.dupe(ParsedSvgLayer, layers) catch return;
+        const data = allocator.create(SvgCoverageCallbackData) catch {
+            allocator.free(layers_copy);
+            return;
+        };
+        data.* = .{
+            .layers_ptr = layers_copy.ptr,
+            .layers_len = layers_copy.len,
+            .col = col,
+            .dpi_scale = dpi_scale,
+            .bounds_min = .{ .x = min_x, .y = min_y },
+            .bounds_max = .{ .x = max_x, .y = max_y },
+        };
+        dl.CmdBuffer.append(allocator, .{
+            .ElemCount = 0,
+            .IdxOffset = @intCast(dl.IdxBuffer.items.len),
+            .ClipRect = dl.CurrentClipRect,
+            .UserCallback = svgCoverageCompositeCallback,
+            .UserCallbackData = data,
+        }) catch {
+            allocator.free(layers_copy);
+            allocator.destroy(data);
+        };
+    }
+
+    pub const SvgCoverageCallbackData = struct {
+        layers_ptr: [*]const ParsedSvgLayer,
+        layers_len: usize,
+        col: ByteU32,
+        dpi_scale: f32,
+        bounds_min: ByteVec2,
+        bounds_max: ByteVec2,
+    };
+};
+
+fn drawSolidQuad(min: ByteVec2, max: ByteVec2) void {
+    gl.glBegin(gl.QUADS);
+    gl.glVertex2f(min.x, min.y);
+    gl.glVertex2f(max.x, min.y);
+    gl.glVertex2f(max.x, max.y);
+    gl.glVertex2f(min.x, max.y);
+    gl.glEnd();
+}
+
+fn restoreDefaultGuiBlendFunc() void {
+    if (g_glBlendFuncSeparate) |blendSeparate| {
+        blendSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    } else {
+        gl.glBlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    }
+}
+
+fn svgCoverageCompositeCallback(_: *const ByteDrawList, cmd: *const ByteDrawCmd) callconv(.c) void {
+    const data: *Ui.SvgCoverageCallbackData = @ptrCast(@alignCast(cmd.UserCallbackData orelse return));
+    defer {
+        allocator.free(data.layers_ptr[0..data.layers_len]);
+        allocator.destroy(data);
+    }
+
+    const layers = data.layers_ptr[0..data.layers_len];
+    const col = data.col;
+    const ds = data.dpi_scale;
+    const r: u8 = @truncate(col & 0xFF);
+    const g: u8 = @truncate((col >> 8) & 0xFF);
+    const b: u8 = @truncate((col >> 16) & 0xFF);
+
+    gl.glDisable(gl.SCISSOR_TEST);
+    gl.glDisable(gl.TEXTURE_2D);
+    gl.glShadeModel(gl.SMOOTH);
+
+    // Reset the scratch alpha in the logo bounds.
+    gl.glColorMask(gl.FALSE, gl.FALSE, gl.FALSE, gl.TRUE);
+    gl.glDisable(gl.BLEND);
+    gl.glColor4ub(0, 0, 0, 0);
+    drawSolidQuad(data.bounds_min, data.bounds_max);
+
+    const sample_offsets = [_]ByteVec2{
+        .{ .x = -0.375, .y = -0.375 },
+        .{ .x = -0.125, .y = -0.375 },
+        .{ .x = 0.125, .y = -0.375 },
+        .{ .x = 0.375, .y = -0.375 },
+        .{ .x = -0.375, .y = -0.125 },
+        .{ .x = -0.125, .y = -0.125 },
+        .{ .x = 0.125, .y = -0.125 },
+        .{ .x = 0.375, .y = -0.125 },
+        .{ .x = -0.375, .y = 0.125 },
+        .{ .x = -0.125, .y = 0.125 },
+        .{ .x = 0.125, .y = 0.125 },
+        .{ .x = 0.375, .y = 0.125 },
+        .{ .x = -0.375, .y = 0.375 },
+        .{ .x = -0.125, .y = 0.375 },
+        .{ .x = 0.125, .y = 0.375 },
+        .{ .x = 0.375, .y = 0.375 },
+    };
+    const sample_count: u32 = sample_offsets.len;
+    const sample_alpha_base: u32 = 255 / sample_count;
+    const sample_alpha_remainder: u32 = 255 % sample_count;
+
+    gl.glEnable(gl.BLEND);
+    gl.glBlendFunc(gl.ONE, gl.ONE);
+
+    for (sample_offsets, 0..) |sample, sample_index| {
+        const sample_alpha_bonus: u32 = if (sample_index < sample_alpha_remainder) 1 else 0;
+        const sample_alpha: u8 = @intCast(sample_alpha_base + sample_alpha_bonus);
+        gl.glColor4ub(0, 0, 0, sample_alpha);
+        for (layers) |layer| {
+            if (layer.fill_vertices.len == 0 or layer.fill_indices.len == 0) continue;
+            gl.glBegin(gl.TRIANGLES);
+            for (layer.fill_indices) |idx| {
+                const vertex = layer.fill_vertices[idx];
+                gl.glVertex2f(vertex.pos.x * ds + sample.x, vertex.pos.y * ds + sample.y);
+            }
+            gl.glEnd();
+        }
+    }
+
+    // Composite the logo color once using the accumulated coverage.
+    gl.glColorMask(gl.TRUE, gl.TRUE, gl.TRUE, gl.FALSE);
+    gl.glBlendFunc(gl.DST_ALPHA, gl.ONE_MINUS_DST_ALPHA);
+    gl.glColor4ub(r, g, b, 0xFF);
+    drawSolidQuad(data.bounds_min, data.bounds_max);
+
+    // Restore alpha to opaque for the layered window path.
+    gl.glColorMask(gl.FALSE, gl.FALSE, gl.FALSE, gl.TRUE);
+    gl.glDisable(gl.BLEND);
+    gl.glColor4ub(0, 0, 0, 0xFF);
+    drawSolidQuad(data.bounds_min, data.bounds_max);
+
+    gl.glColorMask(gl.TRUE, gl.TRUE, gl.TRUE, gl.TRUE);
+    gl.glEnable(gl.BLEND);
+    restoreDefaultGuiBlendFunc();
+    gl.glEnable(gl.TEXTURE_2D);
+    gl.glColor4ub(0xFF, 0xFF, 0xFF, 0xFF);
+}
+
+const SvgContourInfo = struct {
+    points: []const ByteVec2 = &.{},
+    clockwise: bool = false,
+    fill_inside: bool = true,
+    fill_points: []ByteVec2 = &.{},
+    outer_points: []ByteVec2 = &.{},
+
+    fn deinit(self: *SvgContourInfo) void {
+        if (self.fill_points.len > 0) allocator.free(self.fill_points);
+        if (self.outer_points.len > 0) allocator.free(self.outer_points);
+        self.* = .{};
     }
 };
+
+const SvgTessVertex = struct {
+    coords: [3]gl.GLdouble = .{ 0.0, 0.0, 0.0 },
+    index: u32 = 0,
+};
+
+const SvgMeshBuilder = struct {
+    vertices: std.ArrayListUnmanaged(Ui.ParsedSvgMeshVertex) = .empty,
+    indices: std.ArrayListUnmanaged(u32) = .empty,
+    owned_tess_vertices: std.ArrayListUnmanaged(*SvgTessVertex) = .empty,
+    primitive_mode: gl.GLenum = 0,
+    primitive_count: usize = 0,
+    primitive_first: u32 = 0,
+    primitive_prev: u32 = 0,
+    triangle_cache: [2]u32 = .{ 0, 0 },
+    failed: bool = false,
+
+    fn deinit(self: *SvgMeshBuilder) void {
+        for (self.owned_tess_vertices.items) |vertex| allocator.destroy(vertex);
+        self.owned_tess_vertices.deinit(allocator);
+        self.vertices.deinit(allocator);
+        self.indices.deinit(allocator);
+        self.* = .{};
+    }
+
+    fn appendMeshVertex(self: *SvgMeshBuilder, pos: ByteVec2, coverage: u8) ?u32 {
+        const index: u32 = @intCast(self.vertices.items.len);
+        self.vertices.append(allocator, .{ .pos = pos, .coverage = coverage }) catch {
+            self.failed = true;
+            return null;
+        };
+        return index;
+    }
+
+    fn appendTriangle(self: *SvgMeshBuilder, a: u32, b: u32, cidx: u32) void {
+        if (a == b or b == cidx or cidx == a) return;
+        self.indices.append(allocator, a) catch {
+            self.failed = true;
+            return;
+        };
+        self.indices.append(allocator, b) catch {
+            self.failed = true;
+            return;
+        };
+        self.indices.append(allocator, cidx) catch {
+            self.failed = true;
+            return;
+        };
+    }
+
+    fn allocTessVertex(self: *SvgMeshBuilder, pos: ByteVec2) ?*SvgTessVertex {
+        const index = self.appendMeshVertex(pos, 0xFF) orelse return null;
+        const tess_vertex = allocator.create(SvgTessVertex) catch {
+            self.vertices.items.len -= 1;
+            self.failed = true;
+            return null;
+        };
+        tess_vertex.* = .{
+            .coords = .{ pos.x, pos.y, 0.0 },
+            .index = index,
+        };
+        self.owned_tess_vertices.append(allocator, tess_vertex) catch {
+            allocator.destroy(tess_vertex);
+            self.vertices.items.len -= 1;
+            self.failed = true;
+            return null;
+        };
+        return tess_vertex;
+    }
+
+    fn beginPrimitive(self: *SvgMeshBuilder, mode: gl.GLenum) void {
+        self.primitive_mode = mode;
+        self.primitive_count = 0;
+    }
+
+    fn pushPrimitiveVertex(self: *SvgMeshBuilder, idx: u32) void {
+        switch (self.primitive_mode) {
+            gl.TRIANGLES => switch (self.primitive_count % 3) {
+                0 => self.triangle_cache[0] = idx,
+                1 => self.triangle_cache[1] = idx,
+                else => self.appendTriangle(self.triangle_cache[0], self.triangle_cache[1], idx),
+            },
+            gl.TRIANGLE_FAN => switch (self.primitive_count) {
+                0 => self.primitive_first = idx,
+                1 => self.primitive_prev = idx,
+                else => {
+                    self.appendTriangle(self.primitive_first, self.primitive_prev, idx);
+                    self.primitive_prev = idx;
+                },
+            },
+            gl.TRIANGLE_STRIP => switch (self.primitive_count) {
+                0 => self.primitive_first = idx,
+                1 => self.primitive_prev = idx,
+                else => {
+                    if ((self.primitive_count & 1) == 0) {
+                        self.appendTriangle(self.primitive_first, self.primitive_prev, idx);
+                    } else {
+                        self.appendTriangle(self.primitive_prev, self.primitive_first, idx);
+                    }
+                    self.primitive_first = self.primitive_prev;
+                    self.primitive_prev = idx;
+                },
+            },
+            else => self.failed = true,
+        }
+        self.primitive_count += 1;
+    }
+};
+
+fn buildParsedSvgLayerMeshes(shape: *const VectorShape, dpi_scale: f32) ?Ui.ParsedSvgLayer {
+    var valid_count: usize = 0;
+    for (shape.contours.items) |contour| {
+        if (contour.points.items.len >= 3) valid_count += 1;
+    }
+    if (valid_count == 0) return Ui.ParsedSvgLayer{};
+
+    const coverage_pad = 1.0 / @max(dpi_scale, 1.0);
+    var contours = allocator.alloc(SvgContourInfo, valid_count) catch return null;
+    defer {
+        for (contours) |*contour| contour.deinit();
+        allocator.free(contours);
+    }
+
+    var built: usize = 0;
+    for (shape.contours.items) |contour| {
+        if (contour.points.items.len < 3) continue;
+        contours[built] = .{
+            .points = contour.points.items,
+            .clockwise = contourSignedArea(contour.points.items) > 0.0,
+        };
+        built += 1;
+    }
+
+    var fill_builder = SvgMeshBuilder{};
+    defer fill_builder.deinit();
+    if (!tessellateSvgContours(contours, &fill_builder, false)) return null;
+    if (fill_builder.failed) return null;
+
+    const fill_vertices = allocator.dupe(Ui.ParsedSvgMeshVertex, fill_builder.vertices.items) catch return null;
+    errdefer allocator.free(fill_vertices);
+    const fill_indices = allocator.dupe(u32, fill_builder.indices.items) catch return null;
+    errdefer allocator.free(fill_indices);
+
+    var bounds_min = ByteVec2{ .x = std.math.floatMax(f32), .y = std.math.floatMax(f32) };
+    var bounds_max = ByteVec2{ .x = -std.math.floatMax(f32), .y = -std.math.floatMax(f32) };
+    for (contours) |contour| {
+        for (contour.points) |point| {
+            bounds_min.x = @min(bounds_min.x, point.x);
+            bounds_min.y = @min(bounds_min.y, point.y);
+            bounds_max.x = @max(bounds_max.x, point.x);
+            bounds_max.y = @max(bounds_max.y, point.y);
+        }
+    }
+    bounds_min.x -= coverage_pad;
+    bounds_min.y -= coverage_pad;
+    bounds_max.x += coverage_pad;
+    bounds_max.y += coverage_pad;
+
+    return .{
+        .fill_vertices = fill_vertices,
+        .fill_indices = fill_indices,
+        .bounds_min = bounds_min,
+        .bounds_max = bounds_max,
+    };
+}
+
+fn tessellateSvgContours(contours: []const SvgContourInfo, builder: *SvgMeshBuilder, use_fill_points: bool) bool {
+    const tess = glu.gluNewTess() orelse return false;
+    defer glu.gluDeleteTess(tess);
+
+    glu.gluTessProperty(tess, glu.TESS_WINDING_RULE, glu.TESS_WINDING_ODD);
+    glu.gluTessCallback(tess, glu.TESS_BEGIN_DATA, @ptrCast(&svgTessBeginData));
+    glu.gluTessCallback(tess, glu.TESS_VERTEX_DATA, @ptrCast(&svgTessVertexData));
+    glu.gluTessCallback(tess, glu.TESS_END_DATA, @ptrCast(&svgTessEndData));
+    glu.gluTessCallback(tess, glu.TESS_COMBINE_DATA, @ptrCast(&svgTessCombineData));
+    glu.gluTessCallback(tess, glu.TESS_ERROR_DATA, @ptrCast(&svgTessErrorData));
+
+    glu.gluTessBeginPolygon(tess, @ptrCast(builder));
+
+    for (contours) |contour| {
+        const points = if (use_fill_points) contour.fill_points else contour.points;
+        if (points.len < 3) continue;
+        glu.gluTessBeginContour(tess);
+        for (points) |point| {
+            const tess_vertex = builder.allocTessVertex(point) orelse {
+                builder.failed = true;
+                break;
+            };
+            glu.gluTessVertex(tess, &tess_vertex.coords, @ptrCast(tess_vertex));
+        }
+        glu.gluTessEndContour(tess);
+        if (builder.failed) break;
+    }
+    glu.gluTessEndPolygon(tess);
+    return !builder.failed;
+}
+
+fn svgTessBeginData(mode: gl.GLenum, polygon_data: ?*anyopaque) callconv(.winapi) void {
+    const builder: *SvgMeshBuilder = @ptrCast(@alignCast(polygon_data orelse return));
+    builder.beginPrimitive(mode);
+}
+
+fn svgTessVertexData(vertex_data: ?*anyopaque, polygon_data: ?*anyopaque) callconv(.winapi) void {
+    const builder: *SvgMeshBuilder = @ptrCast(@alignCast(polygon_data orelse return));
+    const tess_vertex: *SvgTessVertex = @ptrCast(@alignCast(vertex_data orelse return));
+    builder.pushPrimitiveVertex(tess_vertex.index);
+}
+
+fn svgTessEndData(_: ?*anyopaque) callconv(.winapi) void {}
+
+fn svgTessCombineData(
+    coords: [*]const gl.GLdouble,
+    _: [*]?*anyopaque,
+    _: [*]const gl.GLfloat,
+    out_data: *?*anyopaque,
+    polygon_data: ?*anyopaque,
+) callconv(.winapi) void {
+    const builder: *SvgMeshBuilder = @ptrCast(@alignCast(polygon_data orelse {
+        out_data.* = null;
+        return;
+    }));
+    const tess_vertex = builder.allocTessVertex(.{
+        .x = @floatCast(coords[0]),
+        .y = @floatCast(coords[1]),
+    }) orelse {
+        out_data.* = null;
+        return;
+    };
+    out_data.* = tess_vertex;
+}
+
+fn svgTessErrorData(_: gl.GLenum, polygon_data: ?*anyopaque) callconv(.winapi) void {
+    const builder: *SvgMeshBuilder = @ptrCast(@alignCast(polygon_data orelse return));
+    builder.failed = true;
+}
+
+const SvgContourOffsetSide = enum {
+    toward_fill,
+    away_from_fill,
+};
+
+fn buildSvgContourOffset(points: []const ByteVec2, clockwise: bool, fill_inside: bool, aa_radius: f32, side: SvgContourOffsetSide) ?[]ByteVec2 {
+    if (points.len < 3) return allocator.dupe(ByteVec2, points) catch null;
+
+    var edge_normals = allocator.alloc(ByteVec2, points.len) catch return null;
+    defer allocator.free(edge_normals);
+
+    var prev_idx = points.len - 1;
+    for (points, 0..) |point, i| {
+        var delta = subVec2(point, points[prev_idx]);
+        const len = @sqrt(byteLengthSqr(delta));
+        if (len > 0.0) {
+            delta.x /= len;
+            delta.y /= len;
+        }
+        var away = ByteVec2{ .x = delta.y, .y = -delta.x };
+        if (!clockwise) {
+            away.x = -away.x;
+            away.y = -away.y;
+        }
+        if (!fill_inside) {
+            away.x = -away.x;
+            away.y = -away.y;
+        }
+        if (side == .toward_fill) {
+            away.x = -away.x;
+            away.y = -away.y;
+        }
+        edge_normals[prev_idx] = away;
+        prev_idx = i;
+    }
+
+    const offset_points = allocator.alloc(ByteVec2, points.len) catch return null;
+    for (points, 0..) |point, i| {
+        const n0 = edge_normals[(i + points.len - 1) % points.len];
+        const n1 = edge_normals[i];
+        const avg = computeAAMiterOffsetLimited(n0, n1, aa_radius, 2.0);
+        offset_points[i] = .{
+            .x = point.x + avg.x,
+            .y = point.y + avg.y,
+        };
+    }
+    return offset_points;
+}
+
+fn appendSvgContourFringe(builder: *SvgMeshBuilder, points: []const ByteVec2, outer_points: []const ByteVec2) bool {
+    if (points.len < 3 or points.len != outer_points.len) return true;
+
+    const base_idx: u32 = @intCast(builder.vertices.items.len);
+    for (points, outer_points) |point, outer_point| {
+        _ = builder.appendMeshVertex(point, 0xFF) orelse return false;
+        _ = builder.appendMeshVertex(outer_point, 0x00) orelse return false;
+    }
+
+    for (0..points.len) |i| {
+        const next = (i + 1) % points.len;
+        const inner0 = base_idx + @as(u32, @intCast(i * 2));
+        const outer0 = inner0 + 1;
+        const inner1 = base_idx + @as(u32, @intCast(next * 2));
+        const outer1 = inner1 + 1;
+        builder.appendTriangle(inner1, inner0, outer0);
+        builder.appendTriangle(outer0, outer1, inner1);
+    }
+    return !builder.failed;
+}
+
+fn applyCoverageToColor(col: ByteU32, coverage: u8) ByteU32 {
+    const base_alpha: u32 = (col >> 24) & 0xFF;
+    const scaled_alpha: u32 = @intCast((base_alpha * @as(u32, coverage) + 127) / 255);
+    return (col & 0x00FF_FFFF) | (scaled_alpha << 24);
+}
+
+fn contourSignedArea(contour: []const ByteVec2) f64 {
+    var area: f64 = 0.0;
+    for (0..contour.len) |i| {
+        const j = (i + 1) % contour.len;
+        area += @as(f64, contour[i].x) * @as(f64, contour[j].y);
+        area -= @as(f64, contour[j].x) * @as(f64, contour[i].y);
+    }
+    return area * 0.5;
+}
+
+fn contourInteriorSample(contour: []const ByteVec2, clockwise: bool, inset: f32) ByteVec2 {
+    if (contour.len == 0) return .{};
+
+    const sample_inset = @max(inset * 2.0, 0.01);
+    for (0..contour.len) |i| {
+        const next = (i + 1) % contour.len;
+        var edge = subVec2(contour[next], contour[i]);
+        const len = @sqrt(byteLengthSqr(edge));
+        if (len <= 0.0) continue;
+
+        edge.x /= len;
+        edge.y /= len;
+        var inside = ByteVec2{ .x = -edge.y, .y = edge.x };
+        if (!clockwise) {
+            inside.x = -inside.x;
+            inside.y = -inside.y;
+        }
+
+        return .{
+            .x = (contour[i].x + contour[next].x) * 0.5 + inside.x * sample_inset,
+            .y = (contour[i].y + contour[next].y) * 0.5 + inside.y * sample_inset,
+        };
+    }
+    return contour[0];
+}
+
+fn estimateSvgTransformScale(transform: Ui.SvgTransform, extra_scale: f32) f32 {
+    const basis_x = @sqrt(transform.a * transform.a + transform.b * transform.b);
+    const basis_y = @sqrt(transform.c * transform.c + transform.d * transform.d);
+    return @max(1.0, @max(basis_x, basis_y) * @max(extra_scale, 1.0));
+}
+
+fn computeAAMiterOffset(n0: ByteVec2, n1: ByteVec2, aa_radius: f32) ByteVec2 {
+    return computeAAMiterOffsetLimited(n0, n1, aa_radius, 100.0);
+}
+
+fn computeAAMiterOffsetLimited(n0: ByteVec2, n1: ByteVec2, aa_radius: f32, miter_limit: f32) ByteVec2 {
+    var dm = ByteVec2{ .x = (n0.x + n1.x) * 0.5, .y = (n0.y + n1.y) * 0.5 };
+    const len2 = byteLengthSqr(dm);
+    if (len2 > 0.000001) {
+        var inv_len2 = 1.0 / len2;
+        if (inv_len2 > miter_limit) inv_len2 = miter_limit;
+        dm.x *= inv_len2;
+        dm.y *= inv_len2;
+    }
+    dm.x *= aa_radius;
+    dm.y *= aa_radius;
+    return dm;
+}
 
 fn clamp01(v: f32) f32 {
     return if (v < 0.0) 0.0 else if (v > 1.0) 1.0 else v;
@@ -1634,6 +2271,195 @@ fn alignUpInt(value: i32, alignment: i32) i32 {
 
 fn subVec2(a: ByteVec2, b: ByteVec2) ByteVec2 {
     return .{ .x = a.x - b.x, .y = a.y - b.y };
+}
+
+// Returns true when p lies inside or on the edge of triangle (a,b,c).
+fn pointInTriangle2D(a: ByteVec2, b: ByteVec2, cc: ByteVec2, p: ByteVec2) bool {
+    const d1 = (p.x - b.x) * (a.y - b.y) - (a.x - b.x) * (p.y - b.y);
+    const d2 = (p.x - cc.x) * (b.y - cc.y) - (b.x - cc.x) * (p.y - cc.y);
+    const d3 = (p.x - a.x) * (cc.y - a.y) - (cc.x - a.x) * (p.y - a.y);
+    const has_neg = (d1 < 0) or (d2 < 0) or (d3 < 0);
+    const has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0);
+    return !(has_neg and has_pos);
+}
+
+// Ear-clipping tessellator for simple (non-self-intersecting) polygons.
+// Correctly handles non-convex letter shapes with proper AA fringing.
+// O(n^2) but n is small for typical glyph contours (<200 vertices).
+fn earClipFill(draw: *ByteDrawList, pts: []const ByteVec2, col: ByteU32) void {
+    const n = pts.len;
+    if (n < 3 or (col & BYTEGUI_COL32_A_MASK) == 0) return;
+    if (n == 3) {
+        draw.AddConvexPolyFilled(pts, col);
+        return;
+    }
+
+    // Compute signed area to determine winding (Y-down screen space: CW => area > 0).
+    var area: f64 = 0;
+    for (0..n) |i| {
+        const j = (i + 1) % n;
+        area += @as(f64, pts[i].x) * @as(f64, pts[j].y);
+        area -= @as(f64, pts[j].x) * @as(f64, pts[i].y);
+    }
+    const clockwise = area > 0;
+
+    const has_aa = (draw.Flags & ByteDrawListFlags_AntiAliasedFill) != 0;
+    const transparent = col & ~BYTEGUI_COL32_A_MASK;
+    const uv = ByteVec2{ .x = 0.5, .y = 0.5 };
+
+    // Mutable index list â€” stack-allocated for typical small glyph contours.
+    var stk_idx: [512]u32 = undefined;
+    const heap_idx: ?[]u32 = if (n > stk_idx.len) (allocator.alloc(u32, n) catch return) else null;
+    defer if (heap_idx) |h| allocator.free(h);
+    const rem_idx: []u32 = if (heap_idx) |h| h else stk_idx[0..n];
+    for (0..n) |i| rem_idx[i] = @intCast(i);
+    var rem: usize = n;
+
+    if (has_aa) {
+        // Compute per-vertex averaged edge normals (same technique as AddConvexPolyFilled).
+        var stk_nrm: [512]ByteVec2 = undefined;
+        const heap_nrm: ?[]ByteVec2 = if (n > stk_nrm.len) (allocator.alloc(ByteVec2, n) catch return) else null;
+        defer if (heap_nrm) |h| allocator.free(h);
+        const edge_nrm: []ByteVec2 = if (heap_nrm) |h| h else stk_nrm[0..n];
+
+        var stk_avg: [512]ByteVec2 = undefined;
+        const heap_avg: ?[]ByteVec2 = if (n > stk_avg.len) (allocator.alloc(ByteVec2, n) catch return) else null;
+        defer if (heap_avg) |h| allocator.free(h);
+        const avg_nrm: []ByteVec2 = if (heap_avg) |h| h else stk_avg[0..n];
+
+        {
+            var prev_i = n - 1;
+            for (0..n) |i| {
+                var d = subVec2(pts[i], pts[prev_i]);
+                const l = @sqrt(byteLengthSqr(d));
+                if (l > 0) {
+                    d.x /= l;
+                    d.y /= l;
+                }
+                edge_nrm[prev_i] = .{ .x = d.y, .y = -d.x };
+                prev_i = i;
+            }
+        }
+        for (0..n) |i| {
+            const n0 = edge_nrm[if (i == 0) n - 1 else i - 1];
+            const n1 = edge_nrm[i];
+            avg_nrm[i] = computeAAMiterOffset(n0, n1, 0.5);
+        }
+
+        // Emit inner (index*2) and outer (index*2+1) vertices for AA fringe.
+        const base: ByteDrawIdx = @intCast(draw.VtxBuffer.items.len);
+        for (pts, 0..) |pt, i| {
+            const a = avg_nrm[i];
+            draw.addVertex(.{ .x = pt.x - a.x, .y = pt.y - a.y }, uv, col) catch return;
+            draw.addVertex(.{ .x = pt.x + a.x, .y = pt.y + a.y }, uv, transparent) catch return;
+        }
+
+        // Fringe quads along the polygon boundary.
+        const fringe_start = draw.IdxBuffer.items.len;
+        for (0..n) |fi| {
+            const fr0: ByteDrawIdx = base + @as(ByteDrawIdx, @intCast(fi * 2));
+            const fr1: ByteDrawIdx = base + @as(ByteDrawIdx, @intCast(((fi + 1) % n) * 2));
+            draw.addTriangleIndices(fr1, fr0, fr0 + 1) catch return;
+            draw.addTriangleIndices(fr0 + 1, fr1 + 1, fr1) catch return;
+        }
+        draw.addPrimitive(draw.WhiteTexture, @intCast(draw.IdxBuffer.items.len - fringe_start)) catch return;
+
+        // Ear-clip interior using inner vertices (stride 2 from base).
+        const fill_start = draw.IdxBuffer.items.len;
+        var fail: usize = 0;
+        var ci: usize = 0;
+        while (rem > 3 and fail < rem) {
+            const pi = rem_idx[(ci + rem - 1) % rem];
+            const ci_ = rem_idx[ci];
+            const ni = rem_idx[(ci + 1) % rem];
+            const cross = (pts[ci_].x - pts[pi].x) * (pts[ni].y - pts[pi].y) -
+                (pts[ci_].y - pts[pi].y) * (pts[ni].x - pts[pi].x);
+            const is_convex = if (clockwise) cross >= 0 else cross <= 0;
+            if (is_convex) {
+                var blocked = false;
+                for (rem_idx[0..rem]) |v| {
+                    if (v == pi or v == ci_ or v == ni) continue;
+                    if (pointInTriangle2D(pts[pi], pts[ci_], pts[ni], pts[v])) {
+                        blocked = true;
+                        break;
+                    }
+                }
+                if (!blocked) {
+                    draw.addTriangleIndices(
+                        base + @as(ByteDrawIdx, pi) * 2,
+                        base + @as(ByteDrawIdx, ci_) * 2,
+                        base + @as(ByteDrawIdx, ni) * 2,
+                    ) catch return;
+                    var k: usize = ci;
+                    while (k < rem - 1) : (k += 1) rem_idx[k] = rem_idx[k + 1];
+                    rem -= 1;
+                    if (rem > 0 and ci >= rem) ci = 0;
+                    fail = 0;
+                    continue;
+                }
+            }
+            fail += 1;
+            ci = (ci + 1) % rem;
+        }
+        if (rem >= 3) {
+            draw.addTriangleIndices(
+                base + @as(ByteDrawIdx, rem_idx[0]) * 2,
+                base + @as(ByteDrawIdx, rem_idx[1]) * 2,
+                base + @as(ByteDrawIdx, rem_idx[2]) * 2,
+            ) catch return;
+        }
+        const fill_count = draw.IdxBuffer.items.len - fill_start;
+        if (fill_count > 0) draw.addPrimitive(draw.WhiteTexture, @intCast(fill_count)) catch return;
+    } else {
+        // No AA path: plain ear-clip fill.
+        const base: ByteDrawIdx = @intCast(draw.VtxBuffer.items.len);
+        for (pts) |pt| draw.addVertex(pt, uv, col) catch return;
+        const fill_start = draw.IdxBuffer.items.len;
+        var fail: usize = 0;
+        var ci: usize = 0;
+        while (rem > 3 and fail < rem) {
+            const pi = rem_idx[(ci + rem - 1) % rem];
+            const ci_ = rem_idx[ci];
+            const ni = rem_idx[(ci + 1) % rem];
+            const cross = (pts[ci_].x - pts[pi].x) * (pts[ni].y - pts[pi].y) -
+                (pts[ci_].y - pts[pi].y) * (pts[ni].x - pts[pi].x);
+            const is_convex = if (clockwise) cross >= 0 else cross <= 0;
+            if (is_convex) {
+                var blocked = false;
+                for (rem_idx[0..rem]) |v| {
+                    if (v == pi or v == ci_ or v == ni) continue;
+                    if (pointInTriangle2D(pts[pi], pts[ci_], pts[ni], pts[v])) {
+                        blocked = true;
+                        break;
+                    }
+                }
+                if (!blocked) {
+                    draw.addTriangleIndices(
+                        base + @as(ByteDrawIdx, pi),
+                        base + @as(ByteDrawIdx, ci_),
+                        base + @as(ByteDrawIdx, ni),
+                    ) catch return;
+                    var k: usize = ci;
+                    while (k < rem - 1) : (k += 1) rem_idx[k] = rem_idx[k + 1];
+                    rem -= 1;
+                    if (rem > 0 and ci >= rem) ci = 0;
+                    fail = 0;
+                    continue;
+                }
+            }
+            fail += 1;
+            ci = (ci + 1) % rem;
+        }
+        if (rem >= 3) {
+            draw.addTriangleIndices(
+                base + @as(ByteDrawIdx, rem_idx[0]),
+                base + @as(ByteDrawIdx, rem_idx[1]),
+                base + @as(ByteDrawIdx, rem_idx[2]),
+            ) catch return;
+        }
+        const fill_count = draw.IdxBuffer.items.len - fill_start;
+        if (fill_count > 0) draw.addPrimitive(draw.WhiteTexture, @intCast(fill_count)) catch return;
+    }
 }
 
 fn sliceFromOptionalEnd(text_begin: []const u8, text_end: ?usize) []const u8 {
@@ -1800,7 +2626,7 @@ fn quadraticBezierPoint(p0: ByteVec2, p1: ByteVec2, p2: ByteVec2, t: f32) ByteVe
     };
 }
 
-fn bezierSegmentCount(points: []const ByteVec2, min_segments: i32, max_segments: i32) i32 {
+fn bezierSegmentCount(points: []const ByteVec2, min_segments: i32, max_segments: i32, curve_scale: f32) i32 {
     var poly_len: f32 = 0.0;
     for (points[0 .. points.len - 1], 0..) |point, i| {
         const next = points[i + 1];
@@ -1808,12 +2634,14 @@ fn bezierSegmentCount(points: []const ByteVec2, min_segments: i32, max_segments:
     }
     const chord = @sqrt(byteLengthSqr(subVec2(points[points.len - 1], points[0])));
     const curvature = @max(0.0, poly_len - chord);
-    const estimate = @ceil(chord * 0.12 + curvature * 0.35);
-    return std.math.clamp(@as(i32, @intFromFloat(estimate)), min_segments, max_segments);
+    const scaled_curve = @max(curve_scale, 1.0);
+    const estimate = @ceil((chord * 0.12 + curvature * 0.35) * scaled_curve);
+    const scaled_max = @min(2048, @max(max_segments, @as(i32, @intFromFloat(@ceil(@as(f32, @floatFromInt(max_segments)) * scaled_curve)))));
+    return std.math.clamp(@as(i32, @intFromFloat(estimate)), min_segments, scaled_max);
 }
 
-fn appendQuadraticCurve(shape: *VectorShape, p0: ByteVec2, p1: ByteVec2, p2: ByteVec2) void {
-    const segments = bezierSegmentCount(&.{ p0, p1, p2 }, 8, 96);
+fn appendQuadraticCurve(shape: *VectorShape, p0: ByteVec2, p1: ByteVec2, p2: ByteVec2, curve_scale: f32) void {
+    const segments = bezierSegmentCount(&.{ p0, p1, p2 }, 8, 96, curve_scale);
     var i: i32 = 1;
     while (i <= segments) : (i += 1) {
         const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(segments));
@@ -1821,8 +2649,8 @@ fn appendQuadraticCurve(shape: *VectorShape, p0: ByteVec2, p1: ByteVec2, p2: Byt
     }
 }
 
-fn appendCubicCurve(shape: *VectorShape, p0: ByteVec2, p1: ByteVec2, p2: ByteVec2, p3: ByteVec2) void {
-    const segments = bezierSegmentCount(&.{ p0, p1, p2, p3 }, 12, 128);
+fn appendCubicCurve(shape: *VectorShape, p0: ByteVec2, p1: ByteVec2, p2: ByteVec2, p3: ByteVec2, curve_scale: f32) void {
+    const segments = bezierSegmentCount(&.{ p0, p1, p2, p3 }, 12, 128, curve_scale);
     var i: i32 = 1;
     while (i <= segments) : (i += 1) {
         const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(segments));
@@ -1840,7 +2668,7 @@ fn svgAngleBetween(ux: f32, uy: f32, vx: f32, vy: f32) f32 {
     return ang;
 }
 
-fn appendSvgArc(shape: *VectorShape, x0: f32, y0: f32, rx_in: f32, ry_in: f32, angle: f32, large_arc_flag: i32, sweep_flag: i32, x1: f32, y1: f32) void {
+fn appendSvgArc(shape: *VectorShape, x0: f32, y0: f32, rx_in: f32, ry_in: f32, angle: f32, large_arc_flag: i32, sweep_flag: i32, x1: f32, y1: f32, curve_scale: f32) void {
     var rx = @abs(rx_in);
     var ry = @abs(ry_in);
     if (rx == 0.0 or ry == 0.0) {
@@ -1919,12 +2747,12 @@ fn appendSvgArc(shape: *VectorShape, x0: f32, y0: f32, rx_in: f32, ry_in: f32, a
         }, .{
             .x = cos_phi * x_b - sin_phi * y_b + cx,
             .y = sin_phi * x_b + cos_phi * y_b + cy,
-        });
+        }, curve_scale);
         t += delta;
     }
 }
 
-fn parseSvgPathToShape(svg_path: []const u8, shape: *VectorShape) bool {
+fn parseSvgPathToShape(svg_path: []const u8, shape: *VectorShape, curve_scale: f32) bool {
     var parser = SvgPathParser{ .input = svg_path };
 
     while (!parser.eof()) {
@@ -2023,7 +2851,7 @@ fn parseSvgPathToShape(svg_path: []const u8, shape: *VectorShape) bool {
                 const y2 = parser.parseNumber();
                 const x = parser.parseNumber();
                 const y = parser.parseNumber();
-                appendCubicCurve(shape, .{ .x = parser.current_x, .y = parser.current_y }, .{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, .{ .x = x, .y = y });
+                appendCubicCurve(shape, .{ .x = parser.current_x, .y = parser.current_y }, .{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, .{ .x = x, .y = y }, curve_scale);
                 parser.last_control_x = x2;
                 parser.last_control_y = y2;
                 parser.current_x = x;
@@ -2037,7 +2865,7 @@ fn parseSvgPathToShape(svg_path: []const u8, shape: *VectorShape) bool {
                 const y2 = parser.current_y + parser.parseNumber();
                 const x = parser.current_x + parser.parseNumber();
                 const y = parser.current_y + parser.parseNumber();
-                appendCubicCurve(shape, .{ .x = parser.current_x, .y = parser.current_y }, .{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, .{ .x = x, .y = y });
+                appendCubicCurve(shape, .{ .x = parser.current_x, .y = parser.current_y }, .{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, .{ .x = x, .y = y }, curve_scale);
                 parser.last_control_x = x2;
                 parser.last_control_y = y2;
                 parser.current_x = x;
@@ -2053,7 +2881,7 @@ fn parseSvgPathToShape(svg_path: []const u8, shape: *VectorShape) bool {
                     const y = parser.parseNumber();
                     const x1 = if (smooth) 2.0 * parser.current_x - parser.last_control_x else parser.current_x;
                     const y1 = if (smooth) 2.0 * parser.current_y - parser.last_control_y else parser.current_y;
-                    appendCubicCurve(shape, .{ .x = parser.current_x, .y = parser.current_y }, .{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, .{ .x = x, .y = y });
+                    appendCubicCurve(shape, .{ .x = parser.current_x, .y = parser.current_y }, .{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, .{ .x = x, .y = y }, curve_scale);
                     parser.last_control_x = x2;
                     parser.last_control_y = y2;
                     parser.current_x = x;
@@ -2071,7 +2899,7 @@ fn parseSvgPathToShape(svg_path: []const u8, shape: *VectorShape) bool {
                     const y = parser.current_y + parser.parseNumber();
                     const x1 = if (smooth) 2.0 * parser.current_x - parser.last_control_x else parser.current_x;
                     const y1 = if (smooth) 2.0 * parser.current_y - parser.last_control_y else parser.current_y;
-                    appendCubicCurve(shape, .{ .x = parser.current_x, .y = parser.current_y }, .{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, .{ .x = x, .y = y });
+                    appendCubicCurve(shape, .{ .x = parser.current_x, .y = parser.current_y }, .{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, .{ .x = x, .y = y }, curve_scale);
                     parser.last_control_x = x2;
                     parser.last_control_y = y2;
                     parser.current_x = x;
@@ -2085,7 +2913,7 @@ fn parseSvgPathToShape(svg_path: []const u8, shape: *VectorShape) bool {
                 const y1 = parser.parseNumber();
                 const x = parser.parseNumber();
                 const y = parser.parseNumber();
-                appendQuadraticCurve(shape, .{ .x = parser.current_x, .y = parser.current_y }, .{ .x = x1, .y = y1 }, .{ .x = x, .y = y });
+                appendQuadraticCurve(shape, .{ .x = parser.current_x, .y = parser.current_y }, .{ .x = x1, .y = y1 }, .{ .x = x, .y = y }, curve_scale);
                 parser.last_control_x = x1;
                 parser.last_control_y = y1;
                 parser.current_x = x;
@@ -2097,7 +2925,7 @@ fn parseSvgPathToShape(svg_path: []const u8, shape: *VectorShape) bool {
                 const y1 = parser.current_y + parser.parseNumber();
                 const x = parser.current_x + parser.parseNumber();
                 const y = parser.current_y + parser.parseNumber();
-                appendQuadraticCurve(shape, .{ .x = parser.current_x, .y = parser.current_y }, .{ .x = x1, .y = y1 }, .{ .x = x, .y = y });
+                appendQuadraticCurve(shape, .{ .x = parser.current_x, .y = parser.current_y }, .{ .x = x1, .y = y1 }, .{ .x = x, .y = y }, curve_scale);
                 parser.last_control_x = x1;
                 parser.last_control_y = y1;
                 parser.current_x = x;
@@ -2114,7 +2942,7 @@ fn parseSvgPathToShape(svg_path: []const u8, shape: *VectorShape) bool {
                 const y = parser.parseNumber();
                 const end_x = if (cmd == 'a') parser.current_x + x else x;
                 const end_y = if (cmd == 'a') parser.current_y + y else y;
-                appendSvgArc(shape, parser.current_x, parser.current_y, rx, ry, angle, large_arc, sweep, end_x, end_y);
+                appendSvgArc(shape, parser.current_x, parser.current_y, rx, ry, angle, large_arc, sweep, end_x, end_y, curve_scale);
                 parser.current_x = end_x;
                 parser.current_y = end_y;
                 parser.last_control_x = parser.current_x;
@@ -2512,13 +3340,11 @@ fn roundToNearestPixel(value: f32) f32 {
 }
 
 fn textSupersampleForFont(font: *const ByteFont) f32 {
-    _ = font;
-    return 1.0;
+    return @floatFromInt(textSupersampleForFontI(font));
 }
 
 fn textSupersampleForFontI(font: *const ByteFont) i32 {
-    _ = font;
-    return 1;
+    return @intCast(@max(@as(u32, 1), @max(font.OversampleH, font.OversampleV)));
 }
 
 fn snapTextPenX(font: *const ByteFont, pen_x: f32) f32 {
@@ -2915,7 +3741,7 @@ fn rasterizeTextImageFromFont(font: *const ByteFont, size_pixels: f32, text: []c
 
     const pad_f = @as(f32, @floatFromInt(pad_px));
 
-    // Box-filter downsample the supersample-resolution RGBA buffer to 1× resolution.
+    // Box-filter downsample the supersample-resolution RGBA buffer to 1Ã— resolution.
     // This produces much better anti-aliasing than relying on GL_LINEAR for minification.
     const ss = @as(u32, @intFromFloat(@round(supersample)));
     if (ss > 1 and pixel_w >= ss and pixel_h >= ss) {
@@ -3020,7 +3846,7 @@ fn buildTextTextureFromFont(font: *const ByteFont, size_pixels: f32, text: []con
     var raster = rasterizeTextImageFromFont(font, size_pixels, text, supersample, pad_scale, wrap_width, layout_scale, rgb_value) orelse return null;
     defer raster.deinit();
 
-    const texture = createTextureFromRGBA(raster.rgba, raster.pixel_w, raster.pixel_h, filter) orelse return null;
+    const texture = createTextureFromRgbaAlphaMask(raster.rgba, raster.pixel_w, raster.pixel_h, filter) orelse return null;
     return .{
         .texture = texture,
         .display_size_px = raster.display_size_px,
@@ -3028,6 +3854,17 @@ fn buildTextTextureFromFont(font: *const ByteFont, size_pixels: f32, text: []con
         .uv_min = raster.uv_min,
         .uv_max = raster.uv_max,
     };
+}
+
+fn uploadRasterizedMaskTextureWithFilter(out_texture: *Ui.TextTexture, raster: *const Ui.RasterizedTexture, filter: TextureFilter) bool {
+    Ui.CleanupTextTexture(out_texture);
+    if (!ByteGui_ImplOpenGL_HasContext() or raster.rgba.len == 0 or raster.pixel_w == 0 or raster.pixel_h == 0) return false;
+
+    out_texture.texture = createTextureFromRgbaAlphaMask(raster.rgba, raster.pixel_w, raster.pixel_h, filter) orelse return false;
+    out_texture.display_size_px = raster.display_size_px;
+    out_texture.uv_min = raster.uv_min;
+    out_texture.uv_max = raster.uv_max;
+    return true;
 }
 fn textureIdFromHandle(handle: gl.GLuint) ByteTextureID {
     if (handle == 0) return null;
@@ -3043,6 +3880,45 @@ fn releaseTexture(texture: ByteTextureID) void {
     if (handle == 0) return;
     const textures = [_]gl.GLuint{handle};
     gl.glDeleteTextures(1, &textures);
+}
+
+fn extractAlphaChannel(rgba: []const u8, width: u32, height: u32) ?[]u8 {
+    if (width == 0 or height == 0) return null;
+    const pixel_count = @as(usize, width) * @as(usize, height);
+    if (rgba.len < pixel_count * 4) return null;
+
+    const alpha = allocator.alloc(u8, pixel_count) catch return null;
+    for (0..pixel_count) |pixel_index| alpha[pixel_index] = rgba[pixel_index * 4 + 3];
+    return alpha;
+}
+
+fn createTextureFromRgbaAlphaMask(rgba: []const u8, width: u32, height: u32, filter: TextureFilter) ByteTextureID {
+    const alpha = extractAlphaChannel(rgba, width, height) orelse return null;
+    defer allocator.free(alpha);
+    return createTextureFromAlpha(alpha, width, height, filter);
+}
+
+fn createTextureFromAlpha(alpha: []const u8, width: u32, height: u32, filter: TextureFilter) ByteTextureID {
+    if (!ByteGui_ImplOpenGL_HasContext() or width == 0 or height == 0 or alpha.len < @as(usize, width) * @as(usize, height)) return null;
+
+    var textures = [_]gl.GLuint{0};
+    gl.glGenTextures(1, &textures);
+    const handle = textures[0];
+    if (handle == 0) return null;
+
+    gl.glBindTexture(gl.TEXTURE_2D, handle);
+    gl.glTexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.glTexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const gl_filter = switch (filter) {
+        .nearest => gl.NEAREST,
+        .linear => gl.LINEAR,
+    };
+    gl.glTexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl_filter);
+    gl.glTexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl_filter);
+    gl.glTexEnvi(gl.TEXTURE_ENV, gl.TEXTURE_ENV_MODE, gl.MODULATE);
+    gl.glPixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.glTexImage2D(gl.TEXTURE_2D, 0, @intCast(gl.ALPHA), @intCast(width), @intCast(height), 0, gl.ALPHA, gl.UNSIGNED_BYTE, alpha.ptr);
+    return textureIdFromHandle(handle);
 }
 
 fn createTextureFromRGBA(pixels: []const u8, width: u32, height: u32, filter: TextureFilter) ByteTextureID {
@@ -3341,6 +4217,10 @@ pub fn ByteGui_ImplOpenGL_RenderDrawData(draw_data: ?*ByteDrawData) void {
         defer unbindDrawListVertexArrays();
 
         for (draw_list.CmdBuffer.items) |cmd| {
+            if (cmd.UserCallback) |cb| {
+                cb(draw_list, &cmd);
+                continue;
+            }
             if (cmd.ElemCount == 0) continue;
 
             const clip_left = @max(cmd.ClipRect.x, 0.0);
@@ -3579,3 +4459,4 @@ pub fn windowsFontPath(gpa: std.mem.Allocator, comptime file_name: []const u8) ?
 
     return std.fs.path.join(gpa, &.{ windir, "Fonts", file_name }) catch return null;
 }
+
