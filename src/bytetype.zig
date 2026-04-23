@@ -1,3 +1,4 @@
+// ByteType - A minimal TrueType parser and rasterizer used by ByteGui
 const std = @import("std");
 
 const allocator = std.heap.c_allocator;
@@ -147,6 +148,7 @@ const comp_unscaled_component_offset = 0x1000;
 
 const raster_grid: usize = 4;
 
+// Parsed face and metrics API
 pub const FontFace = struct {
     data: []const u8 = &.{},
     font_offset: usize = 0,
@@ -654,6 +656,7 @@ pub const FontFace = struct {
     }
 };
 
+// SFNT tables and GPOS lookup
 fn resolveFontOffset(data: []const u8, face_index: u32) ?usize {
     if (data.len >= 12 and std.mem.eql(u8, data[0..4], "ttcf")) {
         const num_fonts = readU32(data, 8) orelse return null;
@@ -921,6 +924,7 @@ fn classDefValue(data: []const u8, class_def_offset: usize, glyph: u32) u16 {
     };
 }
 
+// Outline flattening
 fn flattenContour(points: []const CurvePoint, transform: Affine, scale: f32, shift_x: f32, shift_y: f32, shape: *RenderShape) !void {
     if (points.len == 0) return;
 
@@ -1071,6 +1075,7 @@ fn computeShapeBounds(shape: *const RenderShape) ?ShapeBounds {
     return if (found) bounds else null;
 }
 
+// Scan conversion
 fn rasterizeShapeIntoAlpha(alpha: []u8, width: usize, height: usize, shape: *const RenderShape) void {
     @memset(alpha, 0);
 

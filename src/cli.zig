@@ -1,3 +1,4 @@
+// CLI launcher path
 const builtin = @import("builtin");
 const std = @import("std");
 
@@ -57,6 +58,7 @@ const CliWaitResult = union(enum) {
     process_found: u32,
 };
 
+// Argument parsing
 fn wtf8ToWtf16LeZ(wtf8: []const u8, buf: []u16) ![:0]u16 {
     if (buf.len == 0) return error.NoSpaceLeft;
     const len = try std.unicode.wtf8ToWtf16Le(buf[0 .. buf.len - 1], wtf8);
@@ -326,6 +328,7 @@ fn ensureCliConsole() void {
     _ = c.SetConsoleTitleW(CLI_CONSOLE_TITLE);
 }
 
+// Console I/O
 fn cliWrite(io: std.Io, message: []const u8) void {
     var stdout_buffer: [1024]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
@@ -441,6 +444,7 @@ fn waitForTargetProcessTimeout(timeout_ms: u64) u32 {
     return 0;
 }
 
+// Injection flow
 fn cliInjectFoundProcess(io: std.Io, allocator: std.mem.Allocator, temp_dll_path: []const u8, pid: u32) !u8 {
     cliPrint(io, "Process found (PID: {d})\n", .{pid});
 
@@ -561,6 +565,7 @@ fn cliWaitForEfmiLaunchOrQuit(auto_yes: bool) bool {
     }
 }
 
+// Run modes
 fn runSilentCli(allocator: std.mem.Allocator, environ: std.process.Environ, embedded_dll: []const u8, dx11: bool) !u8 {
     const game_exe_path = loader.detectGameExe(environ, allocator) catch null;
     defer if (game_exe_path) |path| allocator.free(path);

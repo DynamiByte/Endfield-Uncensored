@@ -1,3 +1,4 @@
+// Shared UI text and subset inputs
 const std = @import("std");
 const app_version = @import("version.zig");
 const loader = @import("loader.zig");
@@ -44,6 +45,7 @@ fn appendLine(list: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, l
     try list.append(allocator, '\n');
 }
 
+// Version display text
 pub fn computeVersionDisplay(out_buf: []u8, version_str: []const u8) ![]const u8 {
     var parts: [4][]const u8 = .{ "", "", "", "" };
     var count: usize = 0;
@@ -61,13 +63,17 @@ pub fn computeVersionDisplay(out_buf: []u8, version_str: []const u8) ![]const u8
     };
 }
 
-pub fn buildMonoSubsetText(allocator: std.mem.Allocator, version_str: []const u8) ![]u8 {
+// Font subset text
+pub fn buildVersionInfoSubsetText(allocator: std.mem.Allocator, version_str: []const u8) ![]u8 {
     var version_buf: [64]u8 = undefined;
     const version_display = try computeVersionDisplay(&version_buf, version_str);
+    return try allocator.dupe(u8, version_display);
+}
+
+pub fn buildTextboxSubsetText(allocator: std.mem.Allocator) ![]u8 {
     var lines: std.ArrayListUnmanaged(u8) = .empty;
     errdefer lines.deinit(allocator);
 
-    try appendLine(&lines, allocator, version_display);
     try appendLine(&lines, allocator, status_game_found);
     try appendLine(&lines, allocator, status_launch_here_or_external);
     try appendLine(&lines, allocator, status_game_not_found);

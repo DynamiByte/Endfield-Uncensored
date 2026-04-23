@@ -5,7 +5,6 @@ const std = @import("std");
 const w32 = @import("win32.zig");
 const bt = @import("bytetype.zig");
 
-// Platform Imports
 pub const c = @import("bytegui_c");
 
 const gl = struct {
@@ -66,7 +65,6 @@ const gl = struct {
     pub const COLOR_ARRAY: GLenum = 0x8076;
     pub const TEXTURE_COORD_ARRAY: GLenum = 0x8078;
 
-    // Stencil buffer
     pub const STENCIL_BUFFER_BIT: GLbitfield = 0x00000400;
     pub const STENCIL_TEST: GLenum = 0x0B90;
     pub const ALWAYS: GLenum = 0x0207;
@@ -113,7 +111,6 @@ const gl = struct {
     pub extern "opengl32" fn glColorPointer(size: GLint, typ: GLenum, stride: GLsizei, pointer: ?*const anyopaque) callconv(.winapi) void;
     pub extern "opengl32" fn glDrawElements(mode: GLenum, count: GLsizei, typ: GLenum, indices: ?*const anyopaque) callconv(.winapi) void;
 
-    // Immediate mode + stencil
     pub extern "opengl32" fn glBegin(mode: GLenum) callconv(.winapi) void;
     pub extern "opengl32" fn glEnd() callconv(.winapi) void;
     pub extern "opengl32" fn glVertex2f(x: GLfloat, y: GLfloat) callconv(.winapi) void;
@@ -154,6 +151,7 @@ pub const BYTEGUI_VERSION = "efu-mini";
 
 pub fn BYTEGUI_CHECKVERSION() void {}
 
+// Public drawing and font types
 pub const ByteU32 = u32;
 pub const ByteDrawIdx = u32;
 pub const ByteTextureID = ?*anyopaque;
@@ -365,7 +363,6 @@ pub const ByteFont = struct {
     }
 };
 
-// Font Loading And Text Rasterization
 pub const ByteFontAtlas = struct {
     Fonts: std.ArrayListUnmanaged(*ByteFont) = .empty,
 
@@ -761,6 +758,7 @@ const HostWindowData = struct {
 var GByteGui: ?*ByteGuiContext = null;
 var GHostWindow: HostWindowData = .{};
 
+// Immediate-mode context and front end
 pub const ByteGui = struct {
     pub fn CreateContext() ?*ByteGuiContext {
         DestroyContext(null);
@@ -1310,7 +1308,7 @@ pub const ByteGui = struct {
     }
 };
 
-// UI Helper Layer
+// Higher-level UI helpers
 pub const Ui = struct {
     pub const TextTexture = struct {
         texture: ByteTextureID = null,
@@ -1680,7 +1678,6 @@ pub const Ui = struct {
         coverage: u8 = 0xFF,
     };
 
-    /// Prebuilt vector mesh for one SVG path layer.
     pub const ParsedSvgLayer = struct {
         fill_vertices: []ParsedSvgMeshVertex = &.{},
         fill_indices: []u32 = &.{},
@@ -1698,7 +1695,6 @@ pub const Ui = struct {
         }
     };
 
-    /// Parse, flatten, and triangulate one SVG path layer into a persistent vector mesh.
     pub fn BuildParsedSvgLayer(layer: SvgPathLayer, dpi_scale: f32) ?ParsedSvgLayer {
         var shape = VectorShape{};
         defer shape.deinit();
@@ -1758,6 +1754,7 @@ pub const Ui = struct {
     };
 };
 
+// SVG mesh compositor
 fn drawSolidQuad(min: ByteVec2, max: ByteVec2) void {
     gl.glBegin(gl.QUADS);
     gl.glVertex2f(min.x, min.y);
@@ -1793,7 +1790,6 @@ fn svgCoverageCompositeCallback(_: *const ByteDrawList, cmd: *const ByteDrawCmd)
     gl.glDisable(gl.TEXTURE_2D);
     gl.glShadeModel(gl.SMOOTH);
 
-    // Reset the scratch alpha in the logo bounds.
     gl.glColorMask(gl.FALSE, gl.FALSE, gl.FALSE, gl.TRUE);
     gl.glDisable(gl.BLEND);
     gl.glColor4ub(0, 0, 0, 0);
@@ -1839,13 +1835,11 @@ fn svgCoverageCompositeCallback(_: *const ByteDrawList, cmd: *const ByteDrawCmd)
         }
     }
 
-    // Composite the logo color once using the accumulated coverage.
     gl.glColorMask(gl.TRUE, gl.TRUE, gl.TRUE, gl.FALSE);
     gl.glBlendFunc(gl.DST_ALPHA, gl.ONE_MINUS_DST_ALPHA);
     gl.glColor4ub(r, g, b, 0xFF);
     drawSolidQuad(data.bounds_min, data.bounds_max);
 
-    // Restore alpha to opaque for the layered window path.
     gl.glColorMask(gl.FALSE, gl.FALSE, gl.FALSE, gl.TRUE);
     gl.glDisable(gl.BLEND);
     gl.glColor4ub(0, 0, 0, 0xFF);
@@ -1858,6 +1852,7 @@ fn svgCoverageCompositeCallback(_: *const ByteDrawList, cmd: *const ByteDrawCmd)
     gl.glColor4ub(0xFF, 0xFF, 0xFF, 0xFF);
 }
 
+// SVG tessellation
 const SvgContourInfo = struct {
     points: []const ByteVec2 = &.{},
     clockwise: bool = false,
@@ -2273,7 +2268,7 @@ fn subVec2(a: ByteVec2, b: ByteVec2) ByteVec2 {
     return .{ .x = a.x - b.x, .y = a.y - b.y };
 }
 
-// Returns true when p lies inside or on the edge of triangle (a,b,c).
+// Polygon fill helpers
 fn pointInTriangle2D(a: ByteVec2, b: ByteVec2, cc: ByteVec2, p: ByteVec2) bool {
     const d1 = (p.x - b.x) * (a.y - b.y) - (a.x - b.x) * (p.y - b.y);
     const d2 = (p.x - cc.x) * (b.y - cc.y) - (b.x - cc.x) * (p.y - cc.y);
@@ -2283,9 +2278,6 @@ fn pointInTriangle2D(a: ByteVec2, b: ByteVec2, cc: ByteVec2, p: ByteVec2) bool {
     return !(has_neg and has_pos);
 }
 
-// Ear-clipping tessellator for simple (non-self-intersecting) polygons.
-// Correctly handles non-convex letter shapes with proper AA fringing.
-// O(n^2) but n is small for typical glyph contours (<200 vertices).
 fn earClipFill(draw: *ByteDrawList, pts: []const ByteVec2, col: ByteU32) void {
     const n = pts.len;
     if (n < 3 or (col & BYTEGUI_COL32_A_MASK) == 0) return;
@@ -2294,7 +2286,6 @@ fn earClipFill(draw: *ByteDrawList, pts: []const ByteVec2, col: ByteU32) void {
         return;
     }
 
-    // Compute signed area to determine winding (Y-down screen space: CW => area > 0).
     var area: f64 = 0;
     for (0..n) |i| {
         const j = (i + 1) % n;
@@ -2307,7 +2298,6 @@ fn earClipFill(draw: *ByteDrawList, pts: []const ByteVec2, col: ByteU32) void {
     const transparent = col & ~BYTEGUI_COL32_A_MASK;
     const uv = ByteVec2{ .x = 0.5, .y = 0.5 };
 
-    // Mutable index list â€” stack-allocated for typical small glyph contours.
     var stk_idx: [512]u32 = undefined;
     const heap_idx: ?[]u32 = if (n > stk_idx.len) (allocator.alloc(u32, n) catch return) else null;
     defer if (heap_idx) |h| allocator.free(h);
@@ -2316,7 +2306,6 @@ fn earClipFill(draw: *ByteDrawList, pts: []const ByteVec2, col: ByteU32) void {
     var rem: usize = n;
 
     if (has_aa) {
-        // Compute per-vertex averaged edge normals (same technique as AddConvexPolyFilled).
         var stk_nrm: [512]ByteVec2 = undefined;
         const heap_nrm: ?[]ByteVec2 = if (n > stk_nrm.len) (allocator.alloc(ByteVec2, n) catch return) else null;
         defer if (heap_nrm) |h| allocator.free(h);
@@ -2346,7 +2335,6 @@ fn earClipFill(draw: *ByteDrawList, pts: []const ByteVec2, col: ByteU32) void {
             avg_nrm[i] = computeAAMiterOffset(n0, n1, 0.5);
         }
 
-        // Emit inner (index*2) and outer (index*2+1) vertices for AA fringe.
         const base: ByteDrawIdx = @intCast(draw.VtxBuffer.items.len);
         for (pts, 0..) |pt, i| {
             const a = avg_nrm[i];
@@ -2354,7 +2342,6 @@ fn earClipFill(draw: *ByteDrawList, pts: []const ByteVec2, col: ByteU32) void {
             draw.addVertex(.{ .x = pt.x + a.x, .y = pt.y + a.y }, uv, transparent) catch return;
         }
 
-        // Fringe quads along the polygon boundary.
         const fringe_start = draw.IdxBuffer.items.len;
         for (0..n) |fi| {
             const fr0: ByteDrawIdx = base + @as(ByteDrawIdx, @intCast(fi * 2));
@@ -2364,7 +2351,6 @@ fn earClipFill(draw: *ByteDrawList, pts: []const ByteVec2, col: ByteU32) void {
         }
         draw.addPrimitive(draw.WhiteTexture, @intCast(draw.IdxBuffer.items.len - fringe_start)) catch return;
 
-        // Ear-clip interior using inner vertices (stride 2 from base).
         const fill_start = draw.IdxBuffer.items.len;
         var fail: usize = 0;
         var ci: usize = 0;
@@ -2411,7 +2397,6 @@ fn earClipFill(draw: *ByteDrawList, pts: []const ByteVec2, col: ByteU32) void {
         const fill_count = draw.IdxBuffer.items.len - fill_start;
         if (fill_count > 0) draw.addPrimitive(draw.WhiteTexture, @intCast(fill_count)) catch return;
     } else {
-        // No AA path: plain ear-clip fill.
         const base: ByteDrawIdx = @intCast(draw.VtxBuffer.items.len);
         for (pts) |pt| draw.addVertex(pt, uv, col) catch return;
         const fill_start = draw.IdxBuffer.items.len;
@@ -2471,6 +2456,7 @@ fn approxEqual(a: f32, b: f32, eps: f32) bool {
     return @abs(a - b) < eps;
 }
 
+// SVG path parsing
 const VectorContour = struct {
     points: ByteVec2List = .empty,
 
@@ -3242,7 +3228,7 @@ fn detectFontStyleFromPath(path: []const u8) i32 {
     return FontStyleRegular;
 }
 
-// Font Loading And Text Rasterization
+// Text layout and cache
 const TextBounds = struct {
     X: f32 = 0.0,
     Y: f32 = 0.0,
@@ -3741,8 +3727,6 @@ fn rasterizeTextImageFromFont(font: *const ByteFont, size_pixels: f32, text: []c
 
     const pad_f = @as(f32, @floatFromInt(pad_px));
 
-    // Box-filter downsample the supersample-resolution RGBA buffer to 1Ã— resolution.
-    // This produces much better anti-aliasing than relying on GL_LINEAR for minification.
     const ss = @as(u32, @intFromFloat(@round(supersample)));
     if (ss > 1 and pixel_w >= ss and pixel_h >= ss) {
         const ds_w = pixel_w / ss;

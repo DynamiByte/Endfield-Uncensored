@@ -1,5 +1,4 @@
 #include <winver.h>
-// Edit src/version.zig to change the application version.
 #include "version_generated.h"
 
 VS_VERSION_INFO VERSIONINFO

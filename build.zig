@@ -1,3 +1,4 @@
+// Build graph for the embedded DLL and font assets
 const std = @import("std");
 const app_version = @import("src/version.zig");
 const strings = @import("src/strings.zig");
@@ -23,6 +24,7 @@ fn addSubsetFont(
     subset.addPrefixedFileArg("--text-file=", text_file);
     subset.addArgs(&.{
         "--layout-features=*",
+        "--drop-tables+=FFTM",
         "--hinting",
         "--legacy-kern",
         "--notdef-glyph",
@@ -44,30 +46,36 @@ fn addEmbeddedAsset(module: *std.Build.Module, name: []const u8, path: std.Build
     });
 }
 
-// Build Graph
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const generated_files = b.addWriteFiles();
-    const mono_subset_text = strings.buildMonoSubsetText(b.allocator, app_version.version_str) catch @panic("OOM");
+    const version_info_subset_text = strings.buildVersionInfoSubsetText(b.allocator, app_version.version_str) catch @panic("OOM");
+    const textbox_subset_text = strings.buildTextboxSubsetText(b.allocator) catch @panic("OOM");
     const font_subset_specs = [_]FontSubsetSpec{
         .{
             .input_font_path = "fonts/Inter/Inter_18pt-Regular.ttf",
-            .subset_text_name = "Inter_18pt-Regular.subset.txt",
+            .subset_text_name = "toggle-label.subset.txt",
             .subset_text = strings.ui_toggle_labels_subset,
-            .output_name = "Inter_18pt-Regular.ttf",
+            .output_name = "toggle-label.ttf",
         },
         .{
             .input_font_path = "fonts/Inter/Inter_18pt-SemiBold.ttf",
-            .subset_text_name = "Inter_18pt-SemiBold.subset.txt",
+            .subset_text_name = "launch-button.subset.txt",
             .subset_text = strings.label_launch,
-            .output_name = "Inter_18pt-SemiBold.ttf",
+            .output_name = "launch-button.ttf",
         },
         .{
             .input_font_path = "fonts/JetBrainsMono/JetBrainsMono-Regular.ttf",
-            .subset_text_name = "JetBrainsMono-Regular.subset.txt",
-            .subset_text = mono_subset_text,
-            .output_name = "JetBrainsMono-Regular.ttf",
+            .subset_text_name = "version-info.subset.txt",
+            .subset_text = version_info_subset_text,
+            .output_name = "version-info.ttf",
+        },
+        .{
+            .input_font_path = "fonts/DejaVuSansMono/DejaVuSansMono.ttf",
+            .subset_text_name = "text-box.subset.txt",
+            .subset_text = textbox_subset_text,
+            .output_name = "text-box.ttf",
         },
     };
     var subset_fonts: [font_subset_specs.len]std.Build.LazyPath = undefined;
@@ -106,7 +114,6 @@ pub fn build(b: *std.Build) void {
         app_version.file_version_rc,
     }));
 
-    // DLL Artifact
     const dll = b.addLibrary(.{
         .linkage = .dynamic,
         .name = "EFUHook",
@@ -117,7 +124,6 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    // Loader Artifact
     const exe = b.addExecutable(.{
         .name = "EFU",
         .root_module = b.createModule(.{
@@ -132,7 +138,6 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addIncludePath(b.path("src"));
     exe.root_module.addImport("bytegui_c", bytegui_c.createModule());
 
-    // Embedded DLL Import
     addEmbeddedAsset(exe.root_module, "EFUHook", dll.getEmittedBin());
     for (font_subset_specs, subset_fonts) |spec, subset_font| {
         addEmbeddedAsset(exe.root_module, spec.output_name, subset_font);

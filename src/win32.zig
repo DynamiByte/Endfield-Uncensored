@@ -1,3 +1,4 @@
+// Focused Win32 surface for the launcher
 const std = @import("std");
 const windows = std.os.windows;
 

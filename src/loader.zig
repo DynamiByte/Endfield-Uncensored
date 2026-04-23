@@ -1,3 +1,4 @@
+// Game discovery, launch, and injection helpers
 const builtin = @import("builtin");
 const std = @import("std");
 
@@ -34,7 +35,6 @@ pub const LaunchError = error{
     CreateProcessFailed,
 };
 
-// Process Access Constants
 const process_rights =
     c.PROCESS_CREATE_THREAD |
     c.PROCESS_QUERY_INFORMATION |
@@ -90,7 +90,7 @@ pub fn describeLaunchError(err: LaunchError) []const u8 {
     };
 }
 
-// Path And Process Discovery Helpers
+// Path discovery
 fn eqlAsciiWideIgnoreCase(wide: []const u16, ascii: []const u8) bool {
     if (wide.len != ascii.len) return false;
     for (wide, ascii) |w, a| {
@@ -267,7 +267,7 @@ pub fn detectGameExe(environ: std.process.Environ, allocator: std.mem.Allocator)
     return try detectGameExeFromKnownPaths(io, allocator);
 }
 
-// Injection And Launch
+// Injection and launch
 pub fn findTargetProcess() u32 {
     const snapshot = c.CreateToolhelp32Snapshot(c.TH32CS_SNAPPROCESS, 0);
     if (snapshot == c.INVALID_HANDLE_VALUE) return 0;

@@ -1,6 +1,6 @@
+// GUI launcher
 const std = @import("std");
 
-// Module Imports
 const bytegui = @import("bytegui.zig");
 const cli = @import("cli.zig");
 const loader = @import("loader.zig");
@@ -31,11 +31,12 @@ const ByteVec2 = bytegui.ByteVec2;
 const ByteVec4 = bytegui.ByteVec4;
 const bgc = bytegui.c;
 const TextTexture = Ui.TextTexture;
-const embedded_inter_regular = @embedFile("Inter_18pt-Regular.ttf");
-const embedded_inter_semibold = @embedFile("Inter_18pt-SemiBold.ttf");
-const embedded_jetbrains_mono = @embedFile("JetBrainsMono-Regular.ttf");
+const embedded_toggle_font = @embedFile("toggle-label.ttf");
+const embedded_launch_font = @embedFile("launch-button.ttf");
+const embedded_version_font = @embedFile("version-info.ttf");
+const embedded_textbox_font = @embedFile("text-box.ttf");
 
-// UI Constants And Embedded Assets
+// Layout and embedded assets
 const VERSION_STR = app_version.version_str;
 const APP_TITLE = std.unicode.utf8ToUtf16LeStringLiteral("Endfield Uncensored");
 const WINDOW_CLASS = std.unicode.utf8ToUtf16LeStringLiteral("EndfieldUncensoredGL");
@@ -107,8 +108,6 @@ const LOGO_PATH_LAYERS = [_]Ui.SvgPathLayer{
     .{ .path = LOGO_EF_PATH, .transform = .{ .a = 2.211, .d = 2.211, .e = LOGO_CANVAS_X + 13.0, .f = LOGO_CANVAS_Y + 3.0 } },
     .{ .path = LOGO_TEXT_PATH, .transform = .{ .a = 0.893583, .d = 0.2, .e = LOGO_CANVAS_X + 11.774814, .f = LOGO_CANVAS_Y + 84.0 } },
 };
-
-// UI Animation And Loader State
 
 const ScalarAnim = struct {
     value: f32 = 0.0,
@@ -215,6 +214,7 @@ const GameLaunchMode = enum {
     dx11,
 };
 
+// App state
 var g_hwnd: ?c.HWND = null;
 var g_running = true;
 var g_window_opacity: f32 = 0.0;
@@ -222,7 +222,7 @@ var g_wine_mode = false;
 var g_allow_minimize = true;
 var g_startup_target_pid: u32 = 0;
 
-var g_font_console: ?*ByteFont = null;
+var g_font_textbox: ?*ByteFont = null;
 var g_font_version: ?*ByteFont = null;
 var g_font_launch: ?*ByteFont = null;
 var g_font_toggle: ?*ByteFont = null;
@@ -293,6 +293,7 @@ const scaleVec2 = Ui.ScaleVec2;
 const snapPixel = Ui.SnapPixel;
 const snapPixelVec2 = Ui.SnapPixelVec2;
 
+// Basic helpers
 fn makeRectL(x: f32, y: f32, w: f32, h: f32) c.RECT {
     return .{
         .left = @intFromFloat(@floor(x)),
@@ -479,7 +480,7 @@ fn allocOwnedLine(comptime fmt: []const u8, args: anytype) ?[]u8 {
     return std.fmt.allocPrint(allocator, fmt, args) catch null;
 }
 
-// Status Output
+// Status text
 fn appendStatus(comptime fmt: []const u8, args: anytype) void {
     const line = allocOwnedLine(fmt, args) orelse return;
     appendOwnedStatusLine(line);
@@ -534,7 +535,7 @@ fn startCountdown(action: CloseCountdown.Action) void {
     appendOwnedStatusLine(line);
 }
 
-// Loader Worker
+// Worker events
 fn freeLoaderEvent(event: LoaderUiEvent) void {
     switch (event) {
         .status_line => |line| allocator.free(line),
@@ -717,7 +718,7 @@ fn stopLoaderWorker() void {
     }
 }
 
-// Render Resources
+// Cached render assets
 fn cleanupLogoLayers() void {
     for (&g_logo_layers) |*slot| {
         if (slot.*) |*layer| layer.deinit();
@@ -822,9 +823,6 @@ fn windowCornerRadiusPx() f32 {
 fn applyWindowShape() void {
     const hwnd = g_hwnd orelse return;
     if (!windowUsesLayeredOpacity()) return;
-    // Enable per-pixel alpha compositing via DWM, allowing OpenGL
-    // framebuffer's alpha channel to control window transparency, giving
-    // proper AA on rounded corners without SetWindowRgn clipping.
     const margins = c.MARGINS{ .cxLeftWidth = -1, .cxRightWidth = -1, .cyTopHeight = -1, .cyBottomHeight = -1 };
     _ = c.DwmExtendFrameIntoClientArea(hwnd, &margins);
 }
@@ -863,7 +861,7 @@ fn applyBaseStyle() void {
 fn loadFonts() void {
     const io = ByteGui.GetIO();
     io.Fonts.?.Clear();
-    g_font_console = null;
+    g_font_textbox = null;
     g_font_version = null;
     g_font_launch = null;
     g_font_toggle = null;
@@ -878,12 +876,12 @@ fn loadFonts() void {
     body_cfg.OversampleH = 2;
     body_cfg.OversampleV = 2;
 
-    g_font_toggle = io.Fonts.?.AddFontFromMemoryTTF(embedded_inter_regular, "Inter_18pt-Regular.ttf", scaleF(16.0), &ui_cfg);
+    g_font_toggle = io.Fonts.?.AddFontFromMemoryTTF(embedded_toggle_font, "toggle-label.ttf", scaleF(16.0), &ui_cfg);
 
-    g_font_launch = io.Fonts.?.AddFontFromMemoryTTF(embedded_inter_semibold, "Inter_18pt-SemiBold.ttf", scaleF(20.0), &ui_cfg);
+    g_font_launch = io.Fonts.?.AddFontFromMemoryTTF(embedded_launch_font, "launch-button.ttf", scaleF(20.0), &ui_cfg);
 
-    g_font_console = io.Fonts.?.AddFontFromMemoryTTF(embedded_jetbrains_mono, "JetBrainsMono-Regular.ttf", scaleF(13.0), &body_cfg);
-    g_font_version = io.Fonts.?.AddFontFromMemoryTTF(embedded_jetbrains_mono, "JetBrainsMono-Regular.ttf", scaleF(12.0), &body_cfg);
+    g_font_textbox = io.Fonts.?.AddFontFromMemoryTTF(embedded_textbox_font, "text-box.ttf", scaleF(13.0), &body_cfg);
+    g_font_version = io.Fonts.?.AddFontFromMemoryTTF(embedded_version_font, "version-info.ttf", scaleF(12.0), &body_cfg);
 }
 
 fn refreshUiScaleResources() void {
@@ -896,7 +894,7 @@ fn refreshUiScaleResources() void {
     }
 }
 
-// Interaction And Rendering
+// Animation and drawing
 fn startScalarAnim(anim: *ScalarAnim, target: f32, duration: f32) void {
     if (@abs(anim.value - target) < 0.0001 and !anim.animating) return;
     anim.start = anim.value;
@@ -1157,6 +1155,7 @@ fn updateAnimations(dt: f32) void {
     }
 }
 
+// Hit testing and hover state
 fn pointInRoundedRectClient(pt: c.POINT) bool {
     return Ui.PointInCornerOnlyRoundedRect(
         .{ .x = pt.x, .y = pt.y },
@@ -1167,7 +1166,7 @@ fn pointInRoundedRectClient(pt: c.POINT) bool {
 }
 
 fn getVersionRect() bgc.RECT {
-    const font = if (g_font_version != null) g_font_version else g_font_console;
+    const font = if (g_font_version != null) g_font_version else g_font_textbox;
     const pos = snapPixelVec2(scaleVec2(VERSION_X, VERSION_Y));
     return ByteGui.CalcTextHitRect(font, scaleF(12.0), pos, g_version_display, scaleF(3.0), null, 0.0);
 }
@@ -1409,7 +1408,7 @@ fn drawUI() void {
         .y = @max(1.0, output_size.y - output_inset * 2.0),
     }, false, ByteGuiWindowFlags_NoBackground | ByteGuiWindowFlags_NoScrollbar | ByteGuiWindowFlags_NoScrollWithMouse);
     ByteGui.PushStyleVar(ByteGuiStyleVar_Alpha, render_opacity);
-    ByteGui.PushFont(g_font_console);
+    ByteGui.PushFont(g_font_textbox);
     for (g_output_lines.items) |line| ByteGui.TextWrapped("{s}", .{line});
     ByteGui.PopFont();
     ByteGui.PopStyleVar(1);
@@ -1488,6 +1487,7 @@ fn launchGameAction(mode: GameLaunchMode) void {
     appendLaunchModeStatus(mode);
 }
 
+// External actions
 fn openReadme() void {
     _ = c.ShellExecuteW(null, std.unicode.utf8ToUtf16LeStringLiteral("open"), README_URL, null, null, c.SW_SHOWNORMAL);
 }
@@ -1508,7 +1508,7 @@ fn openReleaseTag() void {
     _ = c.ShellExecuteW(null, std.unicode.utf8ToUtf16LeStringLiteral("open"), url_utf16.ptr, null, null, c.SW_SHOWNORMAL);
 }
 
-// App Lifetime
+// Input and window procedure
 fn onButtonActivated(id: i32) void {
     switch (id) {
         1 => if (g_window_anim.typ == .none) startWindowAnimation(.slide_out_close),
@@ -1732,6 +1732,7 @@ fn wndProcBridge(hwnd: bgc.HWND, msg: bgc.UINT, w_param: bgc.WPARAM, l_param: bg
     return wndProc(@ptrFromInt(@intFromPtr(hwnd)), msg, w_param, l_param);
 }
 
+// Startup and shutdown
 fn appendInitialStatusLines() void {
     appendLaunchModeHintStatus();
     if (g_startup_target_pid != 0) {
@@ -1779,7 +1780,7 @@ fn prewarmVisibleTextCaches() void {
     if (g_font_version) |font| {
         _ = ByteGui.PrewarmTextTexture(font, scaleF(12.0), 0.0, g_version_display);
     }
-    if (g_font_console) |font| {
+    if (g_font_textbox) |font| {
         const output_inset = scaleF(1.0);
         const output_width = @max(1.0, scaleF(OUTPUT_W) - output_inset * 2.0);
         for (g_output_lines.items) |line| _ = ByteGui.PrewarmTextTexture(font, font.LegacySize, output_width, line);

@@ -1,3 +1,4 @@
+// Runtime patch DLL
 const std = @import("std");
 const windows = std.os.windows;
 
@@ -12,7 +13,6 @@ const SIZE_T = windows.SIZE_T;
 const DLL_PROCESS_ATTACH: DWORD = 1;
 const PAGE_EXECUTE_READWRITE: DWORD = 0x40;
 
-// Windows API imports
 extern "kernel32" fn GetModuleHandleW(lpModuleName: ?[*:0]const u16) callconv(.winapi) ?HMODULE;
 extern "kernel32" fn GetProcAddress(hModule: HMODULE, lpProcName: [*:0]const u8) callconv(.winapi) ?*anyopaque;
 extern "kernel32" fn Sleep(dwMilliseconds: DWORD) callconv(.winapi) void;
@@ -32,7 +32,6 @@ extern "kernel32" fn CreateThread(
 ) callconv(.winapi) ?HANDLE;
 extern "kernel32" fn DisableThreadLibraryCalls(hLibModule: HMODULE) callconv(.winapi) BOOL;
 
-// IL2CPP function pointer types
 const Il2CppDomainGetFn = *const fn () callconv(.c) ?*anyopaque;
 const Il2CppDomainAssemblyOpenFn = *const fn (?*anyopaque, [*:0]const u8) callconv(.c) ?*anyopaque;
 const Il2CppAssemblyGetImageFn = *const fn (?*anyopaque) callconv(.c) ?*anyopaque;
@@ -62,6 +61,7 @@ fn waitForModule(module_name: [*:0]const u16) HMODULE {
     return handle.?;
 }
 
+// Patch game
 fn patchCameraCensorship(_: ?*anyopaque) callconv(.winapi) DWORD {
     const game_assembly = waitForModule(std.unicode.utf8ToUtf16LeStringLiteral("GameAssembly.dll"));
 
@@ -87,7 +87,6 @@ fn patchCameraCensorship(_: ?*anyopaque) callconv(.winapi) DWORD {
     const camera_mono_class = il2cpp_class_from_name(image, "Beyond.Gameplay.View", "CameraMono") orelse return 0;
     const method = il2cpp_class_get_method_from_name(camera_mono_class, "EvaluateAllTouchedEntities", 0) orelse return 0;
 
-    // Patch first byte with RET (0xC3)
     var old_protect: DWORD = 0;
     _ = VirtualProtect(@ptrFromInt(method.address), 1, PAGE_EXECUTE_READWRITE, &old_protect);
     const patch_ptr: *u8 = @ptrFromInt(method.address);
