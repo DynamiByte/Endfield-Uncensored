@@ -1849,7 +1849,7 @@ fn shutdownGuiApp() void {
 
 fn runGui() !u8 {
     g_version_display = try computeVersionDisplay(&g_version_display_buf);
-    if (!initGuiApp(c.GetModuleHandleW(null))) {
+    if (!initGuiApp(c.GetModuleHandleA(null))) {
         shutdownGuiApp();
         return 1;
     }

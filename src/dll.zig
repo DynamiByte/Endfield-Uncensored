@@ -13,7 +13,7 @@ const SIZE_T = windows.SIZE_T;
 const DLL_PROCESS_ATTACH: DWORD = 1;
 const PAGE_EXECUTE_READWRITE: DWORD = 0x40;
 
-extern "kernel32" fn GetModuleHandleW(lpModuleName: ?[*:0]const u16) callconv(.winapi) ?HMODULE;
+extern "kernel32" fn GetModuleHandleA(lpModuleName: ?[*:0]const u8) callconv(.winapi) ?HMODULE;
 extern "kernel32" fn GetProcAddress(hModule: HMODULE, lpProcName: [*:0]const u8) callconv(.winapi) ?*anyopaque;
 extern "kernel32" fn Sleep(dwMilliseconds: DWORD) callconv(.winapi) void;
 extern "kernel32" fn VirtualProtect(
@@ -51,10 +51,10 @@ fn winBool(value: bool) BOOL {
     };
 }
 
-fn waitForModule(module_name: [*:0]const u16) HMODULE {
+fn waitForModule(module_name: [*:0]const u8) HMODULE {
     var handle: ?HMODULE = null;
     while (handle == null) {
-        handle = GetModuleHandleW(module_name);
+        handle = GetModuleHandleA(module_name);
         Sleep(200);
     }
     Sleep(2000);
@@ -63,7 +63,7 @@ fn waitForModule(module_name: [*:0]const u16) HMODULE {
 
 // Patch game
 fn patchCameraCensorship(_: ?*anyopaque) callconv(.winapi) DWORD {
-    const game_assembly = waitForModule(std.unicode.utf8ToUtf16LeStringLiteral("GameAssembly.dll"));
+    const game_assembly = waitForModule("GameAssembly.dll");
 
     const il2cpp_domain_get: Il2CppDomainGetFn = @ptrCast(
         GetProcAddress(game_assembly, "il2cpp_domain_get") orelse return 0,

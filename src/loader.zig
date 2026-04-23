@@ -401,7 +401,7 @@ pub fn injectDll(pid: u32, dll_path: []const u8) InjectError!void {
         return error.WriteRemoteMemoryFailed;
     }
 
-    const kernel32 = c.GetModuleHandleW(std.unicode.wtf8ToWtf16LeStringLiteral("kernel32.dll")) orelse return error.Kernel32NotFound;
+    const kernel32 = c.GetModuleHandleA("kernel32.dll") orelse return error.Kernel32NotFound;
     const load_library = c.GetProcAddress(kernel32, "LoadLibraryW") orelse return error.LoadLibraryNotFound;
 
     const thread = c.CreateRemoteThread(

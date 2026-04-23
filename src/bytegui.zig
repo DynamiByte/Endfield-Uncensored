@@ -4233,7 +4233,7 @@ pub fn ByteGui_ImplOpenGL_RenderDrawData(draw_data: ?*ByteDrawData) void {
 }
 
 pub fn ByteGui_ImplWin32_EnableDpiAwareness() void {
-    const user32 = c.GetModuleHandleW(std.unicode.utf8ToUtf16LeStringLiteral("user32.dll"));
+    const user32 = c.GetModuleHandleA("user32.dll");
     if (user32 == null) return;
 
     const SetProcessDpiAwarenessContextFn = *const fn (c.HANDLE) callconv(.winapi) c.BOOL;
