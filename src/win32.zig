@@ -259,6 +259,7 @@ pub extern "kernel32" fn GetTempPathW(n_buffer_length: DWORD, lp_buffer: [*]WCHA
 pub extern "kernel32" fn VirtualAllocEx(h_process: HANDLE, lp_address: ?*anyopaque, dw_size: usize, fl_allocation_type: DWORD, fl_protect: DWORD) callconv(.winapi) ?*anyopaque;
 pub extern "kernel32" fn VirtualFreeEx(h_process: HANDLE, lp_address: *anyopaque, dw_size: usize, dw_free_type: DWORD) callconv(.winapi) BOOL;
 pub extern "kernel32" fn WriteProcessMemory(h_process: HANDLE, lp_base_address: *anyopaque, lp_buffer: *const anyopaque, n_size: usize, lp_number_of_bytes_written: ?*usize) callconv(.winapi) BOOL;
+pub extern "kernel32" fn GetModuleHandleA(lp_module_name: ?[*:0]const u8) callconv(.winapi) ?HMODULE;
 pub extern "kernel32" fn GetModuleHandleW(lp_module_name: ?LPCWSTR) callconv(.winapi) ?HMODULE;
 pub extern "kernel32" fn GetProcAddress(h_module: HMODULE, lp_proc_name: [*:0]const u8) callconv(.winapi) ?*anyopaque;
 pub extern "kernel32" fn GetFileAttributesW(lp_file_name: LPCWSTR) callconv(.winapi) DWORD;

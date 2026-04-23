@@ -369,7 +369,7 @@ fn fromByteGuiRect(rect: bgc.RECT) c.RECT {
 }
 
 fn isRunningUnderWine() bool {
-    const ntdll = c.GetModuleHandleW(std.unicode.utf8ToUtf16LeStringLiteral("ntdll.dll")) orelse return false;
+    const ntdll = c.GetModuleHandleA("ntdll.dll") orelse return false;
     return c.GetProcAddress(ntdll, "wine_get_version") != null;
 }
 
