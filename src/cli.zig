@@ -15,6 +15,7 @@ const FORCE_WINE_MODE_SHORT = "-fwm";
 const ALLOW_MINIMIZE_LONG = "--allow-minimize";
 const SILENT_LONG = "--silent";
 const EFMI_LONG = "--efmi";
+const GAME_PATH_LONG = "--game-path";
 const EFMI_WAIT_TIMEOUT_MS: u64 = 10_000;
 const EFMI_DEFAULT_SUBPATH = "XXMI Launcher\\Resources\\Bin\\XXMI Launcher.exe";
 const EFMI_MISSING_PATH_MESSAGE = "You need to specify a location with --EFMI <PATH_TO_XXMI Launcher.exe>.";
@@ -38,6 +39,7 @@ pub const LaunchConfig = struct {
     dx11: bool = false,
     efmi_requested: bool = false,
     efmi_launcher_path: ?[]u8 = null,
+    game_exe_override_path: ?[]u8 = null,
     wine_mode_override: BoolOverride = .auto,
     allow_minimize_override: BoolOverride = .auto,
 };
@@ -47,7 +49,11 @@ pub const ParseArgsError = error{
     InvalidForceWineModeValue,
     MissingAllowMinimizeValue,
     InvalidAllowMinimizeValue,
+    MissingGamePathValue,
+    InvalidGamePathValue,
     MutuallyExclusiveDx11AndEfmi,
+    MutuallyExclusiveGamePathAndEfmi,
+    MutuallyExclusiveAutoYesAndGui,
     MutuallyExclusiveCliAndForceWineMode,
     MutuallyExclusiveSilentAndGui,
     MutuallyExclusiveCliAndGuiArgs,
@@ -138,6 +144,14 @@ fn isEfmiArg(arg: []const u8) bool {
         std.ascii.eqlIgnoreCase(arg, "/efmi");
 }
 
+fn isGamePathArg(arg: []const u8) bool {
+    return std.ascii.eqlIgnoreCase(arg, "-gp") or
+        std.ascii.eqlIgnoreCase(arg, "--gp") or
+        std.ascii.eqlIgnoreCase(arg, GAME_PATH_LONG) or
+        std.ascii.eqlIgnoreCase(arg, "-game-path") or
+        std.ascii.eqlIgnoreCase(arg, "/game-path");
+}
+
 fn isKnownArg(arg: []const u8) bool {
     return isCliArg(arg) or
         isAutoYesArg(arg) or
@@ -145,7 +159,8 @@ fn isKnownArg(arg: []const u8) bool {
         isSilentArg(arg) or
         isForceWineModeArg(arg) or
         isAllowMinimizeArg(arg) or
-        isEfmiArg(arg);
+        isEfmiArg(arg) or
+        isGamePathArg(arg);
 }
 
 fn parseBoolOverrideValue(arg: []const u8) ?BoolOverride {
@@ -229,6 +244,10 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
     defer args_it.deinit();
 
     var config = LaunchConfig{};
+    errdefer {
+        if (config.efmi_launcher_path) |path| allocator.free(path);
+        if (config.game_exe_override_path) |path| allocator.free(path);
+    }
     var pending_arg: ?[]const u8 = null;
 
     _ = args_it.next();
@@ -276,6 +295,15 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
             continue;
         }
 
+        if (isGamePathArg(arg)) {
+            const value = args_it.next() orelse return error.MissingGamePathValue;
+            if (isKnownArg(value)) return error.MissingGamePathValue;
+            if (!loader.validateGameExeOverridePath(value)) return error.InvalidGamePathValue;
+            if (config.game_exe_override_path) |old_path| allocator.free(old_path);
+            config.game_exe_override_path = try allocator.dupe(u8, value);
+            continue;
+        }
+
         if (isEfmiArg(arg)) {
             if (config.efmi_launcher_path) |old_path| allocator.free(old_path);
             config.efmi_launcher_path = null;
@@ -302,6 +330,12 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
     if (config.dx11 and config.efmi_requested) {
         return error.MutuallyExclusiveDx11AndEfmi;
     }
+    if (config.efmi_requested and config.game_exe_override_path != null) {
+        return error.MutuallyExclusiveGamePathAndEfmi;
+    }
+    if (config.auto_yes and !config.cli) {
+        return error.MutuallyExclusiveAutoYesAndGui;
+    }
     if (config.cli and (config.wine_mode_override != .auto or config.allow_minimize_override != .auto)) {
         return error.MutuallyExclusiveCliAndGuiArgs;
     }
@@ -315,7 +349,11 @@ pub fn describeParseArgsError(err: ParseArgsError) []const u8 {
         error.InvalidForceWineModeValue => "Invalid value for --force-wine-mode. " ++ BOOL_OVERRIDE_USAGE,
         error.MissingAllowMinimizeValue => "Missing value for --allow-minimize. " ++ BOOL_OVERRIDE_USAGE,
         error.InvalidAllowMinimizeValue => "Invalid value for --allow-minimize. " ++ BOOL_OVERRIDE_USAGE,
+        error.MissingGamePathValue => "Missing value for --game-path. Pass a path to Endfield.exe.",
+        error.InvalidGamePathValue => "Invalid value for --game-path. It must point to an existing .exe file.",
         error.MutuallyExclusiveDx11AndEfmi => "-DX11 is mutually exclusive with -EFMI.",
+        error.MutuallyExclusiveGamePathAndEfmi => "--game-path is mutually exclusive with --EFMI.",
+        error.MutuallyExclusiveAutoYesAndGui => "-y and -yes are mutually exclusive with GUI mode.",
         error.MutuallyExclusiveCliAndForceWineMode => "-cli and --force-wine-mode are mutually exclusive.",
         error.MutuallyExclusiveSilentAndGui => "-silent is mutually exclusive with GUI mode.",
         error.MutuallyExclusiveCliAndGuiArgs => "CLI arguments are mutually exclusive with GUI-only arguments.",
@@ -566,8 +604,8 @@ fn cliWaitForEfmiLaunchOrQuit(auto_yes: bool) bool {
 }
 
 // Run modes
-fn runSilentCli(allocator: std.mem.Allocator, environ: std.process.Environ, embedded_dll: []const u8, dx11: bool) !u8 {
-    const game_exe_path = loader.detectGameExe(environ, allocator) catch null;
+fn runSilentCli(allocator: std.mem.Allocator, environ: std.process.Environ, embedded_dll: []const u8, game_exe_override_path: ?[]const u8, dx11: bool) !u8 {
+    const game_exe_path = loader.resolveGameExe(game_exe_override_path, environ, allocator) catch null;
     defer if (game_exe_path) |path| allocator.free(path);
 
     const startup_pid = loader.findTargetProcess();
@@ -721,7 +759,7 @@ pub fn run(allocator: std.mem.Allocator, environ: std.process.Environ, mode: Mod
     defer threaded.deinit();
     const io = threaded.io();
 
-    if (mode == .silent) return runSilentCli(allocator, environ, embedded_dll, config.dx11);
+    if (mode == .silent) return runSilentCli(allocator, environ, embedded_dll, config.game_exe_override_path, config.dx11);
 
     ensureCliConsole();
     cliPrintHeader(io);
@@ -737,7 +775,7 @@ pub fn run(allocator: std.mem.Allocator, environ: std.process.Environ, mode: Mod
         allocator.free(temp_dll_path);
     }
 
-    const game_exe_path = loader.detectGameExe(environ, allocator) catch null;
+    const game_exe_path = loader.resolveGameExe(config.game_exe_override_path, environ, allocator) catch null;
     defer if (game_exe_path) |path| allocator.free(path);
 
     const startup_pid = loader.findTargetProcess();

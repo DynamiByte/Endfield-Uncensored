@@ -1,7 +1,7 @@
 // Shared version metadata
 const std = @import("std");
 
-pub const version_str = "v4.1.0.5";
+pub const version_str = "v5.0.0.1";
 
 pub const parsed_version = parseVersion(version_str);
 pub const file_version_rc = std.fmt.comptimePrint("{d},{d},{d},{d}", .{

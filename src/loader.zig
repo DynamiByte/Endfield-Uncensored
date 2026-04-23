@@ -43,6 +43,7 @@ const process_rights =
     c.PROCESS_VM_READ;
 
 const max_path_bytes = std.Io.Dir.max_path_bytes;
+const file_attribute_directory: c.DWORD = 0x10;
 
 pub fn describeTempDllError(err: TempDllError) []const u8 {
     return switch (err) {
@@ -91,6 +92,13 @@ pub fn describeLaunchError(err: LaunchError) []const u8 {
 }
 
 // Path discovery
+fn pathIsFileWtf8(wtf8_path: []const u8) bool {
+    var path_buf: [max_path_bytes]u16 = undefined;
+    const path_w = wtf8ToWtf16LeZ(wtf8_path, &path_buf) catch return false;
+    const attrs = c.GetFileAttributesW(path_w.ptr);
+    return attrs != c.INVALID_FILE_ATTRIBUTES and (attrs & file_attribute_directory) == 0;
+}
+
 fn eqlAsciiWideIgnoreCase(wide: []const u16, ascii: []const u8) bool {
     if (wide.len != ascii.len) return false;
     for (wide, ascii) |w, a| {
@@ -265,6 +273,26 @@ pub fn detectGameExe(environ: std.process.Environ, allocator: std.mem.Allocator)
 
     if (try detectGameExeFromPlayerLog(io, environ, allocator)) |path| return path;
     return try detectGameExeFromKnownPaths(io, allocator);
+}
+
+pub fn validateGameExeOverridePath(wtf8_path: []const u8) bool {
+    const trimmed = trimRightPathNoise(wtf8_path);
+    if (trimmed.len == 0) return false;
+    if (!std.ascii.eqlIgnoreCase(std.fs.path.extension(trimmed), ".exe")) return false;
+    return pathIsFileWtf8(trimmed);
+}
+
+pub fn duplicateGameExePath(allocator: std.mem.Allocator, wtf8_path: []const u8) ![:0]u16 {
+    return try std.unicode.wtf8ToWtf16LeAllocZ(allocator, trimRightPathNoise(wtf8_path));
+}
+
+pub fn resolveGameExe(game_exe_override_path: ?[]const u8, environ: std.process.Environ, allocator: std.mem.Allocator) !?[:0]u16 {
+    if (game_exe_override_path) |path| {
+        if (!validateGameExeOverridePath(path)) return null;
+        return try duplicateGameExePath(allocator, path);
+    }
+
+    return try detectGameExe(environ, allocator);
 }
 
 // Injection and launch

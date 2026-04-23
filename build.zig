@@ -12,6 +12,7 @@ const FontSubsetSpec = struct {
 
 fn addSubsetFont(
     b: *std.Build,
+    subsetter: *std.Build.Step.Compile,
     generated_files: anytype,
     input_font: std.Build.LazyPath,
     subset_text_name: []const u8,
@@ -19,19 +20,10 @@ fn addSubsetFont(
     output_name: []const u8,
 ) std.Build.LazyPath {
     const text_file = generated_files.add(subset_text_name, subset_text);
-    const subset = b.addSystemCommand(&.{ "python", "-m", "fontTools.subset" });
+    const subset = b.addRunArtifact(subsetter);
     subset.addFileArg(input_font);
-    subset.addPrefixedFileArg("--text-file=", text_file);
-    subset.addArgs(&.{
-        "--layout-features=*",
-        "--drop-tables+=FFTM",
-        "--hinting",
-        "--legacy-kern",
-        "--notdef-glyph",
-        "--notdef-outline",
-        "--recommended-glyphs",
-    });
-    return subset.addPrefixedOutputFileArg("--output-file=", output_name);
+    subset.addFileArg(text_file);
+    return subset.addOutputFileArg(output_name);
 }
 
 fn linkLoaderLibraries(module: *std.Build.Module) void {
@@ -52,6 +44,15 @@ pub fn build(b: *std.Build) void {
     const generated_files = b.addWriteFiles();
     const version_info_subset_text = strings.buildVersionInfoSubsetText(b.allocator, app_version.version_str) catch @panic("OOM");
     const textbox_subset_text = strings.buildTextboxSubsetText(b.allocator) catch @panic("OOM");
+    const font_subsetter = b.addExecutable(.{
+        .name = "font-subset",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/bytetype.zig"),
+            .target = b.graph.host,
+            .optimize = .ReleaseSmall,
+        }),
+    });
+    font_subsetter.root_module.link_libc = true;
     const font_subset_specs = [_]FontSubsetSpec{
         .{
             .input_font_path = "fonts/Inter/Inter_18pt-Regular.ttf",
@@ -82,6 +83,7 @@ pub fn build(b: *std.Build) void {
     for (font_subset_specs, 0..) |spec, idx| {
         subset_fonts[idx] = addSubsetFont(
             b,
+            font_subsetter,
             generated_files,
             b.path(spec.input_font_path),
             spec.subset_text_name,

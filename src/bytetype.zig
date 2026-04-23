@@ -1,4 +1,4 @@
-// ByteType - A minimal TrueType parser and rasterizer used by ByteGui
+// ByteType - TrueType parser, rasterizer, and build-time subsetter for ByteGui
 const std = @import("std");
 
 const allocator = std.heap.c_allocator;
@@ -1131,4 +1131,851 @@ fn contourWindingNumber(contour: []const Vec2, sample: Vec2) i32 {
 
 fn edgeSide(p0: Vec2, p1: Vec2, sample: Vec2) f32 {
     return (p1.x - p0.x) * (sample.y - p0.y) - (sample.x - p0.x) * (p1.y - p0.y);
+}
+
+pub const SubsetError = error{
+    InvalidFont,
+    InvalidText,
+    UnsupportedFont,
+    NoHeadTable,
+    NoLocaTable,
+    NoGlyfTable,
+    OutOfMemory,
+};
+
+const SubsetTableEntry = struct {
+    tag: [4]u8,
+    offset: usize,
+    len: usize,
+};
+
+const SubsetTable = struct {
+    tag: [4]u8,
+    data: []const u8,
+    owned: bool = false,
+};
+
+const BuiltSubsetFont = struct {
+    bytes: []u8,
+    used_glyphs: usize,
+};
+
+const SubsetCodepoint = struct {
+    codepoint: u16,
+    glyph_index: u16,
+};
+
+const SubsetGlyphMap = struct {
+    old_to_new: []u16,
+    new_to_old: []u16,
+};
+
+const SubsetGlyphTables = struct {
+    glyf: []u8,
+    loca: []u8,
+    index_to_loca_format: i16,
+};
+
+const SubsetHmtxTable = struct {
+    bytes: []u8,
+    num_h_metrics: u16,
+};
+
+const SubsetPair = struct {
+    second: u16,
+    value: i16,
+};
+
+const SubsetPairSet = struct {
+    first: u16,
+    pairs: []SubsetPair,
+};
+
+pub fn subsetTrueTypeFont(gpa: std.mem.Allocator, font_data: []const u8, subset_text: []const u8) SubsetError![]u8 {
+    const built = try buildSubsetTrueTypeFont(gpa, font_data, subset_text);
+    return built.bytes;
+}
+
+pub fn subsetTrueTypeFontUsedGlyphCount(gpa: std.mem.Allocator, font_data: []const u8, subset_text: []const u8) SubsetError!usize {
+    const built = try buildSubsetTrueTypeFont(gpa, font_data, subset_text);
+    defer gpa.free(built.bytes);
+    return built.used_glyphs;
+}
+
+// Build-time subset tool
+fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
+    std.debug.print(fmt, args);
+    std.process.exit(1);
+}
+
+fn readSubsetToolFileAlloc(gpa: std.mem.Allocator, path: []const u8, max_bytes: usize) ![]u8 {
+    var threaded: std.Io.Threaded = .init(gpa, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var file = try std.Io.Dir.openFileAbsolute(io, path, .{ .allow_directory = false });
+    defer file.close(io);
+    const stat = try file.stat(io);
+    if (stat.kind != .file or stat.size > max_bytes) return error.FileTooBig;
+
+    var reader = file.reader(io, &.{});
+    return try reader.interface.readAlloc(gpa, @intCast(stat.size));
+}
+
+fn writeSubsetToolFileAll(path: []const u8, data: []const u8) !void {
+    var threaded: std.Io.Threaded = .init(std.heap.smp_allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var file = try std.Io.Dir.createFileAbsolute(io, path, .{});
+    defer file.close(io);
+
+    var buffer: [4096]u8 = undefined;
+    var writer = file.writer(io, &buffer);
+    try writer.interface.writeAll(data);
+    try writer.interface.flush();
+}
+
+pub fn main(init: std.process.Init.Minimal) !void {
+    const gpa = std.heap.smp_allocator;
+    var args = try std.process.Args.Iterator.initAllocator(init.args, gpa);
+    defer args.deinit();
+    _ = args.next();
+    const input_path = args.next() orelse fatal("usage: font_subset <input.ttf> <text.txt> <output.ttf>\n", .{});
+    const text_path = args.next() orelse fatal("usage: font_subset <input.ttf> <text.txt> <output.ttf>\n", .{});
+    const output_path = args.next() orelse fatal("usage: font_subset <input.ttf> <text.txt> <output.ttf>\n", .{});
+    if (args.next() != null) fatal("usage: font_subset <input.ttf> <text.txt> <output.ttf>\n", .{});
+
+    const font_data = readSubsetToolFileAlloc(gpa, input_path, 64 * 1024 * 1024) catch |err| {
+        fatal("font subset: failed to read {s}: {s}\n", .{ input_path, @errorName(err) });
+    };
+    defer gpa.free(font_data);
+
+    const subset_text = readSubsetToolFileAlloc(gpa, text_path, 4 * 1024 * 1024) catch |err| {
+        fatal("font subset: failed to read {s}: {s}\n", .{ text_path, @errorName(err) });
+    };
+    defer gpa.free(subset_text);
+
+    const subset_font = subsetTrueTypeFont(gpa, font_data, subset_text) catch |err| {
+        fatal("font subset: failed on {s}: {s}\n", .{ input_path, @errorName(err) });
+    };
+    defer gpa.free(subset_font);
+
+    writeSubsetToolFileAll(output_path, subset_font) catch |err| {
+        fatal("font subset: failed to write {s}: {s}\n", .{ output_path, @errorName(err) });
+    };
+}
+
+fn buildSubsetTrueTypeFont(gpa: std.mem.Allocator, font_data: []const u8, subset_text: []const u8) SubsetError!BuiltSubsetFont {
+    var face = FontFace.init(font_data, 0) orelse return error.UnsupportedFont;
+    defer face.deinit();
+    const font_offset = resolveFontOffset(font_data, 0) orelse return error.UnsupportedFont;
+    if (!hasRange(font_data, font_offset, 12)) return error.InvalidFont;
+
+    const glyph_count: usize = @intCast(face.num_glyphs);
+    const used = try gpa.alloc(bool, glyph_count);
+    defer gpa.free(used);
+    @memset(used, false);
+
+    const recommended_count = @min(glyph_count, 4);
+    for (0..recommended_count) |glyph_index| {
+        try markGlyphClosure(&face, used, @intCast(glyph_index), 0);
+    }
+    try markGlyphsForText(&face, used, subset_text);
+
+    const glyph_map = try buildSubsetGlyphMap(gpa, used);
+    defer {
+        gpa.free(glyph_map.old_to_new);
+        gpa.free(glyph_map.new_to_old);
+    }
+    const used_glyph_count = glyph_map.new_to_old.len;
+
+    const subset_codepoints = try collectSubsetCodepoints(gpa, &face, subset_text, glyph_map.old_to_new);
+    defer gpa.free(subset_codepoints);
+
+    const glyph_tables = try buildCompactedSubsetGlyphTables(gpa, &face, glyph_map.new_to_old, glyph_map.old_to_new);
+    var glyf_owned = true;
+    var loca_owned = true;
+    errdefer if (glyf_owned) gpa.free(glyph_tables.glyf);
+    errdefer if (loca_owned) gpa.free(glyph_tables.loca);
+
+    const hmtx_table = try buildSubsetHmtxTable(gpa, &face, glyph_map.new_to_old);
+    var hmtx_owned = true;
+    errdefer if (hmtx_owned) gpa.free(hmtx_table.bytes);
+
+    const cmap_table = try buildSubsetCmapTable(gpa, subset_codepoints);
+    var cmap_owned = true;
+    errdefer if (cmap_owned) gpa.free(cmap_table);
+
+    const head_table = try buildSubsetHeadTable(gpa, font_data, font_offset, glyph_tables.index_to_loca_format);
+    var head_owned = true;
+    errdefer if (head_owned) gpa.free(head_table);
+
+    const hhea_table = try buildSubsetHheaTable(gpa, font_data, font_offset, hmtx_table.num_h_metrics);
+    var hhea_owned = true;
+    errdefer if (hhea_owned) gpa.free(hhea_table);
+
+    const maxp_table = try buildSubsetMaxpTable(gpa, font_data, font_offset, @intCast(glyph_map.new_to_old.len));
+    var maxp_owned = true;
+    errdefer if (maxp_owned) gpa.free(maxp_table);
+
+    const gpos_table = try buildSubsetGposTable(gpa, &face, glyph_map.new_to_old);
+    var gpos_owned = gpos_table != null;
+    errdefer if (gpos_owned and gpos_table != null) gpa.free(gpos_table.?);
+
+    var tables: std.ArrayListUnmanaged(SubsetTable) = .empty;
+    defer deinitSubsetTables(&tables, gpa);
+    if (gpos_table) |table| {
+        try tables.append(gpa, .{ .tag = .{ 'G', 'P', 'O', 'S' }, .data = table, .owned = true });
+        gpos_owned = false;
+    }
+    try tables.append(gpa, .{ .tag = .{ 'c', 'm', 'a', 'p' }, .data = cmap_table, .owned = true });
+    cmap_owned = false;
+    try tables.append(gpa, .{ .tag = .{ 'g', 'l', 'y', 'f' }, .data = glyph_tables.glyf, .owned = true });
+    glyf_owned = false;
+    try tables.append(gpa, .{ .tag = .{ 'h', 'e', 'a', 'd' }, .data = head_table, .owned = true });
+    head_owned = false;
+    try tables.append(gpa, .{ .tag = .{ 'h', 'h', 'e', 'a' }, .data = hhea_table, .owned = true });
+    hhea_owned = false;
+    try tables.append(gpa, .{ .tag = .{ 'h', 'm', 't', 'x' }, .data = hmtx_table.bytes, .owned = true });
+    hmtx_owned = false;
+    try tables.append(gpa, .{ .tag = .{ 'l', 'o', 'c', 'a' }, .data = glyph_tables.loca, .owned = true });
+    loca_owned = false;
+    try tables.append(gpa, .{ .tag = .{ 'm', 'a', 'x', 'p' }, .data = maxp_table, .owned = true });
+    maxp_owned = false;
+
+    sortSubsetTables(tables.items);
+
+    const subset_bytes = try writeSubsetSfnt(gpa, font_data, font_offset, tables.items);
+    return .{
+        .bytes = subset_bytes,
+        .used_glyphs = used_glyph_count,
+    };
+}
+
+fn deinitSubsetTables(tables: *std.ArrayListUnmanaged(SubsetTable), gpa: std.mem.Allocator) void {
+    for (tables.items) |table| {
+        if (table.owned) gpa.free(@constCast(table.data));
+    }
+    tables.deinit(gpa);
+}
+
+fn readSubsetTableEntries(gpa: std.mem.Allocator, font_data: []const u8, font_offset: usize) SubsetError![]SubsetTableEntry {
+    const num_tables = readU16(font_data, font_offset + 4) orelse return error.InvalidFont;
+    const entries = try gpa.alloc(SubsetTableEntry, num_tables);
+    errdefer gpa.free(entries);
+
+    const table_dir = font_offset + 12;
+    for (entries, 0..) |*entry, table_index| {
+        const record = table_dir + table_index * 16;
+        if (!hasRange(font_data, record, 16)) return error.InvalidFont;
+        const offset = readU32(font_data, record + 8) orelse return error.InvalidFont;
+        const len = readU32(font_data, record + 12) orelse return error.InvalidFont;
+        if (!hasRange(font_data, offset, len)) return error.InvalidFont;
+        entry.* = .{
+            .tag = .{
+                font_data[record],
+                font_data[record + 1],
+                font_data[record + 2],
+                font_data[record + 3],
+            },
+            .offset = offset,
+            .len = len,
+        };
+    }
+
+    return entries;
+}
+
+fn markGlyphsForText(face: *const FontFace, used: []bool, subset_text: []const u8) SubsetError!void {
+    var view = std.unicode.Utf8View.init(subset_text) catch return error.InvalidText;
+    var iterator = view.iterator();
+    while (iterator.nextCodepoint()) |codepoint| {
+        if (codepoint == '\n' or codepoint == '\r') continue;
+        const glyph_index = face.getGlyphIndex(codepoint);
+        try markGlyphClosure(face, used, glyph_index, 0);
+    }
+}
+
+fn markGlyphClosure(face: *const FontFace, used: []bool, glyph_index: u32, depth: usize) SubsetError!void {
+    if (depth > 32) return error.UnsupportedFont;
+    if (glyph_index >= used.len) return;
+    if (used[glyph_index]) return;
+    used[glyph_index] = true;
+
+    const range = face.glyphRange(glyph_index) orelse return;
+    if (range.len == 0) return;
+    if (range.len < 10) return error.InvalidFont;
+
+    const num_contours = readI16(face.data, range.offset) orelse return error.InvalidFont;
+    if (num_contours >= 0) return;
+
+    var cursor = range.offset + 10;
+    while (true) {
+        const flags = readU16(face.data, cursor) orelse return error.InvalidFont;
+        const component_glyph = readU16(face.data, cursor + 2) orelse return error.InvalidFont;
+        cursor += 4;
+
+        if ((flags & comp_args_are_words) != 0) {
+            cursor += 4;
+        } else {
+            cursor += 2;
+        }
+
+        if ((flags & comp_have_scale) != 0) {
+            cursor += 2;
+        } else if ((flags & comp_have_xy_scale) != 0) {
+            cursor += 4;
+        } else if ((flags & comp_have_2x2) != 0) {
+            cursor += 8;
+        }
+
+        try markGlyphClosure(face, used, component_glyph, depth + 1);
+
+        if ((flags & comp_more_components) == 0) break;
+    }
+}
+
+fn countUsedGlyphs(used: []const bool) usize {
+    var count: usize = 0;
+    for (used) |is_used| {
+        if (is_used) count += 1;
+    }
+    return count;
+}
+
+fn sortSubsetTables(tables: []SubsetTable) void {
+    std.sort.block(SubsetTable, tables, {}, struct {
+        fn lessThan(_: void, a: SubsetTable, b: SubsetTable) bool {
+            return std.mem.order(u8, a.tag[0..], b.tag[0..]) == .lt;
+        }
+    }.lessThan);
+}
+
+fn buildSubsetGlyphMap(gpa: std.mem.Allocator, used: []const bool) SubsetError!SubsetGlyphMap {
+    const old_to_new = try gpa.alloc(u16, used.len);
+    errdefer gpa.free(old_to_new);
+    for (old_to_new) |*value| value.* = std.math.maxInt(u16);
+
+    const used_count = countUsedGlyphs(used);
+    const new_to_old = try gpa.alloc(u16, used_count);
+    errdefer gpa.free(new_to_old);
+
+    var new_index: usize = 0;
+    for (used, 0..) |is_used, old_index| {
+        if (!is_used) continue;
+        old_to_new[old_index] = @intCast(new_index);
+        new_to_old[new_index] = @intCast(old_index);
+        new_index += 1;
+    }
+
+    return .{
+        .old_to_new = old_to_new,
+        .new_to_old = new_to_old,
+    };
+}
+
+fn collectSubsetCodepoints(gpa: std.mem.Allocator, face: *const FontFace, subset_text: []const u8, old_to_new: []const u16) SubsetError![]SubsetCodepoint {
+    var codepoints: std.ArrayListUnmanaged(SubsetCodepoint) = .empty;
+    errdefer codepoints.deinit(gpa);
+
+    var view = std.unicode.Utf8View.init(subset_text) catch return error.InvalidText;
+    var iterator = view.iterator();
+    while (iterator.nextCodepoint()) |codepoint| {
+        if (codepoint == '\n' or codepoint == '\r') continue;
+        if (codepoint > std.math.maxInt(u16)) return error.UnsupportedFont;
+
+        const old_glyph = face.getGlyphIndex(codepoint);
+        if (old_glyph >= old_to_new.len) continue;
+        const new_glyph = old_to_new[old_glyph];
+        if (new_glyph == std.math.maxInt(u16)) continue;
+
+        var exists = false;
+        for (codepoints.items) |entry| {
+            if (entry.codepoint == codepoint) {
+                exists = true;
+                break;
+            }
+        }
+        if (exists) continue;
+
+        try codepoints.append(gpa, .{
+            .codepoint = @intCast(codepoint),
+            .glyph_index = new_glyph,
+        });
+    }
+
+    std.sort.block(SubsetCodepoint, codepoints.items, {}, struct {
+        fn lessThan(_: void, a: SubsetCodepoint, b: SubsetCodepoint) bool {
+            return a.codepoint < b.codepoint;
+        }
+    }.lessThan);
+
+    return try codepoints.toOwnedSlice(gpa);
+}
+
+fn buildCompactedSubsetGlyphTables(gpa: std.mem.Allocator, face: *const FontFace, new_to_old: []const u16, old_to_new: []const u16) SubsetError!SubsetGlyphTables {
+    var glyf: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer glyf.deinit(gpa);
+
+    const offsets = try gpa.alloc(u32, new_to_old.len + 1);
+    defer gpa.free(offsets);
+
+    offsets[0] = 0;
+    var current_offset: usize = 0;
+    for (new_to_old, 0..) |old_glyph, new_index| {
+        const range = face.glyphRange(old_glyph) orelse return error.InvalidFont;
+        if (range.len > 0) {
+            const glyph_start = glyf.items.len;
+            try glyf.appendSlice(gpa, face.data[range.offset .. range.offset + range.len]);
+            try remapSubsetCompositeGlyph(glyf.items[glyph_start .. glyph_start + range.len], old_to_new);
+            current_offset += range.len;
+            if ((current_offset & 1) != 0) {
+                try glyf.append(gpa, 0);
+                current_offset += 1;
+            }
+        }
+        offsets[new_index + 1] = std.math.cast(u32, current_offset) orelse return error.UnsupportedFont;
+    }
+
+    const use_short_loca = (current_offset & 1) == 0 and current_offset / 2 <= std.math.maxInt(u16);
+    var loca: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer loca.deinit(gpa);
+    for (offsets) |offset| {
+        if (use_short_loca) {
+            try appendU16Be(&loca, gpa, @intCast(offset / 2));
+        } else {
+            try appendU32Be(&loca, gpa, offset);
+        }
+    }
+
+    return .{
+        .glyf = try glyf.toOwnedSlice(gpa),
+        .loca = try loca.toOwnedSlice(gpa),
+        .index_to_loca_format = if (use_short_loca) 0 else 1,
+    };
+}
+
+fn remapSubsetCompositeGlyph(glyph_data: []u8, old_to_new: []const u16) SubsetError!void {
+    if (glyph_data.len == 0) return;
+    if (glyph_data.len < 10) return error.InvalidFont;
+
+    const num_contours = readI16(glyph_data, 0) orelse return error.InvalidFont;
+    if (num_contours >= 0) return;
+
+    var cursor: usize = 10;
+    while (true) {
+        const flags = readU16(glyph_data, cursor) orelse return error.InvalidFont;
+        const component_old = readU16(glyph_data, cursor + 2) orelse return error.InvalidFont;
+        if (component_old >= old_to_new.len) return error.InvalidFont;
+
+        const component_new = old_to_new[component_old];
+        if (component_new == std.math.maxInt(u16)) return error.InvalidFont;
+        writeU16Be(glyph_data, cursor + 2, component_new);
+        cursor += 4;
+
+        if ((flags & comp_args_are_words) != 0) {
+            cursor += 4;
+        } else {
+            cursor += 2;
+        }
+
+        if ((flags & comp_have_scale) != 0) {
+            cursor += 2;
+        } else if ((flags & comp_have_xy_scale) != 0) {
+            cursor += 4;
+        } else if ((flags & comp_have_2x2) != 0) {
+            cursor += 8;
+        }
+
+        if ((flags & comp_more_components) == 0) break;
+    }
+}
+
+fn buildSubsetHmtxTable(gpa: std.mem.Allocator, face: *const FontFace, new_to_old: []const u16) SubsetError!SubsetHmtxTable {
+    const glyph_count = new_to_old.len;
+    const advances = try gpa.alloc(u16, glyph_count);
+    defer gpa.free(advances);
+    const bearings = try gpa.alloc(i16, glyph_count);
+    defer gpa.free(bearings);
+
+    for (new_to_old, 0..) |old_glyph, index| {
+        advances[index] = readAdvanceWidth(face, old_glyph) orelse return error.InvalidFont;
+        bearings[index] = readLeftSideBearing(face, old_glyph) orelse return error.InvalidFont;
+    }
+
+    var num_h_metrics: usize = glyph_count;
+    while (num_h_metrics > 1 and advances[num_h_metrics - 1] == advances[num_h_metrics - 2]) : (num_h_metrics -= 1) {}
+
+    var table: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer table.deinit(gpa);
+
+    for (0..num_h_metrics) |index| {
+        try appendU16Be(&table, gpa, advances[index]);
+        try appendU16Be(&table, gpa, @bitCast(bearings[index]));
+    }
+    for (num_h_metrics..glyph_count) |index| {
+        try appendU16Be(&table, gpa, @bitCast(bearings[index]));
+    }
+
+    return .{
+        .bytes = try table.toOwnedSlice(gpa),
+        .num_h_metrics = @intCast(num_h_metrics),
+    };
+}
+
+fn readAdvanceWidth(face: *const FontFace, glyph_index: u16) ?u16 {
+    const metrics_index: u32 = if (glyph_index < face.num_h_metrics) glyph_index else face.num_h_metrics - 1;
+    return readU16(face.data, face.hmtx_offset + @as(usize, metrics_index) * 4);
+}
+
+fn readLeftSideBearing(face: *const FontFace, glyph_index: u16) ?i16 {
+    if (glyph_index < face.num_h_metrics) {
+        return readI16(face.data, face.hmtx_offset + @as(usize, glyph_index) * 4 + 2);
+    }
+    const lsb_index: usize = glyph_index - face.num_h_metrics;
+    return readI16(face.data, face.hmtx_offset + @as(usize, face.num_h_metrics) * 4 + lsb_index * 2);
+}
+
+fn buildSubsetHeadTable(gpa: std.mem.Allocator, font_data: []const u8, font_offset: usize, index_to_loca_format: i16) SubsetError![]u8 {
+    const head = findTable(font_data, font_offset, "head") orelse return error.NoHeadTable;
+    if (head.len < 54) return error.InvalidFont;
+
+    const table = try gpa.dupe(u8, font_data[head.offset .. head.offset + head.len]);
+    writeU32Be(table, 8, 0);
+    writeU16Be(table, 50, @bitCast(index_to_loca_format));
+    return table;
+}
+
+fn buildSubsetHheaTable(gpa: std.mem.Allocator, font_data: []const u8, font_offset: usize, num_h_metrics: u16) SubsetError![]u8 {
+    const hhea = findTable(font_data, font_offset, "hhea") orelse return error.InvalidFont;
+    if (hhea.len < 36) return error.InvalidFont;
+
+    const table = try gpa.dupe(u8, font_data[hhea.offset .. hhea.offset + hhea.len]);
+    writeU16Be(table, 34, num_h_metrics);
+    return table;
+}
+
+fn buildSubsetMaxpTable(gpa: std.mem.Allocator, font_data: []const u8, font_offset: usize, num_glyphs: u16) SubsetError![]u8 {
+    const maxp = findTable(font_data, font_offset, "maxp") orelse return error.InvalidFont;
+    if (maxp.len < 6) return error.InvalidFont;
+
+    const table = try gpa.dupe(u8, font_data[maxp.offset .. maxp.offset + maxp.len]);
+    writeU16Be(table, 4, num_glyphs);
+    return table;
+}
+
+fn buildSubsetCmapTable(gpa: std.mem.Allocator, codepoints: []const SubsetCodepoint) SubsetError![]u8 {
+    const seg_count: u16 = std.math.cast(u16, codepoints.len + 1) orelse return error.UnsupportedFont;
+    const subtable_len: usize = 16 + @as(usize, seg_count) * 8;
+
+    var subtable: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer subtable.deinit(gpa);
+
+    try appendU16Be(&subtable, gpa, 4);
+    try appendU16Be(&subtable, gpa, @intCast(subtable_len));
+    try appendU16Be(&subtable, gpa, 0);
+    try appendU16Be(&subtable, gpa, seg_count * 2);
+    const max_power = maxPowerOfTwoAtMost(seg_count);
+    try appendU16Be(&subtable, gpa, max_power * 2);
+    try appendU16Be(&subtable, gpa, log2Pow2(max_power));
+    try appendU16Be(&subtable, gpa, seg_count * 2 - max_power * 2);
+
+    for (codepoints) |entry| try appendU16Be(&subtable, gpa, entry.codepoint);
+    try appendU16Be(&subtable, gpa, 0xFFFF);
+    try appendU16Be(&subtable, gpa, 0);
+    for (codepoints) |entry| try appendU16Be(&subtable, gpa, entry.codepoint);
+    try appendU16Be(&subtable, gpa, 0xFFFF);
+    for (codepoints) |entry| {
+        const delta = entry.glyph_index -% entry.codepoint;
+        try appendU16Be(&subtable, gpa, delta);
+    }
+    try appendU16Be(&subtable, gpa, 1);
+    for (0..seg_count) |_| try appendU16Be(&subtable, gpa, 0);
+
+    var cmap: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer cmap.deinit(gpa);
+    try appendU16Be(&cmap, gpa, 0);
+    try appendU16Be(&cmap, gpa, 1);
+    try appendU16Be(&cmap, gpa, 3);
+    try appendU16Be(&cmap, gpa, 1);
+    try appendU32Be(&cmap, gpa, 12);
+    try cmap.appendSlice(gpa, subtable.items);
+
+    return try cmap.toOwnedSlice(gpa);
+}
+
+fn buildSubsetGposTable(gpa: std.mem.Allocator, face: *FontFace, new_to_old: []const u16) SubsetError!?[]u8 {
+    var pair_sets: std.ArrayListUnmanaged(SubsetPairSet) = .empty;
+    defer {
+        for (pair_sets.items) |pair_set| gpa.free(pair_set.pairs);
+        pair_sets.deinit(gpa);
+    }
+
+    for (new_to_old, 0..) |left_old, left_new| {
+        var pairs: std.ArrayListUnmanaged(SubsetPair) = .empty;
+        errdefer pairs.deinit(gpa);
+
+        for (new_to_old, 0..) |right_old, right_new| {
+            const kern = face.getKerningUnits(left_old, right_old);
+            if (kern == 0) continue;
+            try pairs.append(gpa, .{
+                .second = @intCast(right_new),
+                .value = @intCast(std.math.clamp(kern, std.math.minInt(i16), std.math.maxInt(i16))),
+            });
+        }
+
+        if (pairs.items.len == 0) {
+            pairs.deinit(gpa);
+            continue;
+        }
+
+        try pair_sets.append(gpa, .{
+            .first = @intCast(left_new),
+            .pairs = try pairs.toOwnedSlice(gpa),
+        });
+    }
+
+    if (pair_sets.items.len == 0) return null;
+
+    var coverage: std.ArrayListUnmanaged(u8) = .empty;
+    defer coverage.deinit(gpa);
+    try appendU16Be(&coverage, gpa, 1);
+    try appendU16Be(&coverage, gpa, @intCast(pair_sets.items.len));
+    for (pair_sets.items) |pair_set| try appendU16Be(&coverage, gpa, pair_set.first);
+
+    var pair_sets_data: std.ArrayListUnmanaged(u8) = .empty;
+    defer pair_sets_data.deinit(gpa);
+    const pair_set_offsets = try gpa.alloc(u16, pair_sets.items.len);
+    defer gpa.free(pair_set_offsets);
+
+    var pair_cursor: usize = 0;
+    for (pair_sets.items, 0..) |pair_set, index| {
+        pair_set_offsets[index] = @intCast(pair_cursor);
+        try appendU16Be(&pair_sets_data, gpa, @intCast(pair_set.pairs.len));
+        pair_cursor += 2;
+        for (pair_set.pairs) |pair| {
+            try appendU16Be(&pair_sets_data, gpa, pair.second);
+            try appendU16Be(&pair_sets_data, gpa, @bitCast(pair.value));
+            pair_cursor += 4;
+        }
+    }
+
+    const subtable_header_len = 10 + pair_sets.items.len * 2;
+    const coverage_offset = subtable_header_len + pair_sets_data.items.len;
+    var subtable: std.ArrayListUnmanaged(u8) = .empty;
+    defer subtable.deinit(gpa);
+    try appendU16Be(&subtable, gpa, 1);
+    try appendU16Be(&subtable, gpa, @intCast(coverage_offset));
+    try appendU16Be(&subtable, gpa, 0x0004);
+    try appendU16Be(&subtable, gpa, 0);
+    try appendU16Be(&subtable, gpa, @intCast(pair_sets.items.len));
+    for (pair_set_offsets) |offset| try appendU16Be(&subtable, gpa, @intCast(subtable_header_len + offset));
+    try subtable.appendSlice(gpa, pair_sets_data.items);
+    try subtable.appendSlice(gpa, coverage.items);
+
+    const lookup_list_offset = 26;
+    const lookup_offset = 4;
+    const pair_subtable_offset = 8;
+    const feature_list_offset = 12;
+    const script_list_offset = 10;
+
+    var gpos: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer gpos.deinit(gpa);
+    try appendU16Be(&gpos, gpa, 1);
+    try appendU16Be(&gpos, gpa, 0);
+    try appendU16Be(&gpos, gpa, script_list_offset);
+    try appendU16Be(&gpos, gpa, feature_list_offset);
+    try appendU16Be(&gpos, gpa, lookup_list_offset);
+
+    try appendU16Be(&gpos, gpa, 0);
+
+    try appendU16Be(&gpos, gpa, 1);
+    try gpos.appendSlice(gpa, "kern");
+    try appendU16Be(&gpos, gpa, 8);
+    try appendU16Be(&gpos, gpa, 0);
+    try appendU16Be(&gpos, gpa, 1);
+    try appendU16Be(&gpos, gpa, 0);
+
+    try appendU16Be(&gpos, gpa, 1);
+    try appendU16Be(&gpos, gpa, lookup_offset);
+    try appendU16Be(&gpos, gpa, 2);
+    try appendU16Be(&gpos, gpa, 0);
+    try appendU16Be(&gpos, gpa, 1);
+    try appendU16Be(&gpos, gpa, pair_subtable_offset);
+    try gpos.appendSlice(gpa, subtable.items);
+
+    return try gpos.toOwnedSlice(gpa);
+}
+
+fn buildSubsetGlyfTable(gpa: std.mem.Allocator, face: *const FontFace, used: []const bool) SubsetError![]u8 {
+    var glyf: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer glyf.deinit(gpa);
+
+    const align_to_two = face.index_to_loca_format == 0;
+    for (used, 0..) |is_used, glyph_index| {
+        if (!is_used) continue;
+        const range = face.glyphRange(@intCast(glyph_index)) orelse return error.InvalidFont;
+        if (range.len == 0) continue;
+        try glyf.appendSlice(gpa, face.data[range.offset .. range.offset + range.len]);
+        if (align_to_two and (glyf.items.len & 1) != 0) {
+            try glyf.append(gpa, 0);
+        }
+    }
+
+    return try glyf.toOwnedSlice(gpa);
+}
+
+fn buildSubsetLocaTable(gpa: std.mem.Allocator, face: *const FontFace, used: []const bool) SubsetError![]u8 {
+    var loca: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer loca.deinit(gpa);
+
+    var current_offset: usize = 0;
+    const align_to_two = face.index_to_loca_format == 0;
+    for (used, 0..) |is_used, glyph_index| {
+        try appendLocaOffset(&loca, gpa, face.index_to_loca_format, current_offset);
+        if (!is_used) continue;
+        const range = face.glyphRange(@intCast(glyph_index)) orelse return error.InvalidFont;
+        current_offset += range.len;
+        if (align_to_two and (current_offset & 1) != 0) current_offset += 1;
+    }
+    try appendLocaOffset(&loca, gpa, face.index_to_loca_format, current_offset);
+
+    return try loca.toOwnedSlice(gpa);
+}
+
+fn appendLocaOffset(list: *std.ArrayListUnmanaged(u8), gpa: std.mem.Allocator, index_to_loca_format: i16, offset: usize) SubsetError!void {
+    if (index_to_loca_format == 0) {
+        if ((offset & 1) != 0) return error.InvalidFont;
+        const short_offset: u16 = std.math.cast(u16, offset / 2) orelse return error.UnsupportedFont;
+        try appendU16Be(list, gpa, short_offset);
+        return;
+    }
+
+    const long_offset: u32 = std.math.cast(u32, offset) orelse return error.UnsupportedFont;
+    try appendU32Be(list, gpa, long_offset);
+}
+
+fn appendU16Be(list: *std.ArrayListUnmanaged(u8), gpa: std.mem.Allocator, value: u16) SubsetError!void {
+    try list.append(gpa, @intCast(value >> 8));
+    try list.append(gpa, @intCast(value & 0xff));
+}
+
+fn appendU32Be(list: *std.ArrayListUnmanaged(u8), gpa: std.mem.Allocator, value: u32) SubsetError!void {
+    try list.append(gpa, @intCast((value >> 24) & 0xff));
+    try list.append(gpa, @intCast((value >> 16) & 0xff));
+    try list.append(gpa, @intCast((value >> 8) & 0xff));
+    try list.append(gpa, @intCast(value & 0xff));
+}
+
+fn writeU16Be(buffer: []u8, offset: usize, value: u16) void {
+    buffer[offset] = @intCast(value >> 8);
+    buffer[offset + 1] = @intCast(value & 0xff);
+}
+
+fn writeU32Be(buffer: []u8, offset: usize, value: u32) void {
+    buffer[offset] = @intCast((value >> 24) & 0xff);
+    buffer[offset + 1] = @intCast((value >> 16) & 0xff);
+    buffer[offset + 2] = @intCast((value >> 8) & 0xff);
+    buffer[offset + 3] = @intCast(value & 0xff);
+}
+
+fn writeSubsetSfnt(gpa: std.mem.Allocator, font_data: []const u8, font_offset: usize, tables: []const SubsetTable) SubsetError![]u8 {
+    if (tables.len == 0) return error.InvalidFont;
+
+    const num_tables: u16 = std.math.cast(u16, tables.len) orelse return error.UnsupportedFont;
+    const header_len = 12 + tables.len * 16;
+    var records = try gpa.alloc(SubsetTableEntry, tables.len);
+    defer gpa.free(records);
+
+    var current_offset = alignForward(header_len, 4);
+    var head_offset: ?usize = null;
+    for (tables, 0..) |table, table_index| {
+        records[table_index] = .{
+            .tag = table.tag,
+            .offset = current_offset,
+            .len = table.data.len,
+        };
+        current_offset = alignForward(current_offset + table.data.len, 4);
+        if (std.mem.eql(u8, table.tag[0..], "head")) {
+            head_offset = records[table_index].offset;
+        }
+    }
+
+    const sfnt = .{
+        font_data[font_offset],
+        font_data[font_offset + 1],
+        font_data[font_offset + 2],
+        font_data[font_offset + 3],
+    };
+
+    var output = try gpa.alloc(u8, current_offset);
+    errdefer gpa.free(output);
+    @memset(output, 0);
+
+    output[0] = sfnt[0];
+    output[1] = sfnt[1];
+    output[2] = sfnt[2];
+    output[3] = sfnt[3];
+    writeU16Be(output, 4, num_tables);
+
+    const max_power = maxPowerOfTwoAtMost(num_tables);
+    writeU16Be(output, 6, max_power * 16);
+    writeU16Be(output, 8, log2Pow2(max_power));
+    writeU16Be(output, 10, num_tables * 16 - max_power * 16);
+
+    var dir_offset: usize = 12;
+    for (tables, records) |table, record| {
+        @memcpy(output[dir_offset .. dir_offset + 4], record.tag[0..]);
+        writeU32Be(output, dir_offset + 4, checksumTable(table.data));
+        writeU32Be(output, dir_offset + 8, std.math.cast(u32, record.offset) orelse return error.UnsupportedFont);
+        writeU32Be(output, dir_offset + 12, std.math.cast(u32, record.len) orelse return error.UnsupportedFont);
+
+        if (table.data.len > 0) {
+            @memcpy(output[record.offset .. record.offset + table.data.len], table.data);
+        }
+        dir_offset += 16;
+    }
+
+    const final_head_offset = head_offset orelse return error.NoHeadTable;
+    writeU32Be(output, final_head_offset + 8, 0);
+    const checksum_adjustment = 0xB1B0AFBA -% checksumTable(output);
+    writeU32Be(output, final_head_offset + 8, checksum_adjustment);
+
+    return output;
+}
+
+fn checksumTable(data: []const u8) u32 {
+    var sum: u32 = 0;
+    var offset: usize = 0;
+    while (offset < data.len) : (offset += 4) {
+        var word: u32 = 0;
+        var byte_index: usize = 0;
+        while (byte_index < 4 and offset + byte_index < data.len) : (byte_index += 1) {
+            const shift = 24 - @as(u5, @intCast(byte_index * 8));
+            word |= @as(u32, data[offset + byte_index]) << shift;
+        }
+        sum +%= word;
+    }
+    return sum;
+}
+
+fn alignForward(value: usize, alignment: usize) usize {
+    const remainder = value % alignment;
+    return if (remainder == 0) value else value + alignment - remainder;
+}
+
+fn maxPowerOfTwoAtMost(value: u16) u16 {
+    var power: u16 = 1;
+    while (power <= value / 2) : (power *= 2) {}
+    return power;
+}
+
+fn log2Pow2(value: u16) u16 {
+    var result: u16 = 0;
+    var current = value;
+    while (current > 1) : (current >>= 1) {
+        result += 1;
+    }
+    return result;
 }

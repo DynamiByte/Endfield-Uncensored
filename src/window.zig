@@ -236,6 +236,7 @@ var g_minimize_on_launch = false;
 var g_minimized_by_toggle = false;
 var g_stayed_open_by_toggle = false;
 var g_game_exe_path: ?[:0]u16 = null;
+var g_game_exe_override_path: ?[]const u8 = null;
 var g_environ: std.process.Environ = .empty;
 var g_launch_btn_enabled = false;
 var g_version_display_buf: [64]u8 = undefined;
@@ -1421,7 +1422,7 @@ fn drawUI() void {
 
 fn refreshGamePathStatus() void {
     if (g_game_exe_path) |path| allocator.free(path);
-    g_game_exe_path = loader.detectGameExe(g_environ, allocator) catch null;
+    g_game_exe_path = loader.resolveGameExe(g_game_exe_override_path, g_environ, allocator) catch null;
     g_startup_target_pid = loader.findTargetProcess();
     setLoaderTargetRunning(g_startup_target_pid != 0);
     syncLaunchButtonStateImmediate();
@@ -1895,13 +1896,19 @@ pub fn main(init: std.process.Init.Minimal) void {
             error.InvalidForceWineModeValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidForceWineModeValue)),
             error.MissingAllowMinimizeValue => cli.showArgumentError(cli.describeParseArgsError(error.MissingAllowMinimizeValue)),
             error.InvalidAllowMinimizeValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidAllowMinimizeValue)),
+            error.MissingGamePathValue => cli.showArgumentError(cli.describeParseArgsError(error.MissingGamePathValue)),
+            error.InvalidGamePathValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidGamePathValue)),
             error.MutuallyExclusiveDx11AndEfmi => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveDx11AndEfmi)),
+            error.MutuallyExclusiveGamePathAndEfmi => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveGamePathAndEfmi)),
+            error.MutuallyExclusiveAutoYesAndGui => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveAutoYesAndGui)),
             error.MutuallyExclusiveCliAndGuiArgs => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveCliAndGuiArgs)),
         }
         std.process.exit(1);
     };
     defer if (config.efmi_launcher_path) |path| allocator.free(path);
+    defer if (config.game_exe_override_path) |path| allocator.free(path);
 
+    g_game_exe_override_path = config.game_exe_override_path;
     g_force_dx11 = config.dx11;
     g_wine_mode = if (config.cli) false else resolveWineMode(config);
     g_allow_minimize = if (config.cli) true else resolveAllowMinimize(config, g_wine_mode);
