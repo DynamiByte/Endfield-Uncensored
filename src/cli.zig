@@ -17,6 +17,7 @@ const EFMI_LONG = "--efmi";
 const EFMI_WAIT_TIMEOUT_MS: u64 = 10_000;
 const EFMI_DEFAULT_SUBPATH = "XXMI Launcher\\Resources\\Bin\\XXMI Launcher.exe";
 const EFMI_MISSING_PATH_MESSAGE = "You need to specify a location with --EFMI <PATH_TO_XXMI Launcher.exe>.";
+const BOOL_OVERRIDE_USAGE = "Use on/off, yes/no, true/false, y/n, or t/f.";
 
 pub const BoolOverride = enum {
     auto,
@@ -148,12 +149,16 @@ fn isKnownArg(arg: []const u8) bool {
 fn parseBoolOverrideValue(arg: []const u8) ?BoolOverride {
     if (std.ascii.eqlIgnoreCase(arg, "on") or
         std.ascii.eqlIgnoreCase(arg, "yes") or
+        std.ascii.eqlIgnoreCase(arg, "true") or
+        std.ascii.eqlIgnoreCase(arg, "t") or
         std.ascii.eqlIgnoreCase(arg, "y"))
     {
         return .on;
     }
     if (std.ascii.eqlIgnoreCase(arg, "off") or
         std.ascii.eqlIgnoreCase(arg, "no") or
+        std.ascii.eqlIgnoreCase(arg, "false") or
+        std.ascii.eqlIgnoreCase(arg, "f") or
         std.ascii.eqlIgnoreCase(arg, "n"))
     {
         return .off;
@@ -304,10 +309,10 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
 
 pub fn describeParseArgsError(err: ParseArgsError) []const u8 {
     return switch (err) {
-        error.MissingForceWineModeValue => "Missing value for --force-wine-mode. Use on/off, yes/no, or y/n.",
-        error.InvalidForceWineModeValue => "Invalid value for --force-wine-mode. Use on/off, yes/no, or y/n.",
-        error.MissingAllowMinimizeValue => "Missing value for --allow-minimize. Use on/off, yes/no, or y/n.",
-        error.InvalidAllowMinimizeValue => "Invalid value for --allow-minimize. Use on/off, yes/no, or y/n.",
+        error.MissingForceWineModeValue => "Missing value for --force-wine-mode. " ++ BOOL_OVERRIDE_USAGE,
+        error.InvalidForceWineModeValue => "Invalid value for --force-wine-mode. " ++ BOOL_OVERRIDE_USAGE,
+        error.MissingAllowMinimizeValue => "Missing value for --allow-minimize. " ++ BOOL_OVERRIDE_USAGE,
+        error.InvalidAllowMinimizeValue => "Invalid value for --allow-minimize. " ++ BOOL_OVERRIDE_USAGE,
         error.MutuallyExclusiveDx11AndEfmi => "-DX11 is mutually exclusive with -EFMI.",
         error.MutuallyExclusiveCliAndForceWineMode => "-cli and --force-wine-mode are mutually exclusive.",
         error.MutuallyExclusiveSilentAndGui => "-silent is mutually exclusive with GUI mode.",
