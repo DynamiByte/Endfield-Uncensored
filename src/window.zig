@@ -293,21 +293,12 @@ const scaleIF = Ui.ScaleIF;
 const scaleVec2 = Ui.ScaleVec2;
 const snapPixel = Ui.SnapPixel;
 const snapPixelVec2 = Ui.SnapPixelVec2;
+const makeRectL = c.makeRectL;
+const pointInRect = c.pointInRect;
+const loadCursorResource = c.loadCursorResource;
+const wtf8ToWtf16LeZ = c.wtf8ToWtf16LeZ;
 
 // Basic helpers
-fn makeRectL(x: f32, y: f32, w: f32, h: f32) c.RECT {
-    return .{
-        .left = @intFromFloat(@floor(x)),
-        .top = @intFromFloat(@floor(y)),
-        .right = @intFromFloat(@ceil(x + w)),
-        .bottom = @intFromFloat(@ceil(y + h)),
-    };
-}
-
-fn pointInRect(rect: anytype, pt: c.POINT) bool {
-    return pt.x >= rect.left and pt.x < rect.right and pt.y >= rect.top and pt.y < rect.bottom;
-}
-
 fn lowWordSigned(value: c.LPARAM) i32 {
     const bits: usize = @bitCast(value);
     const lo: u16 = @truncate(bits & 0xFFFF);
@@ -330,19 +321,6 @@ fn highWordU(value: c.LPARAM) u16 {
     return @truncate((bits >> 16) & 0xFFFF);
 }
 
-fn wtf8ToWtf16LeZ(wtf8: []const u8, buf: []u16) ![:0]u16 {
-    if (buf.len == 0) return error.NoSpaceLeft;
-    const len = try std.unicode.wtf8ToWtf16Le(buf[0 .. buf.len - 1], wtf8);
-    buf[len] = 0;
-    return buf[0..len :0];
-}
-
-fn wtf16LeToWtf8Slice(wtf16le: []const u16, out_buf: []u8) ![]const u8 {
-    const len = std.unicode.calcWtf8Len(wtf16le);
-    if (len > out_buf.len) return error.NoSpaceLeft;
-    return out_buf[0..std.unicode.wtf16LeToWtf8(out_buf, wtf16le)];
-}
-
 fn computeVersionDisplay(out_buf: []u8) ![]const u8 {
     return strings.computeVersionDisplay(out_buf, VERSION_STR);
 }
@@ -353,10 +331,6 @@ fn toByteGuiHwnd(hwnd: c.HWND) bgc.HWND {
 
 fn fromByteGuiHwnd(hwnd: ?bgc.HWND) ?c.HWND {
     return if (hwnd) |value| @ptrFromInt(@intFromPtr(value)) else null;
-}
-
-fn loadCursorResource(id: u16) ?c.HCURSOR {
-    return c.LoadCursorW(null, @ptrFromInt(@as(usize, id)));
 }
 
 fn fromByteGuiRect(rect: bgc.RECT) c.RECT {

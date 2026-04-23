@@ -175,13 +175,8 @@ fn setByteGuiTraceFmt(comptime fmt: []const u8, args: anytype) void {
     _ = args;
 }
 
-extern "user32" fn LoadCursorW(h_instance: c.HINSTANCE, cursor_name: ?*anyopaque) callconv(.winapi) c.HCURSOR;
 extern "user32" fn LoadImageW(h_instance: c.HINSTANCE, name: ?*anyopaque, image_type: c.UINT, width: c.INT, height: c.INT, flags: c.UINT) callconv(.winapi) ?*anyopaque;
 extern "user32" fn SendMessageW(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) callconv(.winapi) c.LRESULT;
-
-fn loadCursorResource(id: u16) c.HCURSOR {
-    return LoadCursorW(null, @ptrFromInt(@as(usize, id)));
-}
 
 fn loadIconResource(instance: c.HINSTANCE, id: u16, width: c.INT, height: c.INT) c.HICON {
     @setRuntimeSafety(false);
@@ -4283,7 +4278,7 @@ pub noinline fn ByteGui_ImplWin32_CreatePlatformWindow(config: ?*const ByteGuiPl
     wc.hInstance = cfg.Instance;
     wc.hIcon = big_icon;
     wc.hIconSm = small_icon;
-    wc.hCursor = loadCursorResource(idc_arrow_id);
+    wc.hCursor = if (w32.loadCursorResource(idc_arrow_id)) |cursor| @ptrFromInt(@intFromPtr(cursor)) else null;
     wc.lpszClassName = GHostWindow.ClassName.?.ptr;
     if (c.RegisterClassExW(&wc) == 0) return false;
     setByteGuiTrace("win32:create:registered");

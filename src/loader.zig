@@ -1,5 +1,4 @@
 // Game discovery, launch, and injection helpers
-const builtin = @import("builtin");
 const std = @import("std");
 
 pub const c = @import("win32.zig");
@@ -91,10 +90,49 @@ pub fn describeLaunchError(err: LaunchError) []const u8 {
     };
 }
 
+fn classifyCreateProcessError() LaunchError {
+    return switch (c.GetLastError()) {
+        c.ERROR_FILE_NOT_FOUND, c.ERROR_PATH_NOT_FOUND => error.ExecutableNotFound,
+        c.ERROR_ACCESS_DENIED => error.AccessDenied,
+        c.ERROR_INVALID_NAME, c.ERROR_INVALID_PARAMETER => error.InvalidExecutablePath,
+        else => error.CreateProcessFailed,
+    };
+}
+
+pub fn createProcessWide(application_name: ?c.LPCWSTR, command_line: ?c.LPWSTR) LaunchError!c.PROCESS_INFORMATION {
+    var startup_info: c.STARTUPINFOW = undefined;
+    var process_info: c.PROCESS_INFORMATION = undefined;
+    @memset(std.mem.asBytes(&startup_info), 0);
+    @memset(std.mem.asBytes(&process_info), 0);
+    startup_info.cb = @sizeOf(c.STARTUPINFOW);
+
+    if (c.CreateProcessW(
+        application_name,
+        command_line,
+        null,
+        null,
+        c.FALSE,
+        0,
+        null,
+        null,
+        &startup_info,
+        &process_info,
+    ) == c.FALSE) {
+        return classifyCreateProcessError();
+    }
+
+    return process_info;
+}
+
+pub fn closeProcessInformation(process_info: *const c.PROCESS_INFORMATION) void {
+    _ = c.CloseHandle(process_info.hThread);
+    _ = c.CloseHandle(process_info.hProcess);
+}
+
 // Path discovery
 fn pathIsFileWtf8(wtf8_path: []const u8) bool {
     var path_buf: [max_path_bytes]u16 = undefined;
-    const path_w = wtf8ToWtf16LeZ(wtf8_path, &path_buf) catch return false;
+    const path_w = c.wtf8ToWtf16LeZ(wtf8_path, &path_buf) catch return false;
     const attrs = c.GetFileAttributesW(path_w.ptr);
     return attrs != c.INVALID_FILE_ATTRIBUTES and (attrs & file_attribute_directory) == 0;
 }
@@ -127,31 +165,6 @@ fn trimRightPathNoise(path: []const u8) []const u8 {
     return path[0..end];
 }
 
-fn wtf8ToWtf16LeZ(wtf8: []const u8, buf: []u16) ![:0]u16 {
-    if (buf.len == 0) return error.NoSpaceLeft;
-    const len = try std.unicode.wtf8ToWtf16Le(buf[0 .. buf.len - 1], wtf8);
-    buf[len] = 0;
-    return buf[0..len :0];
-}
-
-fn wtf16LeToWtf8Slice(wtf16le: []const u16, out_buf: []u8) ![]const u8 {
-    const len = std.unicode.calcWtf8Len(wtf16le);
-    if (len > out_buf.len) return error.NoSpaceLeft;
-    return out_buf[0..std.unicode.wtf16LeToWtf8(out_buf, wtf16le)];
-}
-
-fn getEnvironmentVariableWtf8(environ: std.process.Environ, comptime name: []const u8, out_buf: []u8) ?[]const u8 {
-    if (builtin.os.tag == .windows) {
-        const value_w = std.process.Environ.getWindows(environ, std.unicode.wtf8ToWtf16LeStringLiteral(name)) orelse return null;
-        return wtf16LeToWtf8Slice(value_w, out_buf) catch null;
-    }
-
-    const value = std.process.Environ.getPosix(environ, name) orelse return null;
-    if (value.len > out_buf.len) return null;
-    @memcpy(out_buf[0..value.len], value);
-    return out_buf[0..value.len];
-}
-
 fn pathExistsWtf8(io: std.Io, wtf8_path: []const u8) bool {
     var file = std.Io.Dir.openFileAbsolute(io, wtf8_path, .{ .allow_directory = false }) catch return false;
     file.close(io);
@@ -181,33 +194,6 @@ fn extractInstallDirFromLine(line: []const u8) ?[]const u8 {
     return line[path_start..path_end];
 }
 
-fn appendNormalizedPath(out_buf: []u8, base: []const u8, leaf: []const u8) ![]const u8 {
-    var len: usize = 0;
-
-    for (base) |ch| {
-        if (len >= out_buf.len) return error.NoSpaceLeft;
-        out_buf[len] = if (ch == '/') '\\' else ch;
-        len += 1;
-    }
-
-    while (len > 0 and (out_buf[len - 1] == '\\' or out_buf[len - 1] == '/')) : (len -= 1) {}
-
-    if (len >= out_buf.len) return error.NoSpaceLeft;
-    out_buf[len] = '\\';
-    len += 1;
-
-    var leaf_start: usize = 0;
-    while (leaf_start < leaf.len and (leaf[leaf_start] == '\\' or leaf[leaf_start] == '/')) : (leaf_start += 1) {}
-
-    for (leaf[leaf_start..]) |ch| {
-        if (len >= out_buf.len) return error.NoSpaceLeft;
-        out_buf[len] = if (ch == '/') '\\' else ch;
-        len += 1;
-    }
-
-    return out_buf[0..len];
-}
-
 fn readWholeFileWtf8(io: std.Io, allocator: std.mem.Allocator, wtf8_path: []const u8) !?[]u8 {
     var file = std.Io.Dir.openFileAbsolute(io, wtf8_path, .{ .allow_directory = false }) catch return null;
     defer file.close(io);
@@ -221,11 +207,11 @@ fn readWholeFileWtf8(io: std.Io, allocator: std.mem.Allocator, wtf8_path: []cons
 
 fn detectGameExeFromPlayerLog(io: std.Io, environ: std.process.Environ, allocator: std.mem.Allocator) !?[:0]u16 {
     var appdata_buf: [max_path_bytes]u8 = undefined;
-    const appdata = getEnvironmentVariableWtf8(environ, "APPDATA", &appdata_buf) orelse return null;
+    const appdata = c.getEnvironmentVariableWtf8(environ, "APPDATA", &appdata_buf) orelse return null;
     const roaming_parent = std.fs.path.dirname(appdata) orelse return null;
 
     var player_log_buf: [max_path_bytes]u8 = undefined;
-    const player_log = try appendNormalizedPath(&player_log_buf, roaming_parent, "LocalLow\\Gryphline\\Endfield\\Player.log");
+    const player_log = try c.appendNormalizedPath(&player_log_buf, roaming_parent, "LocalLow\\Gryphline\\Endfield\\Player.log");
 
     const contents = try readWholeFileWtf8(io, allocator, player_log) orelse return null;
     defer allocator.free(contents);
@@ -234,7 +220,7 @@ fn detectGameExeFromPlayerLog(io: std.Io, environ: std.process.Environ, allocato
     while (lines.next()) |line| {
         const install_dir = extractInstallDirFromLine(line) orelse continue;
         var exe_buf: [max_path_bytes]u8 = undefined;
-        const exe_utf8 = try appendNormalizedPath(&exe_buf, install_dir, target_exe_name);
+        const exe_utf8 = try c.appendNormalizedPath(&exe_buf, install_dir, target_exe_name);
 
         if (pathExistsWtf8(io, exe_utf8)) {
             return try std.unicode.wtf8ToWtf16LeAllocZ(allocator, exe_utf8);
@@ -341,7 +327,7 @@ pub fn writeEmbeddedDllToTemp(allocator: std.mem.Allocator, dll_bytes: []const u
     const temp_name = makeUniqueTempDllName(&temp_name_buf) catch return error.TempFileCreateFailed;
 
     var temp_name_utf16_buf: [32]u16 = undefined;
-    const temp_name_utf16 = wtf8ToWtf16LeZ(temp_name, &temp_name_utf16_buf) catch return error.TempFileCreateFailed;
+    const temp_name_utf16 = c.wtf8ToWtf16LeZ(temp_name, &temp_name_utf16_buf) catch return error.TempFileCreateFailed;
 
     var path_utf16_buf: [c.MAX_PATH + 32]u16 = undefined;
     if (temp_len + temp_name_utf16.len > path_utf16_buf.len) return error.TempFileCreateFailed;
@@ -349,7 +335,7 @@ pub fn writeEmbeddedDllToTemp(allocator: std.mem.Allocator, dll_bytes: []const u
     @memcpy(path_utf16_buf[temp_len .. temp_len + temp_name_utf16.len], temp_name_utf16);
 
     var utf8_path_buf: [max_path_bytes]u8 = undefined;
-    const utf8_path = wtf16LeToWtf8Slice(path_utf16_buf[0 .. temp_len + temp_name_utf16.len], &utf8_path_buf) catch {
+    const utf8_path = c.wtf16LeToWtf8Slice(path_utf16_buf[0 .. temp_len + temp_name_utf16.len], &utf8_path_buf) catch {
         return error.TempFileCreateFailed;
     };
     const path = try allocator.dupe(u8, utf8_path);
@@ -387,7 +373,7 @@ pub fn injectDll(pid: u32, dll_path: []const u8) InjectError!void {
     if (pid == 0) return error.InvalidPid;
 
     var wide_path_buf: [max_path_bytes]u16 = undefined;
-    const dll_path_w = wtf8ToWtf16LeZ(dll_path, &wide_path_buf) catch return error.BadDllPath;
+    const dll_path_w = c.wtf8ToWtf16LeZ(dll_path, &wide_path_buf) catch return error.BadDllPath;
 
     const process = c.OpenProcess(process_rights, c.FALSE, pid) orelse return error.OpenProcessFailed;
     defer _ = c.CloseHandle(process);
@@ -427,43 +413,20 @@ pub fn injectDll(pid: u32, dll_path: []const u8) InjectError!void {
 }
 
 pub fn launchGameWithArgs(game_exe_path: [:0]const u16, launch_args: ?[]const u8) LaunchError!void {
-    var startup_info: c.STARTUPINFOW = undefined;
-    var process_info: c.PROCESS_INFORMATION = undefined;
-    @memset(std.mem.asBytes(&startup_info), 0);
-    @memset(std.mem.asBytes(&process_info), 0);
-    startup_info.cb = @sizeOf(c.STARTUPINFOW);
-
     var command_line_buf: [max_path_bytes + 64]u8 = undefined;
     var command_line_wide_buf: [max_path_bytes + 64]u16 = undefined;
     const command_line_wide = if (launch_args) |args| blk: {
         var path_utf8_buf: [max_path_bytes]u8 = undefined;
-        const path_utf8 = wtf16LeToWtf8Slice(game_exe_path, &path_utf8_buf) catch return error.InvalidExecutablePath;
+        const path_utf8 = c.wtf16LeToWtf8Slice(game_exe_path, &path_utf8_buf) catch return error.InvalidExecutablePath;
         const command_line = std.fmt.bufPrint(&command_line_buf, "\"{s}\" {s}", .{ path_utf8, args }) catch return error.InvalidExecutablePath;
-        break :blk wtf8ToWtf16LeZ(command_line, &command_line_wide_buf) catch return error.InvalidExecutablePath;
+        break :blk c.wtf8ToWtf16LeZ(command_line, &command_line_wide_buf) catch return error.InvalidExecutablePath;
     } else null;
 
-    if (c.CreateProcessW(
+    const process_info = try createProcessWide(
         game_exe_path.ptr,
         if (command_line_wide) |command_line| command_line.ptr else null,
-        null,
-        null,
-        c.FALSE,
-        0,
-        null,
-        null,
-        &startup_info,
-        &process_info,
-    ) == c.FALSE) {
-        return switch (c.GetLastError()) {
-            c.ERROR_FILE_NOT_FOUND, c.ERROR_PATH_NOT_FOUND => error.ExecutableNotFound,
-            c.ERROR_ACCESS_DENIED => error.AccessDenied,
-            c.ERROR_INVALID_NAME, c.ERROR_INVALID_PARAMETER => error.InvalidExecutablePath,
-            else => error.CreateProcessFailed,
-        };
-    }
-
-    _ = c.CloseHandle(process_info.hThread);
-    _ = c.CloseHandle(process_info.hProcess);
+    );
+    closeProcessInformation(&process_info);
 }
 
 pub fn launchGame(game_exe_path: [:0]const u16) LaunchError!void {

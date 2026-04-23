@@ -1,5 +1,4 @@
 // CLI launcher path
-const builtin = @import("builtin");
 const std = @import("std");
 
 const app_version = @import("version.zig");
@@ -10,12 +9,6 @@ const c = @import("win32.zig");
 const APP_TITLE = std.unicode.utf8ToUtf16LeStringLiteral("Endfield Uncensored");
 const VERSION_STR = app_version.version_str;
 const CLI_CONSOLE_TITLE = std.unicode.utf8ToUtf16LeStringLiteral("Endfield Uncensored CLI");
-const FORCE_WINE_MODE_LONG = "--force-wine-mode";
-const FORCE_WINE_MODE_SHORT = "-fwm";
-const ALLOW_MINIMIZE_LONG = "--allow-minimize";
-const SILENT_LONG = "--silent";
-const EFMI_LONG = "--efmi";
-const GAME_PATH_LONG = "--game-path";
 const EFMI_WAIT_TIMEOUT_MS: u64 = 10_000;
 const EFMI_DEFAULT_SUBPATH = "XXMI Launcher\\Resources\\Bin\\XXMI Launcher.exe";
 const EFMI_MISSING_PATH_MESSAGE = "You need to specify a location with --EFMI <PATH_TO_XXMI Launcher.exe>.";
@@ -54,8 +47,6 @@ pub const ParseArgsError = error{
     MutuallyExclusiveDx11AndEfmi,
     MutuallyExclusiveGamePathAndEfmi,
     MutuallyExclusiveAutoYesAndGui,
-    MutuallyExclusiveCliAndForceWineMode,
-    MutuallyExclusiveSilentAndGui,
     MutuallyExclusiveCliAndGuiArgs,
 };
 
@@ -64,23 +55,21 @@ const CliWaitResult = union(enum) {
     process_found: u32,
 };
 
-// Argument parsing
-fn wtf8ToWtf16LeZ(wtf8: []const u8, buf: []u16) ![:0]u16 {
-    if (buf.len == 0) return error.NoSpaceLeft;
-    const len = try std.unicode.wtf8ToWtf16Le(buf[0 .. buf.len - 1], wtf8);
-    buf[len] = 0;
-    return buf[0..len :0];
-}
-
-fn wtf16LeToWtf8Slice(wtf16le: []const u16, out_buf: []u8) ![]const u8 {
-    const len = std.unicode.calcWtf8Len(wtf16le);
-    if (len > out_buf.len) return error.NoSpaceLeft;
-    return out_buf[0..std.unicode.wtf16LeToWtf8(out_buf, wtf16le)];
-}
+const ArgKind = enum {
+    unknown,
+    cli,
+    silent,
+    auto_yes,
+    dx11,
+    force_wine_mode,
+    allow_minimize,
+    efmi,
+    game_path,
+};
 
 fn showErrorMessage(message: []const u8) void {
     var message_buf: [256]u16 = undefined;
-    const message_utf16 = wtf8ToWtf16LeZ(message, &message_buf) catch return;
+    const message_utf16 = c.wtf8ToWtf16LeZ(message, &message_buf) catch return;
     _ = c.MessageBoxW(null, message_utf16.ptr, APP_TITLE, c.MB_OK | c.MB_ICONERROR);
 }
 
@@ -88,79 +77,33 @@ pub fn showArgumentError(message: []const u8) void {
     showErrorMessage(message);
 }
 
-fn isCliArg(arg: []const u8) bool {
-    return std.ascii.eqlIgnoreCase(arg, "-c") or
-        std.ascii.eqlIgnoreCase(arg, "--c") or
-        std.ascii.eqlIgnoreCase(arg, "-cli") or
-        std.ascii.eqlIgnoreCase(arg, "--cli") or
-        std.ascii.eqlIgnoreCase(arg, "/cli");
+fn argBody(arg: []const u8) ?[]const u8 {
+    if (arg.len == 0) return null;
+    return switch (arg[0]) {
+        '/' => if (arg.len > 1) arg[1..] else null,
+        '-' => if (arg.len > 2 and arg[1] == '-') arg[2..] else if (arg.len > 1) arg[1..] else null,
+        else => null,
+    };
 }
 
-fn isSilentArg(arg: []const u8) bool {
-    return std.ascii.eqlIgnoreCase(arg, "-s") or
-        std.ascii.eqlIgnoreCase(arg, "--s") or
-        std.ascii.eqlIgnoreCase(arg, "-silent") or
-        std.ascii.eqlIgnoreCase(arg, SILENT_LONG) or
-        std.ascii.eqlIgnoreCase(arg, "/silent");
-}
-
-fn isAutoYesArg(arg: []const u8) bool {
-    return std.ascii.eqlIgnoreCase(arg, "-y") or
-        std.ascii.eqlIgnoreCase(arg, "--y") or
-        std.ascii.eqlIgnoreCase(arg, "/y") or
-        std.ascii.eqlIgnoreCase(arg, "-yes") or
-        std.ascii.eqlIgnoreCase(arg, "--yes") or
-        std.ascii.eqlIgnoreCase(arg, "/yes");
-}
-
-fn isDx11Arg(arg: []const u8) bool {
-    return std.ascii.eqlIgnoreCase(arg, "-dx11") or
-        std.ascii.eqlIgnoreCase(arg, "--dx11") or
-        std.ascii.eqlIgnoreCase(arg, "/dx11");
-}
-
-fn isForceWineModeArg(arg: []const u8) bool {
-    return std.ascii.eqlIgnoreCase(arg, FORCE_WINE_MODE_LONG) or
-        std.ascii.eqlIgnoreCase(arg, "-wm") or
-        std.ascii.eqlIgnoreCase(arg, "--wm") or
-        std.ascii.eqlIgnoreCase(arg, "-force-wine-mode") or
-        std.ascii.eqlIgnoreCase(arg, "/force-wine-mode") or
-        std.ascii.eqlIgnoreCase(arg, FORCE_WINE_MODE_SHORT) or
-        std.ascii.eqlIgnoreCase(arg, "--fwm") or
-        std.ascii.eqlIgnoreCase(arg, "/fwm");
-}
-
-fn isAllowMinimizeArg(arg: []const u8) bool {
-    return std.ascii.eqlIgnoreCase(arg, "-am") or
-        std.ascii.eqlIgnoreCase(arg, "--am") or
-        std.ascii.eqlIgnoreCase(arg, ALLOW_MINIMIZE_LONG) or
-        std.ascii.eqlIgnoreCase(arg, "-allow-minimize") or
-        std.ascii.eqlIgnoreCase(arg, "/allow-minimize");
-}
-
-fn isEfmiArg(arg: []const u8) bool {
-    return std.ascii.eqlIgnoreCase(arg, "-efmi") or
-        std.ascii.eqlIgnoreCase(arg, EFMI_LONG) or
-        std.ascii.eqlIgnoreCase(arg, "/efmi");
-}
-
-fn isGamePathArg(arg: []const u8) bool {
-    return std.ascii.eqlIgnoreCase(arg, "-gp") or
-        std.ascii.eqlIgnoreCase(arg, "--gp") or
-        std.ascii.eqlIgnoreCase(arg, GAME_PATH_LONG) or
-        std.ascii.eqlIgnoreCase(arg, "-game-path") or
-        std.ascii.eqlIgnoreCase(arg, "/game-path");
+fn classifyArg(arg: []const u8) ArgKind {
+    const body = argBody(arg) orelse return .unknown;
+    if (std.ascii.eqlIgnoreCase(body, "c") or std.ascii.eqlIgnoreCase(body, "cli")) return .cli;
+    if (std.ascii.eqlIgnoreCase(body, "s") or std.ascii.eqlIgnoreCase(body, "silent")) return .silent;
+    if (std.ascii.eqlIgnoreCase(body, "y") or std.ascii.eqlIgnoreCase(body, "yes")) return .auto_yes;
+    if (std.ascii.eqlIgnoreCase(body, "dx11")) return .dx11;
+    if (std.ascii.eqlIgnoreCase(body, "wm") or
+        std.ascii.eqlIgnoreCase(body, "fwm") or
+        std.ascii.eqlIgnoreCase(body, "force-wine-mode"))
+        return .force_wine_mode;
+    if (std.ascii.eqlIgnoreCase(body, "am") or std.ascii.eqlIgnoreCase(body, "allow-minimize")) return .allow_minimize;
+    if (std.ascii.eqlIgnoreCase(body, "efmi")) return .efmi;
+    if (std.ascii.eqlIgnoreCase(body, "gp") or std.ascii.eqlIgnoreCase(body, "game-path")) return .game_path;
+    return .unknown;
 }
 
 fn isKnownArg(arg: []const u8) bool {
-    return isCliArg(arg) or
-        isAutoYesArg(arg) or
-        isDx11Arg(arg) or
-        isSilentArg(arg) or
-        isForceWineModeArg(arg) or
-        isAllowMinimizeArg(arg) or
-        isEfmiArg(arg) or
-        isGamePathArg(arg);
+    return classifyArg(arg) != .unknown;
 }
 
 fn parseBoolOverrideValue(arg: []const u8) ?BoolOverride {
@@ -183,57 +126,18 @@ fn parseBoolOverrideValue(arg: []const u8) ?BoolOverride {
     return null;
 }
 
-fn getEnvironmentVariableWtf8(environ: std.process.Environ, comptime name: []const u8, out_buf: []u8) ?[]const u8 {
-    if (builtin.os.tag == .windows) {
-        const value_w = std.process.Environ.getWindows(environ, std.unicode.wtf8ToWtf16LeStringLiteral(name)) orelse return null;
-        return wtf16LeToWtf8Slice(value_w, out_buf) catch null;
-    }
-
-    const value = std.process.Environ.getPosix(environ, name) orelse return null;
-    if (value.len > out_buf.len) return null;
-    @memcpy(out_buf[0..value.len], value);
-    return out_buf[0..value.len];
-}
-
-fn appendNormalizedPath(out_buf: []u8, base: []const u8, leaf: []const u8) ![]const u8 {
-    var len: usize = 0;
-
-    for (base) |ch| {
-        if (len >= out_buf.len) return error.NoSpaceLeft;
-        out_buf[len] = if (ch == '/') '\\' else ch;
-        len += 1;
-    }
-
-    while (len > 0 and (out_buf[len - 1] == '\\' or out_buf[len - 1] == '/')) : (len -= 1) {}
-
-    if (len >= out_buf.len) return error.NoSpaceLeft;
-    out_buf[len] = '\\';
-    len += 1;
-
-    var leaf_start: usize = 0;
-    while (leaf_start < leaf.len and (leaf[leaf_start] == '\\' or leaf[leaf_start] == '/')) : (leaf_start += 1) {}
-
-    for (leaf[leaf_start..]) |ch| {
-        if (len >= out_buf.len) return error.NoSpaceLeft;
-        out_buf[len] = if (ch == '/') '\\' else ch;
-        len += 1;
-    }
-
-    return out_buf[0..len];
-}
-
 fn pathExistsWtf8(wtf8_path: []const u8) bool {
     var path_buf: [std.Io.Dir.max_path_bytes]u16 = undefined;
-    const path_w = wtf8ToWtf16LeZ(wtf8_path, &path_buf) catch return false;
+    const path_w = c.wtf8ToWtf16LeZ(wtf8_path, &path_buf) catch return false;
     return c.GetFileAttributesW(path_w.ptr) != c.INVALID_FILE_ATTRIBUTES;
 }
 
 fn resolveDefaultEfmiLauncherPath(allocator: std.mem.Allocator, environ: std.process.Environ) !?[]u8 {
     var appdata_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
-    const appdata = getEnvironmentVariableWtf8(environ, "APPDATA", &appdata_buf) orelse return null;
+    const appdata = c.getEnvironmentVariableWtf8(environ, "APPDATA", &appdata_buf) orelse return null;
 
     var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
-    const path = appendNormalizedPath(&path_buf, appdata, EFMI_DEFAULT_SUBPATH) catch return null;
+    const path = c.appendNormalizedPath(&path_buf, appdata, EFMI_DEFAULT_SUBPATH) catch return null;
     if (!pathExistsWtf8(path)) return null;
 
     return try allocator.dupe(u8, path);
@@ -255,72 +159,71 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
         const arg = pending_arg orelse args_it.next() orelse break;
         pending_arg = null;
 
-        if (isCliArg(arg)) {
-            config.cli = true;
-            continue;
-        }
-
-        if (isSilentArg(arg)) {
-            config.silent = true;
-            continue;
-        }
-
-        if (isAutoYesArg(arg)) {
-            config.auto_yes = true;
-            continue;
-        }
-
-        if (isDx11Arg(arg)) {
-            config.dx11 = true;
-            continue;
-        }
-
-        if (isForceWineModeArg(arg)) {
-            const value = args_it.next() orelse return error.MissingForceWineModeValue;
-            if (isCliArg(value)) {
+        switch (classifyArg(arg)) {
+            .cli => {
                 config.cli = true;
                 continue;
-            }
-            if (isSilentArg(value)) {
+            },
+            .silent => {
                 config.silent = true;
                 continue;
-            }
-            config.wine_mode_override = parseBoolOverrideValue(value) orelse return error.InvalidForceWineModeValue;
-            continue;
-        }
-
-        if (isAllowMinimizeArg(arg)) {
-            const value = args_it.next() orelse return error.MissingAllowMinimizeValue;
-            config.allow_minimize_override = parseBoolOverrideValue(value) orelse return error.InvalidAllowMinimizeValue;
-            continue;
-        }
-
-        if (isGamePathArg(arg)) {
-            const value = args_it.next() orelse return error.MissingGamePathValue;
-            if (isKnownArg(value)) return error.MissingGamePathValue;
-            if (!loader.validateGameExeOverridePath(value)) return error.InvalidGamePathValue;
-            if (config.game_exe_override_path) |old_path| allocator.free(old_path);
-            config.game_exe_override_path = try allocator.dupe(u8, value);
-            continue;
-        }
-
-        if (isEfmiArg(arg)) {
-            if (config.efmi_launcher_path) |old_path| allocator.free(old_path);
-            config.efmi_launcher_path = null;
-            config.cli = true;
-            config.efmi_requested = true;
-
-            const maybe_value = args_it.next();
-            if (maybe_value) |value| {
-                if (isKnownArg(value)) {
-                    pending_arg = value;
-                    config.efmi_launcher_path = try resolveDefaultEfmiLauncherPath(allocator, environ);
-                } else {
-                    config.efmi_launcher_path = try allocator.dupe(u8, value);
+            },
+            .auto_yes => {
+                config.auto_yes = true;
+                continue;
+            },
+            .dx11 => {
+                config.dx11 = true;
+                continue;
+            },
+            .force_wine_mode => {
+                const value = args_it.next() orelse return error.MissingForceWineModeValue;
+                switch (classifyArg(value)) {
+                    .cli => {
+                        config.cli = true;
+                        continue;
+                    },
+                    .silent => {
+                        config.silent = true;
+                        continue;
+                    },
+                    else => {},
                 }
-            } else {
-                config.efmi_launcher_path = try resolveDefaultEfmiLauncherPath(allocator, environ);
-            }
+                config.wine_mode_override = parseBoolOverrideValue(value) orelse return error.InvalidForceWineModeValue;
+                continue;
+            },
+            .allow_minimize => {
+                const value = args_it.next() orelse return error.MissingAllowMinimizeValue;
+                config.allow_minimize_override = parseBoolOverrideValue(value) orelse return error.InvalidAllowMinimizeValue;
+                continue;
+            },
+            .game_path => {
+                const value = args_it.next() orelse return error.MissingGamePathValue;
+                if (isKnownArg(value)) return error.MissingGamePathValue;
+                if (!loader.validateGameExeOverridePath(value)) return error.InvalidGamePathValue;
+                if (config.game_exe_override_path) |old_path| allocator.free(old_path);
+                config.game_exe_override_path = try allocator.dupe(u8, value);
+                continue;
+            },
+            .efmi => {
+                if (config.efmi_launcher_path) |old_path| allocator.free(old_path);
+                config.efmi_launcher_path = null;
+                config.cli = true;
+                config.efmi_requested = true;
+
+                const maybe_value = args_it.next();
+                if (maybe_value) |value| {
+                    if (isKnownArg(value)) {
+                        pending_arg = value;
+                        config.efmi_launcher_path = try resolveDefaultEfmiLauncherPath(allocator, environ);
+                    } else {
+                        config.efmi_launcher_path = try allocator.dupe(u8, value);
+                    }
+                } else {
+                    config.efmi_launcher_path = try resolveDefaultEfmiLauncherPath(allocator, environ);
+                }
+            },
+            .unknown => {},
         }
     }
 
@@ -354,8 +257,6 @@ pub fn describeParseArgsError(err: ParseArgsError) []const u8 {
         error.MutuallyExclusiveDx11AndEfmi => "-DX11 is mutually exclusive with -EFMI.",
         error.MutuallyExclusiveGamePathAndEfmi => "--game-path is mutually exclusive with --EFMI.",
         error.MutuallyExclusiveAutoYesAndGui => "-y and -yes are mutually exclusive with GUI mode.",
-        error.MutuallyExclusiveCliAndForceWineMode => "-cli and --force-wine-mode are mutually exclusive.",
-        error.MutuallyExclusiveSilentAndGui => "-silent is mutually exclusive with GUI mode.",
         error.MutuallyExclusiveCliAndGuiArgs => "CLI arguments are mutually exclusive with GUI-only arguments.",
     };
 }
@@ -396,7 +297,7 @@ fn getProcessPathWtf8(pid: u32, out_buf: []u8) !?[]const u8 {
     var wide_len: c.DWORD = wide_buf.len - 1;
     if (c.QueryFullProcessImageNameW(process, 0, wide_buf[0..].ptr, &wide_len) == c.FALSE or wide_len == 0) return null;
 
-    return try wtf16LeToWtf8Slice(wide_buf[0..wide_len], out_buf);
+    return try c.wtf16LeToWtf8Slice(wide_buf[0..wide_len], out_buf);
 }
 
 fn cliInputHandle() ?c.HANDLE {
@@ -433,43 +334,20 @@ fn describeEfmiLaunchError(err: loader.LaunchError) []const u8 {
 }
 
 fn launchEfmiLauncher(efmi_launcher_path: []const u8) loader.LaunchError!void {
-    var startup_info: c.STARTUPINFOW = undefined;
-    var process_info: c.PROCESS_INFORMATION = undefined;
-    @memset(std.mem.asBytes(&startup_info), 0);
-    @memset(std.mem.asBytes(&process_info), 0);
-    startup_info.cb = @sizeOf(c.STARTUPINFOW);
-
     var path_buf: [std.Io.Dir.max_path_bytes]u16 = undefined;
-    const launcher_path_w = wtf8ToWtf16LeZ(efmi_launcher_path, &path_buf) catch return error.InvalidExecutablePath;
+    const launcher_path_w = c.wtf8ToWtf16LeZ(efmi_launcher_path, &path_buf) catch return error.InvalidExecutablePath;
 
     var command_line_utf8_buf: [std.Io.Dir.max_path_bytes + 32]u8 = undefined;
     const command_line_utf8 = std.fmt.bufPrint(&command_line_utf8_buf, "\"{s}\" --nogui --xxmi EFMI", .{efmi_launcher_path}) catch return error.InvalidExecutablePath;
 
     var command_line_wide_buf: [std.Io.Dir.max_path_bytes + 32]u16 = undefined;
-    const command_line_wide = wtf8ToWtf16LeZ(command_line_utf8, &command_line_wide_buf) catch return error.InvalidExecutablePath;
+    const command_line_wide = c.wtf8ToWtf16LeZ(command_line_utf8, &command_line_wide_buf) catch return error.InvalidExecutablePath;
 
-    if (c.CreateProcessW(
+    const process_info = try loader.createProcessWide(
         launcher_path_w.ptr,
         command_line_wide.ptr,
-        null,
-        null,
-        c.FALSE,
-        0,
-        null,
-        null,
-        &startup_info,
-        &process_info,
-    ) == c.FALSE) {
-        return switch (c.GetLastError()) {
-            c.ERROR_FILE_NOT_FOUND, c.ERROR_PATH_NOT_FOUND => error.ExecutableNotFound,
-            c.ERROR_ACCESS_DENIED => error.AccessDenied,
-            c.ERROR_INVALID_NAME, c.ERROR_INVALID_PARAMETER => error.InvalidExecutablePath,
-            else => error.CreateProcessFailed,
-        };
-    }
-
-    _ = c.CloseHandle(process_info.hThread);
-    _ = c.CloseHandle(process_info.hProcess);
+    );
+    loader.closeProcessInformation(&process_info);
 }
 
 fn waitForTargetProcessTimeout(timeout_ms: u64) u32 {

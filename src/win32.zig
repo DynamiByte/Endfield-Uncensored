@@ -1,4 +1,5 @@
 // Focused Win32 surface for the launcher
+const builtin = @import("builtin");
 const std = @import("std");
 const windows = std.os.windows;
 
@@ -144,6 +145,71 @@ pub const INPUT_RECORD = extern struct {
         Raw: [16]u8,
     },
 };
+
+pub fn makeRectL(x: f32, y: f32, w: f32, h: f32) RECT {
+    return .{
+        .left = @intFromFloat(@floor(x)),
+        .top = @intFromFloat(@floor(y)),
+        .right = @intFromFloat(@ceil(x + w)),
+        .bottom = @intFromFloat(@ceil(y + h)),
+    };
+}
+
+pub fn pointInRect(rect: anytype, pt: POINT) bool {
+    return pt.x >= rect.left and pt.x < rect.right and pt.y >= rect.top and pt.y < rect.bottom;
+}
+
+pub fn wtf8ToWtf16LeZ(wtf8: []const u8, buf: []u16) ![:0]u16 {
+    if (buf.len == 0) return error.NoSpaceLeft;
+    const len = try std.unicode.wtf8ToWtf16Le(buf[0 .. buf.len - 1], wtf8);
+    buf[len] = 0;
+    return buf[0..len :0];
+}
+
+pub fn wtf16LeToWtf8Slice(wtf16le: []const u16, out_buf: []u8) ![]const u8 {
+    const len = std.unicode.calcWtf8Len(wtf16le);
+    if (len > out_buf.len) return error.NoSpaceLeft;
+    return out_buf[0..std.unicode.wtf16LeToWtf8(out_buf, wtf16le)];
+}
+
+pub fn getEnvironmentVariableWtf8(environ: std.process.Environ, comptime name: []const u8, out_buf: []u8) ?[]const u8 {
+    if (builtin.os.tag == .windows) {
+        const value_w = std.process.Environ.getWindows(environ, std.unicode.wtf8ToWtf16LeStringLiteral(name)) orelse return null;
+        return wtf16LeToWtf8Slice(value_w, out_buf) catch null;
+    }
+
+    const value = std.process.Environ.getPosix(environ, name) orelse return null;
+    if (value.len > out_buf.len) return null;
+    @memcpy(out_buf[0..value.len], value);
+    return out_buf[0..value.len];
+}
+
+pub fn appendNormalizedPath(out_buf: []u8, base: []const u8, leaf: []const u8) ![]const u8 {
+    var len: usize = 0;
+
+    for (base) |ch| {
+        if (len >= out_buf.len) return error.NoSpaceLeft;
+        out_buf[len] = if (ch == '/') '\\' else ch;
+        len += 1;
+    }
+
+    while (len > 0 and (out_buf[len - 1] == '\\' or out_buf[len - 1] == '/')) : (len -= 1) {}
+
+    if (len >= out_buf.len) return error.NoSpaceLeft;
+    out_buf[len] = '\\';
+    len += 1;
+
+    var leaf_start: usize = 0;
+    while (leaf_start < leaf.len and (leaf[leaf_start] == '\\' or leaf[leaf_start] == '/')) : (leaf_start += 1) {}
+
+    for (leaf[leaf_start..]) |ch| {
+        if (len >= out_buf.len) return error.NoSpaceLeft;
+        out_buf[len] = if (ch == '/') '\\' else ch;
+        len += 1;
+    }
+
+    return out_buf[0..len];
+}
 
 fn winBool(value: bool) BOOL {
     return switch (@typeInfo(BOOL)) {
@@ -327,6 +393,10 @@ pub extern "opengl32" fn wglCreateContext(hdc: HDC) callconv(.winapi) ?HGLRC;
 pub extern "opengl32" fn wglDeleteContext(hglrc: HGLRC) callconv(.winapi) BOOL;
 pub extern "opengl32" fn wglMakeCurrent(hdc: ?HDC, hglrc: ?HGLRC) callconv(.winapi) BOOL;
 pub extern "opengl32" fn wglGetProcAddress(lpszProc: [*:0]const u8) callconv(.winapi) ?*const anyopaque;
+
+pub fn loadCursorResource(id: u16) ?HCURSOR {
+    return LoadCursorW(null, @ptrFromInt(@as(usize, id)));
+}
 
 pub extern "kernel32" fn CreateProcessW(
     lp_application_name: ?LPCWSTR,
