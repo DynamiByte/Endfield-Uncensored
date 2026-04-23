@@ -1239,12 +1239,20 @@ fn hitTestButton(pt: c.POINT) i32 {
 fn updateHoverStates(dt: f32) void {
     _ = dt;
     const hwnd = g_hwnd orelse return;
-    var pt = std.mem.zeroes(c.POINT);
-    _ = c.GetCursorPos(&pt);
-    _ = c.ScreenToClient(hwnd, &pt);
+    var screen_pt = std.mem.zeroes(c.POINT);
+    _ = c.GetCursorPos(&screen_pt);
+
+    var pt = screen_pt;
+    var hover_id: i32 = 0;
+    var cursor_over_window = false;
+    var window_rect = std.mem.zeroes(c.RECT);
+    if (c.GetWindowRect(hwnd, &window_rect) != c.FALSE and c.PtInRect(&window_rect, screen_pt) != c.FALSE) {
+        cursor_over_window = c.ScreenToClient(hwnd, &pt) != c.FALSE and pointInRoundedRectClient(pt);
+        if (cursor_over_window) hover_id = hitTestButton(pt);
+    }
 
     const prev_hover = g_hovered_button;
-    g_hovered_button = if (!pointInRoundedRectClient(pt)) 0 else hitTestButton(pt);
+    g_hovered_button = hover_id;
     if (g_hovered_button != prev_hover) {
         if (prev_hover >= 1 and prev_hover <= 4) startButtonColorAnim(prev_hover, kControlIdleColor);
         if (g_hovered_button == 1) {
@@ -1259,7 +1267,9 @@ fn updateHoverStates(dt: f32) void {
         startScalarAnim(&g_toggle_anim, if (g_hovered_button == 6) 1.0 else 0.0, 0.18);
     }
 
-    _ = c.SetCursor(loadCursorResource(if (g_hovered_button == 5 or g_hovered_button == 6) IDC_HAND_ID else IDC_ARROW_ID));
+    if (cursor_over_window) {
+        _ = c.SetCursor(loadCursorResource(if (g_hovered_button == 5 or g_hovered_button == 6) IDC_HAND_ID else IDC_ARROW_ID));
+    }
 }
 
 fn drawYellowRotatedRect(draw: ?*ByteDrawList, opacity: f32) void {
