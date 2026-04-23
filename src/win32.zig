@@ -59,6 +59,13 @@ pub const MSG = extern struct {
     lPrivate: DWORD,
 };
 
+pub const TRACKMOUSEEVENT = extern struct {
+    cbSize: DWORD,
+    dwFlags: DWORD,
+    hwndTrack: HWND,
+    dwHoverTime: DWORD,
+};
+
 pub const WNDCLASSEXW = extern struct {
     cbSize: UINT,
     style: UINT,
@@ -183,6 +190,7 @@ pub const WM_QUIT: UINT = 0x0012;
 pub const WM_SETICON: UINT = 0x0080;
 pub const WM_NCHITTEST: UINT = 0x0084;
 pub const WM_MOUSEMOVE: UINT = 0x0200;
+pub const WM_MOUSELEAVE: UINT = 0x02A3;
 pub const WM_LBUTTONDOWN: UINT = 0x0201;
 pub const WM_LBUTTONUP: UINT = 0x0202;
 pub const WM_RBUTTONDOWN: UINT = 0x0204;
@@ -196,6 +204,7 @@ pub const SIZE_RESTORED: WPARAM = 0;
 pub const SIZE_MINIMIZED: WPARAM = 1;
 
 pub const PM_REMOVE: UINT = 0x0001;
+pub const TME_LEAVE: DWORD = 0x00000002;
 
 pub const SW_SHOWNORMAL: INT = 1;
 pub const SW_SHOW: INT = 5;
@@ -263,6 +272,7 @@ pub extern "kernel32" fn PeekConsoleInputW(h_console_input: HANDLE, lp_buffer: [
 pub extern "kernel32" fn ReadConsoleInputW(h_console_input: HANDLE, lp_buffer: [*]INPUT_RECORD, n_length: DWORD, lp_number_of_events_read: *DWORD) callconv(.winapi) BOOL;
 
 pub extern "user32" fn GetWindowRect(hwnd: HWND, lp_rect: *RECT) callconv(.winapi) BOOL;
+pub extern "user32" fn TrackMouseEvent(lp_event_track: *TRACKMOUSEEVENT) callconv(.winapi) BOOL;
 pub extern "user32" fn GetDC(hwnd: ?HWND) callconv(.winapi) ?HDC;
 pub extern "user32" fn LoadCursorW(h_instance: ?HINSTANCE, cursor_name: ?*anyopaque) callconv(.winapi) ?HCURSOR;
 pub extern "user32" fn ReleaseDC(hwnd: ?HWND, hdc: HDC) callconv(.winapi) INT;

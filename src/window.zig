@@ -256,6 +256,11 @@ var g_pressed_button: i32 = 0;
 var g_press_captured = false;
 var g_press_canceled = false;
 var g_dragging = false;
+var g_cursor_in_window = false;
+var g_mouse_leave_tracking = false;
+var g_hover_requires_cursor_motion = false;
+var g_last_cursor_screen = std.mem.zeroes(c.POINT);
+var g_last_cursor_screen_valid = false;
 var g_press_screen: c.POINT = std.mem.zeroes(c.POINT);
 var g_press_rect: c.RECT = std.mem.zeroes(c.RECT);
 var g_drag_offset: c.POINT = std.mem.zeroes(c.POINT);
@@ -969,6 +974,7 @@ fn showStartupWindow() void {
     _ = c.ShowWindow(hwnd, c.SW_SHOW);
     bringWindowToFront();
     _ = c.UpdateWindow(hwnd);
+    armHoverAfterCursorMotion();
     startWindowAnimation(.slide_in);
 }
 
@@ -1030,6 +1036,7 @@ fn startWindowAnimation(typ: WindowAnimType) void {
             g_window_anim.start_pos = .{ .x = rc.left, .y = rc.top };
             g_window_anim.end_pos = g_window_anim.start_pos;
             _ = setWindowOpacityImmediate(0.0);
+            armHoverAfterCursorMotion();
         },
         .none => {},
     }
@@ -1236,40 +1243,50 @@ fn hitTestButton(pt: c.POINT) i32 {
     return 0;
 }
 
+fn applyHoveredButton(next_hover: i32) void {
+    const prev_hover = g_hovered_button;
+    if (prev_hover == next_hover) return;
+
+    g_hovered_button = next_hover;
+    if (prev_hover >= 1 and prev_hover <= 4) startButtonColorAnim(prev_hover, kControlIdleColor);
+    if (g_hovered_button == 1) {
+        startButtonColorAnim(1, .{ .x = 1.0, .y = 127.0 / 255.0, .z = 80.0 / 255.0, .w = 1.0 });
+    } else if (g_hovered_button == 2) {
+        startButtonColorAnim(2, .{ .x = 218.0 / 255.0, .y = 165.0 / 255.0, .z = 32.0 / 255.0, .w = 1.0 });
+    } else if (g_hovered_button == 3 or g_hovered_button == 4) {
+        startButtonColorAnim(g_hovered_button, kControlHoverBlue);
+    }
+
+    startScalarAnim(&g_launch_anim, if (g_hovered_button == 5) 1.0 else 0.0, 0.18);
+    startScalarAnim(&g_toggle_anim, if (g_hovered_button == 6) 1.0 else 0.0, 0.18);
+}
+
+fn beginMouseLeaveTracking(hwnd: c.HWND) void {
+    if (g_mouse_leave_tracking) return;
+    var track = c.TRACKMOUSEEVENT{
+        .cbSize = @sizeOf(c.TRACKMOUSEEVENT),
+        .dwFlags = c.TME_LEAVE,
+        .hwndTrack = hwnd,
+        .dwHoverTime = 0,
+    };
+    if (c.TrackMouseEvent(&track) != c.FALSE) g_mouse_leave_tracking = true;
+}
+
+fn clearWindowHoverState() void {
+    g_cursor_in_window = false;
+    g_mouse_leave_tracking = false;
+    applyHoveredButton(0);
+}
+
+fn armHoverAfterCursorMotion() void {
+    g_hover_requires_cursor_motion = true;
+    g_last_cursor_screen_valid = c.GetCursorPos(&g_last_cursor_screen) != c.FALSE;
+    clearWindowHoverState();
+}
+
 fn updateHoverStates(dt: f32) void {
     _ = dt;
-    const hwnd = g_hwnd orelse return;
-    var screen_pt = std.mem.zeroes(c.POINT);
-    _ = c.GetCursorPos(&screen_pt);
-
-    var pt = screen_pt;
-    var hover_id: i32 = 0;
-    var cursor_over_window = false;
-    var window_rect = std.mem.zeroes(c.RECT);
-    if (c.GetWindowRect(hwnd, &window_rect) != c.FALSE and c.PtInRect(&window_rect, screen_pt) != c.FALSE) {
-        cursor_over_window = c.ScreenToClient(hwnd, &pt) != c.FALSE and pointInRoundedRectClient(pt);
-        if (cursor_over_window) hover_id = hitTestButton(pt);
-    }
-
-    const prev_hover = g_hovered_button;
-    g_hovered_button = hover_id;
-    if (g_hovered_button != prev_hover) {
-        if (prev_hover >= 1 and prev_hover <= 4) startButtonColorAnim(prev_hover, kControlIdleColor);
-        if (g_hovered_button == 1) {
-            startButtonColorAnim(1, .{ .x = 1.0, .y = 127.0 / 255.0, .z = 80.0 / 255.0, .w = 1.0 });
-        } else if (g_hovered_button == 2) {
-            startButtonColorAnim(2, .{ .x = 218.0 / 255.0, .y = 165.0 / 255.0, .z = 32.0 / 255.0, .w = 1.0 });
-        } else if (g_hovered_button == 3 or g_hovered_button == 4) {
-            startButtonColorAnim(g_hovered_button, kControlHoverBlue);
-        }
-
-        startScalarAnim(&g_launch_anim, if (g_hovered_button == 5) 1.0 else 0.0, 0.18);
-        startScalarAnim(&g_toggle_anim, if (g_hovered_button == 6) 1.0 else 0.0, 0.18);
-    }
-
-    if (cursor_over_window) {
-        _ = c.SetCursor(loadCursorResource(if (g_hovered_button == 5 or g_hovered_button == 6) IDC_HAND_ID else IDC_ARROW_ID));
-    }
+    if (!g_cursor_in_window) applyHoveredButton(0);
 }
 
 fn drawYellowRotatedRect(draw: ?*ByteDrawList, opacity: f32) void {
@@ -1539,7 +1556,28 @@ fn handleLButtonDown(hwnd: c.HWND, l_param: c.LPARAM) c.LRESULT {
     return 0;
 }
 
-fn handleMouseMove(hwnd: c.HWND) c.LRESULT {
+fn handleMouseMove(hwnd: c.HWND, l_param: c.LPARAM) c.LRESULT {
+    const pt = c.POINT{ .x = lowWordSigned(l_param), .y = highWordSigned(l_param) };
+    var screen_pt = std.mem.zeroes(c.POINT);
+    const has_screen_pt = c.GetCursorPos(&screen_pt) != c.FALSE;
+    const cursor_moved = !g_last_cursor_screen_valid or !has_screen_pt or screen_pt.x != g_last_cursor_screen.x or screen_pt.y != g_last_cursor_screen.y;
+    if (has_screen_pt) {
+        g_last_cursor_screen = screen_pt;
+        g_last_cursor_screen_valid = true;
+    } else {
+        g_last_cursor_screen_valid = false;
+    }
+    if (cursor_moved) g_hover_requires_cursor_motion = false;
+    if (g_hover_requires_cursor_motion and !g_dragging and !g_press_captured) return 0;
+
+    if (pointInRoundedRectClient(pt)) {
+        g_cursor_in_window = true;
+        beginMouseLeaveTracking(hwnd);
+        if (!g_dragging and !g_press_captured) applyHoveredButton(hitTestButton(pt));
+    } else {
+        clearWindowHoverState();
+    }
+
     if (g_dragging) {
         var cur = std.mem.zeroes(c.POINT);
         _ = c.GetCursorPos(&cur);
@@ -1556,6 +1594,11 @@ fn handleMouseMove(hwnd: c.HWND) c.LRESULT {
         return 0;
     }
     return -1;
+}
+
+fn handleMouseLeave() c.LRESULT {
+    clearWindowHoverState();
+    return 0;
 }
 
 fn handleLButtonUp(l_param: c.LPARAM) c.LRESULT {
@@ -1625,9 +1668,10 @@ fn wndProc(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) call
         },
         c.WM_LBUTTONDOWN => return handleLButtonDown(active_hwnd, l_param),
         c.WM_MOUSEMOVE => {
-            const result = handleMouseMove(active_hwnd);
+            const result = handleMouseMove(active_hwnd, l_param);
             if (result != -1) return result;
         },
+        c.WM_MOUSELEAVE => return handleMouseLeave(),
         c.WM_LBUTTONUP => {
             const result = handleLButtonUp(l_param);
             if (result != -1) return result;
@@ -1728,6 +1772,7 @@ fn initializeGuiState() void {
     appendInitialStatusLines();
     if (!startLoaderWorker()) appendStatus(strings.status_monitor_failed, .{});
     resetButtonColorAnimations();
+    clearWindowHoverState();
 }
 
 fn prewarmVisibleTextCaches() void {
