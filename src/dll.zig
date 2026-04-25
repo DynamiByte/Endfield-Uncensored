@@ -7,6 +7,7 @@ const HINSTANCE = windows.HINSTANCE;
 const BOOL = windows.BOOL;
 const DWORD = windows.DWORD;
 const HANDLE = windows.HANDLE;
+const HWND = windows.HWND;
 const LPVOID = windows.LPVOID;
 const SIZE_T = windows.SIZE_T;
 
@@ -27,6 +28,7 @@ extern "kernel32" fn GetModuleHandleA(lpModuleName: ?[*:0]const u8) callconv(.wi
 extern "kernel32" fn GetProcAddress(hModule: HMODULE, lpProcName: [*:0]const u8) callconv(.winapi) ?*anyopaque;
 extern "kernel32" fn Sleep(dwMilliseconds: DWORD) callconv(.winapi) void;
 extern "kernel32" fn GetCurrentProcess() callconv(.winapi) HANDLE;
+extern "kernel32" fn GetCurrentProcessId() callconv(.winapi) DWORD;
 extern "kernel32" fn FlushInstructionCache(hProcess: HANDLE, lpBaseAddress: ?*const anyopaque, dwSize: SIZE_T) callconv(.winapi) BOOL;
 extern "kernel32" fn VirtualAlloc(lpAddress: ?LPVOID, dwSize: SIZE_T, flAllocationType: DWORD, flProtect: DWORD) callconv(.winapi) ?LPVOID;
 extern "kernel32" fn VirtualProtect(lpAddress: LPVOID, dwSize: SIZE_T, flNewProtect: DWORD, lpflOldProtect: *DWORD) callconv(.winapi) BOOL;
@@ -40,6 +42,9 @@ extern "kernel32" fn CreateThread(
 ) callconv(.winapi) ?HANDLE;
 extern "kernel32" fn DisableThreadLibraryCalls(hLibModule: HMODULE) callconv(.winapi) BOOL;
 extern "user32" fn GetAsyncKeyState(vKey: c_int) callconv(.winapi) c_short;
+extern "user32" fn GetForegroundWindow() callconv(.winapi) ?HWND;
+extern "user32" fn GetWindowThreadProcessId(hwnd: HWND, lpdw_process_id: ?*DWORD) callconv(.winapi) DWORD;
+extern "user32" fn IsIconic(hwnd: HWND) callconv(.winapi) BOOL;
 
 const Il2CppDomainGetFn = *const fn () callconv(.c) ?*anyopaque;
 const Il2CppDomainAssemblyOpenFn = *const fn (?*anyopaque, [*:0]const u8) callconv(.c) ?*anyopaque;
@@ -83,6 +88,15 @@ fn keyDown(vkey: c_int) bool {
 
 fn altDown() bool {
     return keyDown(VK_MENU) or keyDown(VK_LMENU) or keyDown(VK_RMENU);
+}
+
+fn hotkeyWindowActive() bool {
+    const window = GetForegroundWindow() orelse return false;
+    if (IsIconic(window) != winBool(false)) return false;
+
+    var process_id: DWORD = 0;
+    _ = GetWindowThreadProcessId(window, &process_id);
+    return process_id == GetCurrentProcessId();
 }
 
 fn waitForModule(module_name: [*:0]const u8) HMODULE {
@@ -282,7 +296,7 @@ fn patchThread(_: ?*anyopaque) callconv(.winapi) DWORD {
     while (true) {
         Sleep(POLL_MS);
         const combo_down = altDown() and keyDown(VK_F12);
-        if (combo_down and !was_combo_down) {
+        if (hotkeyWindowActive() and combo_down and !was_combo_down) {
             const enabled = @atomicLoad(bool, &g_enabled, .acquire);
             @atomicStore(bool, &g_enabled, !enabled, .release);
         }
