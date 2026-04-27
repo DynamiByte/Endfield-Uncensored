@@ -290,7 +290,7 @@ fn addGeneratedVersionResource(
         app.version_info.internal_name,
         app.version_info.legal_copyright,
         original_filename,
-        app.version_info.product_name,
+        app.name,
         app.version_info.comments,
         exe_resources,
     }));

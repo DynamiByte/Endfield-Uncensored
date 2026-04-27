@@ -14,10 +14,9 @@
 
     .version_info = .{
         .company_name = "DynamiByte",
-        .file_description = "Endfield Uncensored",
+        .file_description = "A tool that removes the transparency filter of Endfeild in Vulkan",
         .internal_name = "EFU",
         .legal_copyright = "© 2026 DynamiByte",
-        .product_name = "Endfield Uncensored",
         .comments = "Author: DynamiByte",
     },
 }
