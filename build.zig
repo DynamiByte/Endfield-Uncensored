@@ -38,12 +38,37 @@ fn addEmbeddedAsset(module: *std.Build.Module, name: []const u8, path: std.Build
     });
 }
 
+fn wantsDllOnly(b: *std.Build) bool {
+    return (b.option(bool, "LL", "Build only EFU.dll") orelse false) or
+        (b.option(bool, "ll", "Build only EFU.dll") orelse false);
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+    const optimize = b.option(std.builtin.OptimizeMode, "optimize", "Build optimization mode") orelse .ReleaseSmall;
+
+    const dll = b.addLibrary(.{
+        .linkage = .dynamic,
+        .name = "EFUHook",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/dll.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    const install_dll = b.addInstallFileWithDir(dll.getEmittedBin(), .bin, "EFU.dll");
+
+    if (wantsDllOnly(b)) {
+        b.getInstallStep().dependOn(&install_dll.step);
+        return;
+    }
+
     const generated_files = b.addWriteFiles();
+
     const version_info_subset_text = strings.buildVersionInfoSubsetText(b.allocator, app_version.version_str) catch @panic("OOM");
     const textbox_subset_text = strings.buildTextboxSubsetText(b.allocator) catch @panic("OOM");
+
     const font_subsetter = b.addExecutable(.{
         .name = "font-subset",
         .root_module = b.createModule(.{
@@ -53,6 +78,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     font_subsetter.root_module.link_libc = true;
+
     const font_subset_specs = [_]FontSubsetSpec{
         .{
             .input_font_path = "fonts/Inter/Inter_18pt-Regular.ttf",
@@ -79,6 +105,7 @@ pub fn build(b: *std.Build) void {
             .output_name = "text-box.ttf",
         },
     };
+
     var subset_fonts: [font_subset_specs.len]std.Build.LazyPath = undefined;
     for (font_subset_specs, 0..) |spec, idx| {
         subset_fonts[idx] = addSubsetFont(
@@ -91,11 +118,13 @@ pub fn build(b: *std.Build) void {
             spec.output_name,
         );
     }
+
     const bytegui_c_header = generated_files.add("bytegui_c.h",
         \\#include <windows.h>
         \\#include <wtypes.h>
         \\
     );
+
     const bytegui_c = b.addTranslateC(.{
         .root_source_file = bytegui_c_header,
         .target = target,
@@ -116,16 +145,6 @@ pub fn build(b: *std.Build) void {
         app_version.file_version_rc,
     }));
 
-    const dll = b.addLibrary(.{
-        .linkage = .dynamic,
-        .name = "EFUHook",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/dll.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-
     const exe = b.addExecutable(.{
         .name = "EFU",
         .root_module = b.createModule(.{
@@ -136,7 +155,9 @@ pub fn build(b: *std.Build) void {
     });
     exe.subsystem = .Windows;
     exe.root_module.link_libc = true;
+
     linkLoaderLibraries(exe.root_module);
+
     exe.root_module.addIncludePath(b.path("src"));
     exe.root_module.addImport("bytegui_c", bytegui_c.createModule());
 
@@ -149,5 +170,6 @@ pub fn build(b: *std.Build) void {
         .file = b.path("src/version.rc"),
         .include_paths = &.{generated_files.getDirectory()},
     });
+
     b.installArtifact(exe);
 }
