@@ -31,6 +31,7 @@ pub const LaunchConfig = struct {
     auto_yes: bool = false,
     dx11: bool = false,
     efmi_requested: bool = false,
+    efmi_search_enabled: bool = true,
     efmi_launcher_path: ?[]u8 = null,
     game_exe_override_path: ?[]u8 = null,
     wine_mode_override: BoolOverride = .auto,
@@ -132,7 +133,7 @@ fn pathExistsWtf8(wtf8_path: []const u8) bool {
     return c.GetFileAttributesW(path_w.ptr) != c.INVALID_FILE_ATTRIBUTES;
 }
 
-fn resolveDefaultEfmiLauncherPath(allocator: std.mem.Allocator, environ: std.process.Environ) !?[]u8 {
+pub fn resolveDefaultEfmiLauncherPath(allocator: std.mem.Allocator, environ: std.process.Environ) !?[]u8 {
     var appdata_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const appdata = c.getEnvironmentVariableWtf8(environ, "APPDATA", &appdata_buf) orelse return null;
 
@@ -208,14 +209,25 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
             .efmi => {
                 if (config.efmi_launcher_path) |old_path| allocator.free(old_path);
                 config.efmi_launcher_path = null;
-                config.cli = true;
                 config.efmi_requested = true;
+                config.efmi_search_enabled = true;
 
                 const maybe_value = args_it.next();
                 if (maybe_value) |value| {
                     if (isKnownArg(value)) {
                         pending_arg = value;
                         config.efmi_launcher_path = try resolveDefaultEfmiLauncherPath(allocator, environ);
+                    } else if (parseBoolOverrideValue(value)) |enabled| {
+                        switch (enabled) {
+                            .on => {
+                                config.efmi_launcher_path = try resolveDefaultEfmiLauncherPath(allocator, environ);
+                            },
+                            .off => {
+                                config.efmi_requested = false;
+                                config.efmi_search_enabled = false;
+                            },
+                            .auto => unreachable,
+                        }
                     } else {
                         config.efmi_launcher_path = try allocator.dupe(u8, value);
                     }
@@ -230,10 +242,10 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
     if (config.silent and !config.cli) {
         config.cli = true;
     }
-    if (config.dx11 and config.efmi_requested) {
+    if (config.cli and config.dx11 and config.efmi_requested) {
         return error.MutuallyExclusiveDx11AndEfmi;
     }
-    if (config.efmi_requested and config.game_exe_override_path != null) {
+    if (config.cli and config.efmi_requested and config.game_exe_override_path != null) {
         return error.MutuallyExclusiveGamePathAndEfmi;
     }
     if (config.auto_yes and !config.cli) {
@@ -324,7 +336,7 @@ fn cliReadCommand() ?u8 {
     }
 }
 
-fn describeEfmiLaunchError(err: loader.LaunchError) []const u8 {
+pub fn describeEfmiLaunchError(err: loader.LaunchError) []const u8 {
     return switch (err) {
         error.ExecutableNotFound => "The path to XXMI is invalid.",
         error.AccessDenied => "Windows denied access to the EFMI launcher.",
@@ -333,7 +345,7 @@ fn describeEfmiLaunchError(err: loader.LaunchError) []const u8 {
     };
 }
 
-fn launchEfmiLauncher(efmi_launcher_path: []const u8) loader.LaunchError!void {
+pub fn launchEfmiLauncher(efmi_launcher_path: []const u8) loader.LaunchError!void {
     var path_buf: [std.Io.Dir.max_path_bytes]u16 = undefined;
     const launcher_path_w = c.wtf8ToWtf16LeZ(efmi_launcher_path, &path_buf) catch return error.InvalidExecutablePath;
 

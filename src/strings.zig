@@ -6,7 +6,8 @@ const loader = @import("loader.zig");
 pub const label_launch = "Launch Game";
 pub const label_minimize = "Minimize on Launch";
 pub const label_stay_open = "Stay open on Launch";
-pub const ui_toggle_labels_subset = label_minimize ++ "\n" ++ label_stay_open;
+pub const label_efmi = "EFMI";
+pub const ui_toggle_labels_subset = label_minimize ++ "\n" ++ label_stay_open ++ "\n" ++ label_efmi;
 
 pub const version_release_fmt = "v{s}.{s}.{s}";
 pub const version_preview_fmt = "v{s}.{s}.{s} PREVIEW {s}";
@@ -34,6 +35,9 @@ pub const status_minimized = "Minimized.";
 pub const status_ready_for_injection_again = "Ready for injection again.";
 pub const status_launch_requested_unavailable = "Launch requested, but the game path is unavailable.";
 pub const status_launch_failed_fmt = "Failed to launch game: {s}";
+pub const status_efmi_missing_path = "EFMI path unavailable.";
+pub const status_efmi_launch_failed_fmt = "Failed to launch EFMI: {s}";
+pub const status_launching_efmi = "Launching EFMI...";
 pub const status_launching_game = "Launching game...";
 pub const status_launching_game_dx11 = "Launching game in DX11...";
 pub const status_launching_game_vulkan = "Launching game in Vulkan...";
@@ -103,6 +107,11 @@ pub fn buildTextboxSubsetText(allocator: std.mem.Allocator) ![]u8 {
     try appendLine(&lines, allocator, try std.fmt.bufPrint(&line_buf, status_launch_failed_fmt, .{
         loader.describeLaunchError(error.CreateProcessFailed),
     }));
+    try appendLine(&lines, allocator, status_efmi_missing_path);
+    try appendLine(&lines, allocator, try std.fmt.bufPrint(&line_buf, status_efmi_launch_failed_fmt, .{
+        loader.describeLaunchError(error.CreateProcessFailed),
+    }));
+    try appendLine(&lines, allocator, status_launching_efmi);
     try appendLine(&lines, allocator, status_launching_game);
     try appendLine(&lines, allocator, status_launching_game_dx11);
     try appendLine(&lines, allocator, status_launching_game_vulkan);

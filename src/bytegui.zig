@@ -529,6 +529,108 @@ pub const ByteDrawList = struct {
         self.AddConvexPolyFilled(points.items, col);
     }
 
+    pub fn AddConvexPolyFilledHorizontalGradient(self: *ByteDrawList, points: []const ByteVec2, col_left: ByteU32, col_right: ByteU32, gradient_left: f32, gradient_right: f32, gradient_center: f32) void {
+        if (points.len < 3 or ((col_left | col_right) & BYTEGUI_COL32_A_MASK) == 0) return;
+
+        const uv = ByteVec2{ .x = 0.5, .y = 0.5 };
+        const idx_start = self.IdxBuffer.items.len;
+
+        if ((self.Flags & ByteDrawListFlags_AntiAliasedFill) != 0) {
+            var normals = allocator.alloc(ByteVec2, points.len) catch return;
+            defer allocator.free(normals);
+
+            var prev_idx: usize = points.len - 1;
+            var cur_idx: usize = 0;
+            while (cur_idx < points.len) : ({
+                prev_idx = cur_idx;
+                cur_idx += 1;
+            }) {
+                var delta = subVec2(points[cur_idx], points[prev_idx]);
+                const len = @sqrt(byteLengthSqr(delta));
+                if (len > 0.0) {
+                    delta.x /= len;
+                    delta.y /= len;
+                }
+                normals[prev_idx] = .{ .x = delta.y, .y = -delta.x };
+            }
+
+            const base_idx: ByteDrawIdx = @intCast(self.VtxBuffer.items.len);
+            for (points, 0..) |point, i| {
+                const n0 = normals[(i + points.len - 1) % points.len];
+                const n1 = normals[i];
+                const avg = computeAAMiterOffset(n0, n1, 0.5);
+                const col = horizontalGradientColor(point.x, gradient_left, gradient_right, gradient_center, col_left, col_right);
+
+                self.addVertex(.{ .x = point.x - avg.x, .y = point.y - avg.y }, uv, col) catch return;
+                self.addVertex(.{ .x = point.x + avg.x, .y = point.y + avg.y }, uv, col & ~BYTEGUI_COL32_A_MASK) catch return;
+            }
+
+            var i: usize = 2;
+            while (i < points.len) : (i += 1) {
+                self.addTriangleIndices(base_idx, base_idx + @as(ByteDrawIdx, @intCast((i - 1) * 2)), base_idx + @as(ByteDrawIdx, @intCast(i * 2))) catch return;
+            }
+
+            prev_idx = points.len - 1;
+            cur_idx = 0;
+            while (cur_idx < points.len) : ({
+                prev_idx = cur_idx;
+                cur_idx += 1;
+            }) {
+                const inner0 = base_idx + @as(ByteDrawIdx, @intCast(prev_idx * 2));
+                const outer0 = inner0 + 1;
+                const inner1 = base_idx + @as(ByteDrawIdx, @intCast(cur_idx * 2));
+                const outer1 = inner1 + 1;
+                self.addTriangleIndices(inner1, inner0, outer0) catch return;
+                self.addTriangleIndices(outer0, outer1, inner1) catch return;
+            }
+        } else {
+            const base_idx: ByteDrawIdx = @intCast(self.VtxBuffer.items.len);
+            for (points) |point| {
+                self.addVertex(point, uv, horizontalGradientColor(point.x, gradient_left, gradient_right, gradient_center, col_left, col_right)) catch return;
+            }
+            var i: usize = 2;
+            while (i < points.len) : (i += 1) {
+                self.addTriangleIndices(base_idx, base_idx + @as(ByteDrawIdx, @intCast(i - 1)), base_idx + @as(ByteDrawIdx, @intCast(i))) catch return;
+            }
+        }
+
+        self.addPrimitive(self.WhiteTexture, @intCast(self.IdxBuffer.items.len - idx_start)) catch return;
+    }
+
+    pub fn AddRectFilledHorizontalGradient(self: *ByteDrawList, p_min: ByteVec2, p_max: ByteVec2, col_left: ByteU32, col_right: ByteU32, rounding: f32) void {
+        self.AddRectFilledHorizontalGradientBiased(p_min, p_max, col_left, col_right, rounding, 0.5);
+    }
+
+    pub fn AddRectFilledHorizontalGradientBiased(self: *ByteDrawList, p_min: ByteVec2, p_max: ByteVec2, col_left: ByteU32, col_right: ByteU32, rounding: f32, gradient_center: f32) void {
+        if (((col_left | col_right) & BYTEGUI_COL32_A_MASK) == 0) return;
+
+        var clamped_rounding = @max(0.0, rounding);
+        const max_rounding = @min((p_max.x - p_min.x) * 0.5, (p_max.y - p_min.y) * 0.5);
+        clamped_rounding = @min(clamped_rounding, max_rounding);
+
+        if (clamped_rounding <= 0.0) {
+            const points = [_]ByteVec2{
+                .{ .x = p_min.x, .y = p_min.y },
+                .{ .x = p_max.x, .y = p_min.y },
+                .{ .x = p_max.x, .y = p_max.y },
+                .{ .x = p_min.x, .y = p_max.y },
+            };
+            self.AddConvexPolyFilledHorizontalGradient(&points, col_left, col_right, p_min.x, p_max.x, gradient_center);
+            return;
+        }
+
+        var points: ByteVec2List = .empty;
+        defer points.deinit(allocator);
+
+        const segments = @max(@as(i32, 3), @divTrunc(calcCircleSegmentCount(clamped_rounding), 4));
+        appendArc(&points, .{ .x = p_min.x + clamped_rounding, .y = p_min.y + clamped_rounding }, clamped_rounding, kPi, kPi * 1.5, segments);
+        appendArc(&points, .{ .x = p_max.x - clamped_rounding, .y = p_min.y + clamped_rounding }, clamped_rounding, kPi * 1.5, kPi * 2.0, segments);
+        appendArc(&points, .{ .x = p_max.x - clamped_rounding, .y = p_max.y - clamped_rounding }, clamped_rounding, 0.0, kPi * 0.5, segments);
+        appendArc(&points, .{ .x = p_min.x + clamped_rounding, .y = p_max.y - clamped_rounding }, clamped_rounding, kPi * 0.5, kPi, segments);
+        self.AddConvexPolyFilledHorizontalGradient(points.items, col_left, col_right, p_min.x, p_max.x, gradient_center);
+    }
+
+
     fn AddPolylineInternal(self: *ByteDrawList, points: []const ByteVec2, col: ByteU32, closed: bool, thickness: f32) void {
         if (points.len < 2 or thickness <= 0.0 or (col & BYTEGUI_COL32_A_MASK) == 0) return;
 
@@ -1463,6 +1565,148 @@ pub const Ui = struct {
         ByteGui.DrawConvexPolyFilledClippedToCornerOnlyRoundedRect(active_draw, &subject, clip_pos, clip_size, clip_radius, col, arc_segments);
     }
 
+    pub fn DrawHorizontalGradientRectFilled(draw: ?*ByteDrawList, pos: ByteVec2, size: ByteVec2, radius: f32, left_color: ByteVec4, right_color: ByteVec4, opacity: f32) void {
+        DrawHorizontalGradientRectFilledBiased(draw, pos, size, radius, left_color, right_color, opacity, 0.5);
+    }
+
+    pub fn DrawHorizontalGradientRectFilledBiased(draw: ?*ByteDrawList, pos: ByteVec2, size: ByteVec2, radius: f32, left_color: ByteVec4, right_color: ByteVec4, opacity: f32, gradient_center: f32) void {
+        const active_draw = draw orelse return;
+        active_draw.AddRectFilledHorizontalGradientBiased(
+            pos,
+            .{ .x = pos.x + size.x, .y = pos.y + size.y },
+            ColorToU32(ApplyOpacity(left_color, opacity)),
+            ColorToU32(ApplyOpacity(right_color, opacity)),
+            radius,
+            gradient_center,
+        );
+    }
+
+    const HorizontalRange = struct {
+        left: f32,
+        right: f32,
+    };
+
+    fn clampedRoundedRadius(size: ByteVec2, radius: f32) f32 {
+        return @min(@max(0.0, radius), @min(size.x * 0.5, size.y * 0.5));
+    }
+
+    fn roundedRectHorizontalRangeAtY(pos: ByteVec2, size: ByteVec2, radius: f32, y: f32) ?HorizontalRange {
+        const bottom = pos.y + size.y;
+        if (y < pos.y or y > bottom) return null;
+
+        const right = pos.x + size.x;
+        var left_x = pos.x;
+        var right_x = right;
+        const r = clampedRoundedRadius(size, radius);
+        if (r > 0.0) {
+            if (y < pos.y + r) {
+                const dy = (pos.y + r) - y;
+                const dx = @sqrt(@max(0.0, r * r - dy * dy));
+                left_x = pos.x + r - dx;
+                right_x = right - r + dx;
+            } else if (y > bottom - r) {
+                const dy = y - (bottom - r);
+                const dx = @sqrt(@max(0.0, r * r - dy * dy));
+                left_x = pos.x + r - dx;
+                right_x = right - r + dx;
+            }
+        }
+
+        return .{ .left = left_x, .right = right_x };
+    }
+
+    fn roundedRectLeftEdgeAtY(pos: ByteVec2, size: ByteVec2, radius: f32, y: f32) ?f32 {
+        const bottom = pos.y + size.y;
+        if (y < pos.y or y > bottom) return null;
+
+        const r = clampedRoundedRadius(size, radius);
+        if (r <= 0.0) return pos.x;
+
+        if (y < pos.y + r) {
+            const dy = (pos.y + r) - y;
+            const dx = @sqrt(@max(0.0, r * r - dy * dy));
+            return pos.x + r - dx;
+        }
+        if (y > bottom - r) {
+            const dy = y - (bottom - r);
+            const dx = @sqrt(@max(0.0, r * r - dy * dy));
+            return pos.x + r - dx;
+        }
+        return pos.x;
+    }
+
+    pub fn DrawRoundedLeftEdgeShadowedRectFilled(draw: ?*ByteDrawList, pos: ByteVec2, size: ByteVec2, radius: f32, base_color: ByteVec4, shadow_color: ByteVec4, opacity: f32, caster_pos: ByteVec2, caster_size: ByteVec2, caster_radius: f32, shadow_width: f32, shadow_strength: f32) void {
+        const active_draw = draw orelse return;
+        const p_max = ByteVec2{ .x = pos.x + size.x, .y = pos.y + size.y };
+        active_draw.AddRectFilled(pos, p_max, ColorToU32(ApplyOpacity(base_color, opacity)), radius);
+
+        const strength = Clamp01(shadow_strength);
+        if (shadow_width <= 0.0 or strength <= 0.0 or size.y <= 0.0) return;
+
+        var clear_shadow = shadow_color;
+        clear_shadow.w = 0.0;
+        var full_shadow = shadow_color;
+        full_shadow.w *= strength;
+
+        const clear_col = ColorToU32(ApplyOpacity(clear_shadow, opacity));
+        const full_col = ColorToU32(ApplyOpacity(full_shadow, opacity));
+
+        const slice_count: i32 = @intFromFloat(@min(96.0, @max(18.0, @ceil(size.y * 1.5))));
+        const slice_h = size.y / @as(f32, @floatFromInt(slice_count));
+        const old_flags = active_draw.Flags;
+        active_draw.Flags &= ~ByteDrawListFlags_AntiAliasedFill;
+        defer active_draw.Flags = old_flags;
+
+        var i: i32 = 0;
+        while (i < slice_count) : (i += 1) {
+            const y0 = pos.y + @as(f32, @floatFromInt(i)) * slice_h;
+            const y1 = if (i + 1 == slice_count) p_max.y else y0 + slice_h;
+            const ym = (y0 + y1) * 0.5;
+
+            const target_range = roundedRectHorizontalRangeAtY(pos, size, radius, ym) orelse continue;
+            const caster_edge = roundedRectLeftEdgeAtY(caster_pos, caster_size, caster_radius, ym) orelse continue;
+
+            const shadow_left = @max(target_range.left, caster_edge - shadow_width);
+            const shadow_right = @min(target_range.right, caster_edge);
+            if (shadow_right <= shadow_left) continue;
+
+            active_draw.AddRectFilledHorizontalGradient(
+                .{ .x = shadow_left, .y = y0 },
+                .{ .x = shadow_right, .y = y1 },
+                clear_col,
+                full_col,
+                0.0,
+            );
+        }
+    }
+
+    pub fn DrawRightEdgeShadowedRectFilled(draw: ?*ByteDrawList, pos: ByteVec2, size: ByteVec2, radius: f32, base_color: ByteVec4, shadow_color: ByteVec4, opacity: f32, shadow_edge_x: f32, shadow_width: f32, shadow_strength: f32) void {
+        const active_draw = draw orelse return;
+        const p_max = ByteVec2{ .x = pos.x + size.x, .y = pos.y + size.y };
+        active_draw.AddRectFilled(pos, p_max, ColorToU32(ApplyOpacity(base_color, opacity)), radius);
+
+        const strength = Clamp01(shadow_strength);
+        if (shadow_width <= 0.0 or strength <= 0.0) return;
+
+        const shadow_left = @max(pos.x, shadow_edge_x - shadow_width);
+        const shadow_right = @min(p_max.x, shadow_edge_x);
+        if (shadow_right <= shadow_left) return;
+
+        var clear_shadow = shadow_color;
+        clear_shadow.w = 0.0;
+        var full_shadow = shadow_color;
+        full_shadow.w *= strength;
+
+        active_draw.AddRectFilledHorizontalGradient(
+            .{ .x = shadow_left, .y = pos.y },
+            .{ .x = shadow_right, .y = p_max.y },
+            ColorToU32(ApplyOpacity(clear_shadow, opacity)),
+            ColorToU32(ApplyOpacity(full_shadow, opacity)),
+            0.0,
+        );
+    }
+
+
     pub fn DrawAnimatedTextureCentered(
         draw: ?*ByteDrawList,
         texture: *const TextTexture,
@@ -2236,6 +2480,35 @@ fn computeAAMiterOffsetLimited(n0: ByteVec2, n1: ByteVec2, aa_radius: f32, miter
 fn clamp01(v: f32) f32 {
     return if (v < 0.0) 0.0 else if (v > 1.0) 1.0 else v;
 }
+
+fn lerpPackedColorChannel(a: ByteU32, b: ByteU32, shift: u5, t: f32) ByteU32 {
+    const av: f32 = @floatFromInt((a >> shift) & 0xFF);
+    const bv: f32 = @floatFromInt((b >> shift) & 0xFF);
+    return @intFromFloat(av + (bv - av) * t + 0.5);
+}
+
+fn lerpPackedColor(a: ByteU32, b: ByteU32, t_in: f32) ByteU32 {
+    const t = clamp01(t_in);
+    const r = lerpPackedColorChannel(a, b, 0, t);
+    const g = lerpPackedColorChannel(a, b, 8, t);
+    const bl = lerpPackedColorChannel(a, b, 16, t);
+    const al = lerpPackedColorChannel(a, b, 24, t);
+    return r | (g << 8) | (bl << 16) | (al << 24);
+}
+
+fn biasedHorizontalGradientT(u_in: f32, gradient_center_in: f32) f32 {
+    const u = clamp01(u_in);
+    const gradient_center = @min(@max(gradient_center_in, 0.001), 0.999);
+    if (u <= gradient_center) return 0.5 * (u / gradient_center);
+    return 0.5 + 0.5 * ((u - gradient_center) / (1.0 - gradient_center));
+}
+
+fn horizontalGradientColor(x: f32, gradient_left: f32, gradient_right: f32, gradient_center: f32, col_left: ByteU32, col_right: ByteU32) ByteU32 {
+    const width = gradient_right - gradient_left;
+    if (@abs(width) <= 0.0001) return col_left;
+    return lerpPackedColor(col_left, col_right, biasedHorizontalGradientT((x - gradient_left) / width, gradient_center));
+}
+
 
 fn byteLengthSqr(v: ByteVec2) f32 {
     return v.x * v.x + v.y * v.y;

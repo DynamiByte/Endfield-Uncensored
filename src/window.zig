@@ -44,6 +44,7 @@ const README_URL = std.unicode.utf8ToUtf16LeStringLiteral("https://github.com/Dy
 const LABEL_LAUNCH = strings.label_launch;
 const LABEL_MINIMIZE = strings.label_minimize;
 const LABEL_STAY_OPEN = strings.label_stay_open;
+const LABEL_EFMI = strings.label_efmi;
 const APP_ICON_RESOURCE_ID: u16 = 1;
 
 const WINDOW_WIDTH = 500;
@@ -90,12 +91,27 @@ const LAUNCH_Y = 150.0;
 const LAUNCH_W = 136.0;
 const LAUNCH_H = 35.0;
 
+const EFMI_X = 313.0;
+const EFMI_Y = LAUNCH_Y;
+const EFMI_W = 42.0;
+const EFMI_H = LAUNCH_H;
+const EFMI_VISUAL_X_OFFSET = 4.0;
+const EFMI_VISIBLE_W = 28.0;
+const EFMI_UNDERLAP_W = 40.0;
+const EFMI_SHADOW_DARKEN = 0.86;
+const EFMI_SHADOW_WIDTH = 8.0;
+const EFMI_SHADOW_STRENGTH = 0.42;
+const EFMI_LABEL_LINE_SIZE = 14.0;
+
 const DRAG_THRESHOLD = 12;
 const PROCESS_POLL_MS: u64 = 175;
+const LAUNCH_COOLDOWN_MS: u64 = 3_000;
+const EFMI_LAUNCH_COOLDOWN_MS: u64 = 10_000;
 const LOGO_CANVAS_X = 62.0;
 const LOGO_CANVAS_Y = 52.0;
 const LOGO_CANVAS_W = 190.0;
 const LOGO_CANVAS_H = 100.0;
+const BUTTON_LABEL_HOVER_DELTA = 0.02;
 const BUTTON_LABEL_SUPERSAMPLE = 1.0;
 const BUTTON_LABEL_RENDER_SCALE = 1.25;
 const IDC_ARROW_ID: u16 = 32512;
@@ -212,6 +228,7 @@ const PostInjectBehavior = enum {
 const GameLaunchMode = enum {
     normal,
     dx11,
+    efmi,
 };
 
 // App state
@@ -230,15 +247,24 @@ var g_font_toggle: ?*ByteFont = null;
 var g_logo_layers: [LOGO_PATH_LAYERS.len]?Ui.ParsedSvgLayer = .{null} ** LOGO_PATH_LAYERS.len;
 var g_launch_label_texture: TextTexture = .{};
 var g_toggle_label_texture: TextTexture = .{};
+var g_efmi_top_label_texture: TextTexture = .{};
+var g_efmi_bottom_label_texture: TextTexture = .{};
 
 var g_output_lines: std.ArrayListUnmanaged([]u8) = .empty;
 var g_minimize_on_launch = false;
+var g_efmi_on_launch = false;
+var g_efmi_requested = false;
+var g_efmi_search_enabled = true;
+var g_efmi_button_visible = false;
+var g_efmi_launcher_path: ?[]const u8 = null;
+var g_efmi_detected_launcher_path: ?[]u8 = null;
 var g_minimized_by_toggle = false;
 var g_stayed_open_by_toggle = false;
 var g_game_exe_path: ?[:0]u16 = null;
 var g_game_exe_override_path: ?[]const u8 = null;
 var g_environ: std.process.Environ = .empty;
 var g_launch_btn_enabled = false;
+var g_launch_cooldown_until_tick: u64 = 0;
 var g_version_display_buf: [64]u8 = undefined;
 var g_version_display: []const u8 = VERSION_STR;
 var g_loader_thread: ?std.Thread = null;
@@ -273,8 +299,10 @@ var g_window_anim: WindowAnim = .{};
 var g_close_countdown: CloseCountdown = .{};
 var g_launch_anim: ScalarAnim = .{};
 var g_toggle_anim: ScalarAnim = .{};
+var g_efmi_anim: ScalarAnim = .{};
 var g_button_colors = [_]ColorAnim{.{}} ** 5;
 var g_toggle_current_color = ByteVec4{ .x = 220.0 / 255.0, .y = 220.0 / 255.0, .z = 220.0 / 255.0, .w = 1.0 };
+var g_efmi_current_color = ByteVec4{ .x = 220.0 / 255.0, .y = 220.0 / 255.0, .z = 220.0 / 255.0, .w = 1.0 };
 var g_launch_current_color = ByteVec4{ .x = 180.0 / 255.0, .y = 180.0 / 255.0, .z = 180.0 / 255.0, .w = 1.0 };
 
 const kControlIdleColor = ByteVec4{ .x = 51.0 / 255.0, .y = 51.0 / 255.0, .z = 51.0 / 255.0, .w = 1.0 };
@@ -319,6 +347,15 @@ fn lowWordU(value: c.LPARAM) u16 {
 fn highWordU(value: c.LPARAM) u16 {
     const bits: usize = @bitCast(value);
     return @truncate((bits >> 16) & 0xFFFF);
+}
+
+fn darkerEfmiShadowColor(color: ByteVec4) ByteVec4 {
+    return .{
+        .x = color.x * EFMI_SHADOW_DARKEN,
+        .y = color.y * EFMI_SHADOW_DARKEN,
+        .z = color.z * EFMI_SHADOW_DARKEN,
+        .w = color.w,
+    };
 }
 
 fn computeVersionDisplay(out_buf: []u8) ![]const u8 {
@@ -412,6 +449,14 @@ fn alternateLaunchMode() GameLaunchMode {
     return if (g_force_dx11) .normal else .dx11;
 }
 
+fn efmiLaunchSelected() bool {
+    return g_efmi_button_visible and g_efmi_on_launch;
+}
+
+fn selectedLaunchMode(preferred_mode: GameLaunchMode) GameLaunchMode {
+    return if (efmiLaunchSelected()) .efmi else preferred_mode;
+}
+
 fn appendLaunchModeHintStatus() void {
     if (g_force_dx11) {
         appendStatus(strings.status_mode_hint_dx11, .{});
@@ -424,6 +469,7 @@ fn appendLaunchModeStatus(mode: GameLaunchMode) void {
     switch (mode) {
         .normal => appendStatus(strings.status_launching_game_vulkan, .{}),
         .dx11 => appendStatus(strings.status_launching_game_dx11, .{}),
+        .efmi => appendStatus(strings.status_launching_efmi, .{}),
     }
 }
 
@@ -431,11 +477,31 @@ fn queueLaunchModeStatus(mode: GameLaunchMode) void {
     switch (mode) {
         .normal => queueLoaderStatus(strings.status_launching_game_vulkan, .{}),
         .dx11 => queueLoaderStatus(strings.status_launching_game_dx11, .{}),
+        .efmi => queueLoaderStatus(strings.status_launching_efmi, .{}),
     }
 }
 
+fn launchCooldownActive() bool {
+    if (g_launch_cooldown_until_tick == 0) return false;
+    if (c.GetTickCount64() < g_launch_cooldown_until_tick) return true;
+    g_launch_cooldown_until_tick = 0;
+    return false;
+}
+
+fn startLaunchCooldown(mode: GameLaunchMode) void {
+    const cooldown_ms: u64 = switch (mode) {
+        .efmi => EFMI_LAUNCH_COOLDOWN_MS,
+        .normal, .dx11 => LAUNCH_COOLDOWN_MS,
+    };
+    g_launch_cooldown_until_tick = c.GetTickCount64() + cooldown_ms;
+    updateLaunchButtonState();
+}
+
 fn computeLaunchButtonEnabled() bool {
-    return g_game_exe_path != null and !loaderTargetRunning();
+    if (launchCooldownActive()) return false;
+    if (loaderTargetRunning()) return false;
+    if (efmiLaunchSelected()) return true;
+    return g_game_exe_path != null;
 }
 
 fn syncLaunchButtonStateImmediate() void {
@@ -445,6 +511,7 @@ fn syncLaunchButtonStateImmediate() void {
 
 fn updateLaunchButtonState() void {
     g_launch_btn_enabled = computeLaunchButtonEnabled();
+    if (!g_launch_btn_enabled and (g_hovered_button == 5 or g_hovered_button == 7)) applyHoveredButton(0);
 }
 
 fn toggleButtonLabel() []const u8 {
@@ -585,6 +652,44 @@ fn setLoaderMinimizeOnLaunch(enabled: bool) void {
     g_loader_control_mutex.unlock();
 }
 
+fn setEfmiOnLaunch(enabled: bool) void {
+    g_efmi_on_launch = enabled;
+    updateLaunchButtonState();
+}
+
+fn clearDetectedEfmiLauncherPath() void {
+    if (g_efmi_detected_launcher_path) |path| {
+        if (g_efmi_launcher_path) |active_path| {
+            if (active_path.ptr == path.ptr) g_efmi_launcher_path = null;
+        }
+        allocator.free(path);
+        g_efmi_detected_launcher_path = null;
+    }
+}
+
+fn refreshEfmiAvailability() void {
+    clearDetectedEfmiLauncherPath();
+    if (!g_efmi_search_enabled) {
+        g_efmi_launcher_path = null;
+        g_efmi_button_visible = false;
+        g_efmi_on_launch = false;
+        return;
+    }
+    if (g_efmi_requested) {
+        g_efmi_button_visible = true;
+        return;
+    }
+
+    if (cli.resolveDefaultEfmiLauncherPath(allocator, g_environ) catch null) |path| {
+        g_efmi_detected_launcher_path = path;
+        g_efmi_launcher_path = path;
+        g_efmi_button_visible = true;
+    } else {
+        g_efmi_button_visible = false;
+        g_efmi_on_launch = false;
+    }
+}
+
 fn ensureWorkerTempDll(state: *LoaderWorkerState) ![]const u8 {
     if (state.temp_dll_path) |path| return path;
     const path = try loader.writeEmbeddedDllToTemp(allocator, embedded_dll);
@@ -704,6 +809,8 @@ fn cleanupLogoLayers() void {
 fn cleanupButtonLabelTextures() void {
     Ui.CleanupTextTexture(&g_launch_label_texture);
     Ui.CleanupTextTexture(&g_toggle_label_texture);
+    Ui.CleanupTextTexture(&g_efmi_top_label_texture);
+    Ui.CleanupTextTexture(&g_efmi_bottom_label_texture);
 }
 
 fn buildButtonLabelTexture(out_texture: *TextTexture, font: ?*ByteFont, logical_font_size: f32, text: []const u8, pad_scale: f32) bool {
@@ -732,7 +839,9 @@ fn rasterizeButtonLabelTexture(font: ?*ByteFont, logical_font_size: f32, text: [
 fn rebuildButtonLabelTextures() bool {
     const launch_ok = buildButtonLabelTexture(&g_launch_label_texture, g_font_launch, 24.0, LABEL_LAUNCH, 0.9);
     const toggle_ok = buildButtonLabelTexture(&g_toggle_label_texture, g_font_toggle, 20.0, toggleButtonLabel(), 0.45);
-    return launch_ok and toggle_ok;
+    const efmi_top_ok = buildButtonLabelTexture(&g_efmi_top_label_texture, g_font_toggle, EFMI_LABEL_LINE_SIZE, "EF", 0.45);
+    const efmi_bottom_ok = buildButtonLabelTexture(&g_efmi_bottom_label_texture, g_font_toggle, EFMI_LABEL_LINE_SIZE, "MI", 0.45);
+    return launch_ok and toggle_ok and efmi_top_ok and efmi_bottom_ok;
 }
 
 fn rebuildLogoLayers() void {
@@ -746,12 +855,18 @@ fn rebuildLogoLayers() void {
 const StartupPreparedAssets = struct {
     launch_label: Ui.RasterizedTexture = .{},
     toggle_label: Ui.RasterizedTexture = .{},
+    efmi_top_label: Ui.RasterizedTexture = .{},
+    efmi_bottom_label: Ui.RasterizedTexture = .{},
     launch_label_ready: bool = false,
     toggle_label_ready: bool = false,
+    efmi_top_label_ready: bool = false,
+    efmi_bottom_label_ready: bool = false,
 
     fn deinit(self: *StartupPreparedAssets) void {
         if (self.launch_label_ready) Ui.CleanupRasterizedTexture(&self.launch_label);
         if (self.toggle_label_ready) Ui.CleanupRasterizedTexture(&self.toggle_label);
+        if (self.efmi_top_label_ready) Ui.CleanupRasterizedTexture(&self.efmi_top_label);
+        if (self.efmi_bottom_label_ready) Ui.CleanupRasterizedTexture(&self.efmi_bottom_label);
         self.* = .{};
     }
 };
@@ -767,6 +882,14 @@ fn prepareStartupAssets(out_assets: *StartupPreparedAssets) void {
         out_assets.toggle_label = raster;
         out_assets.toggle_label_ready = true;
     }
+    if (rasterizeButtonLabelTexture(g_font_toggle, EFMI_LABEL_LINE_SIZE, "EF", 0.45)) |raster| {
+        out_assets.efmi_top_label = raster;
+        out_assets.efmi_top_label_ready = true;
+    }
+    if (rasterizeButtonLabelTexture(g_font_toggle, EFMI_LABEL_LINE_SIZE, "MI", 0.45)) |raster| {
+        out_assets.efmi_bottom_label = raster;
+        out_assets.efmi_bottom_label_ready = true;
+    }
 }
 
 fn startupAssetWorkerMain(out_assets: *StartupPreparedAssets) void {
@@ -775,11 +898,13 @@ fn startupAssetWorkerMain(out_assets: *StartupPreparedAssets) void {
 
 fn uploadPreparedStartupAssets(prepared: *const StartupPreparedAssets) bool {
     cleanupButtonLabelTextures();
-    if (!prepared.launch_label_ready or !prepared.toggle_label_ready) return false;
+    if (!prepared.launch_label_ready or !prepared.toggle_label_ready or !prepared.efmi_top_label_ready or !prepared.efmi_bottom_label_ready) return false;
 
     const launch_ok = Ui.UploadRasterizedMaskTexture(&g_launch_label_texture, &prepared.launch_label);
     const toggle_ok = Ui.UploadRasterizedMaskTexture(&g_toggle_label_texture, &prepared.toggle_label);
-    return launch_ok and toggle_ok;
+    const efmi_top_ok = Ui.UploadRasterizedMaskTexture(&g_efmi_top_label_texture, &prepared.efmi_top_label);
+    const efmi_bottom_ok = Ui.UploadRasterizedMaskTexture(&g_efmi_bottom_label_texture, &prepared.efmi_bottom_label);
+    return launch_ok and toggle_ok and efmi_top_ok and efmi_bottom_ok;
 }
 
 fn cleanupRenderResources() void {
@@ -1030,7 +1155,7 @@ fn updateAnimations(dt: f32) void {
         }
     }
 
-    for (&[_]*ScalarAnim{ &g_launch_anim, &g_toggle_anim }) |anim| {
+    for (&[_]*ScalarAnim{ &g_launch_anim, &g_toggle_anim, &g_efmi_anim }) |anim| {
         if (!anim.animating) continue;
         anim.elapsed += dt;
         const t = if (anim.duration > 0.0) anim.elapsed / anim.duration else 1.0;
@@ -1046,7 +1171,14 @@ fn updateAnimations(dt: f32) void {
         ByteVec4{ .x = 1.0, .y = 250.0 / 255.0, .z = 0.0, .w = 1.0 }
     else
         ByteVec4{ .x = 220.0 / 255.0, .y = 220.0 / 255.0, .z = 220.0 / 255.0, .w = 1.0 };
+    const efmi_target = if (!g_launch_btn_enabled)
+        kLaunchDisabledColor
+    else if (g_efmi_on_launch)
+        ByteVec4{ .x = 1.0, .y = 250.0 / 255.0, .z = 0.0, .w = 1.0 }
+    else
+        ByteVec4{ .x = 220.0 / 255.0, .y = 220.0 / 255.0, .z = 220.0 / 255.0, .w = 1.0 };
     g_toggle_current_color = lerpColor(g_toggle_current_color, toggle_target, clamp01(dt * 12.0));
+    g_efmi_current_color = lerpColor(g_efmi_current_color, efmi_target, clamp01(dt * 12.0));
     g_launch_current_color = lerpColor(g_launch_current_color, if (g_launch_btn_enabled) kLaunchEnabledColor else kLaunchDisabledColor, clamp01(dt * 12.0));
 
     if (g_close_countdown.active and g_window_anim.typ == .none) {
@@ -1165,6 +1297,53 @@ fn getLaunchRect(expanded_hit: bool) c.RECT {
     return makeRectL(cx - w * 0.5, cy - h * 0.5, w, h);
 }
 
+fn launchVisualLeftShift() f32 {
+    return scaleF(6.0) * g_launch_anim.value;
+}
+
+fn launchVisualLeft() f32 {
+    return scaleF(LAUNCH_X) - launchVisualLeftShift();
+}
+
+fn launchVisualHeight() f32 {
+    return scaleF(LAUNCH_H) + scaleF(4.0) * g_launch_anim.value;
+}
+
+fn launchVisualPos() ByteVec2 {
+    const h = launchVisualHeight();
+    const cy = scaleF(LAUNCH_Y + LAUNCH_H * 0.5);
+    return .{ .x = launchVisualLeft(), .y = cy - h * 0.5 };
+}
+
+fn launchVisualSize() ByteVec2 {
+    return .{ .x = scaleF(LAUNCH_W) + scaleF(12.0) * g_launch_anim.value, .y = launchVisualHeight() };
+}
+
+fn launchVisualRounding() f32 {
+    return scaleF(8.0) + scaleF(4.0) * g_launch_anim.value;
+}
+
+fn efmiVisibleWidth() f32 {
+    return scaleF(EFMI_VISIBLE_W);
+}
+
+fn efmiLabelWidth() f32 {
+    return efmiVisibleWidth();
+}
+
+fn efmiUnderlapWidth() f32 {
+    return scaleF(EFMI_UNDERLAP_W);
+}
+
+fn efmiVisualLeft() f32 {
+    return launchVisualLeft() - efmiVisibleWidth();
+}
+
+fn efmiLabelLeft() f32 {
+    return efmiVisualLeft();
+}
+
+
 fn getToggleRect(expanded_hit: bool) c.RECT {
     _ = expanded_hit;
     const anim = g_toggle_anim.value;
@@ -1175,6 +1354,14 @@ fn getToggleRect(expanded_hit: bool) c.RECT {
     const cx = scaleF(TOGGLE_X + TOGGLE_W * 0.5);
     const cy = scaleF(TOGGLE_Y + TOGGLE_H * 0.5 + TOGGLE_Y_OFFSET);
     return makeRectL(cx - w * 0.5, cy - h * 0.5, w, h);
+}
+
+fn getEfmiRect(expanded_hit: bool) c.RECT {
+    _ = expanded_hit;
+    const anim = g_efmi_anim.value;
+    const h = scaleF(EFMI_H) + scaleF(4.0) * anim;
+    const cy = scaleF(EFMI_Y + EFMI_H * 0.5);
+    return makeRectL(efmiVisualLeft(), cy - h * 0.5, efmiVisibleWidth(), h);
 }
 
 fn getWindowControlHitRects(min_hit: *bgc.RECT, close_hit: *bgc.RECT) void {
@@ -1207,6 +1394,7 @@ fn hitTestButton(pt: c.POINT) i32 {
     const version_hit = getVersionRect();
     const launch_hit = getLaunchRect(false);
     const toggle_hit = getToggleRect(true);
+    const efmi_hit = getEfmiRect(true);
 
     if (pointInRect(toggle_hit, pt)) return 6;
     if (pointInRect(close_hit, pt)) return 1;
@@ -1214,6 +1402,7 @@ fn hitTestButton(pt: c.POINT) i32 {
     if (pointInRect(info_hit, pt)) return 3;
     if (pointInRect(version_hit, pt)) return 4;
     if (pointInRect(launch_hit, pt) and g_launch_btn_enabled) return 5;
+    if (g_efmi_button_visible and g_launch_btn_enabled and pointInRect(efmi_hit, pt)) return 7;
     return 0;
 }
 
@@ -1231,8 +1420,10 @@ fn applyHoveredButton(next_hover: i32) void {
         startButtonColorAnim(g_hovered_button, kControlHoverBlue);
     }
 
-    startScalarAnim(&g_launch_anim, if (g_hovered_button == 5) 1.0 else 0.0, 0.18);
+    const launch_group_hovered = g_hovered_button == 5 or g_hovered_button == 7;
+    startScalarAnim(&g_launch_anim, if (launch_group_hovered) 1.0 else 0.0, 0.18);
     startScalarAnim(&g_toggle_anim, if (g_hovered_button == 6) 1.0 else 0.0, 0.18);
+    startScalarAnim(&g_efmi_anim, if (launch_group_hovered) 1.0 else 0.0, 0.18);
 }
 
 fn beginMouseLeaveTracking(hwnd: c.HWND) void {
@@ -1303,41 +1494,97 @@ fn drawYellowRotatedRect(draw: ?*ByteDrawList, opacity: f32) void {
     );
 }
 
-fn getButtonLabelTexture(is_launch: bool) *const TextTexture {
-    return if (is_launch) &g_launch_label_texture else &g_toggle_label_texture;
+fn buttonIsLaunch(id: []const u8) bool {
+    return std.mem.eql(u8, id, "launch_btn");
 }
 
-fn drawAnimatedButtonLabelTexture(draw: ?*ByteDrawList, is_launch: bool, pos: ByteVec2, size: ByteVec2, anim: f32, opacity: f32) bool {
-    const text_texture = getButtonLabelTexture(is_launch);
+fn buttonIsEfmi(id: []const u8) bool {
+    return std.mem.eql(u8, id, "efmi_btn");
+}
+
+fn getButtonLabelTexture(id: []const u8) *const TextTexture {
+    if (buttonIsLaunch(id)) return &g_launch_label_texture;
+    return &g_toggle_label_texture;
+}
+
+fn drawAnimatedTextureLabel(draw: ?*ByteDrawList, texture: *const TextTexture, is_launch: bool, pos: ByteVec2, size: ByteVec2, anim: f32, opacity: f32) bool {
+    const base_scale: f32 = if (is_launch) 0.94 else 0.92;
     return Ui.DrawAnimatedTextureCentered(
         draw,
-        text_texture,
+        texture,
         pos,
         size,
         .{ .x = scaleF(if (is_launch) 6.0 else 1.0), .y = scaleF(if (is_launch) 4.0 else 0.25) },
-        if (is_launch) 0.94 else 0.92,
-        if (is_launch) 0.98 else 0.94,
+        base_scale,
+        base_scale + BUTTON_LABEL_HOVER_DELTA,
         anim,
         .{ .x = 0.0, .y = 0.0, .z = 0.0, .w = 1.0 },
         opacity,
     );
 }
 
+fn drawEfmiButtonLabelTexture(draw: ?*ByteDrawList, pos: ByteVec2, size: ByteVec2, anim: f32, opacity: f32) bool {
+    const line_h = size.y * 0.5;
+    const line_size = ByteVec2{ .x = size.x, .y = line_h + scaleF(1.0) };
+    const top_ok = drawAnimatedTextureLabel(
+        draw,
+        &g_efmi_top_label_texture,
+        false,
+        .{ .x = pos.x, .y = pos.y + scaleF(2.0) },
+        line_size,
+        anim,
+        opacity,
+    );
+    const bottom_ok = drawAnimatedTextureLabel(
+        draw,
+        &g_efmi_bottom_label_texture,
+        false,
+        .{ .x = pos.x, .y = pos.y + line_h - scaleF(2.0) },
+        line_size,
+        anim,
+        opacity,
+    );
+    return top_ok and bottom_ok;
+}
+
+fn drawAnimatedButtonLabelTexture(draw: ?*ByteDrawList, id: []const u8, pos: ByteVec2, size: ByteVec2, anim: f32, opacity: f32) bool {
+    const is_launch = buttonIsLaunch(id);
+    if (buttonIsEfmi(id)) return drawEfmiButtonLabelTexture(draw, pos, size, anim, opacity);
+    const text_texture = getButtonLabelTexture(id);
+    return drawAnimatedTextureLabel(draw, text_texture, is_launch, pos, size, anim, opacity);
+}
+
 fn drawAnimatedBoxButtonVisual(id: []const u8, _: []const u8, base_pos: ByteVec2, base_size: ByteVec2, anim: f32, enabled: bool, base_color: ByteVec4, opacity: f32) void {
     _ = enabled;
-    const is_launch = std.mem.eql(u8, id, "launch_btn");
-    const center = ByteVec2{ .x = base_pos.x + base_size.x * 0.5, .y = base_pos.y + base_size.y * 0.5 };
-    const size = ByteVec2{ .x = base_size.x + scaleF(12.0) * anim, .y = base_size.y + (if (is_launch) scaleF(4.0) else scaleF(3.0)) * anim };
-    const pos = ByteVec2{ .x = center.x - size.x * 0.5, .y = center.y - size.y * 0.5 };
+    const is_launch = buttonIsLaunch(id);
+    const is_efmi = buttonIsEfmi(id);
+    const is_launch_group = is_launch or is_efmi;
     const color = base_color;
-    const rounding = if (is_launch) scaleF(8.0) + scaleF(4.0) * anim else scaleF(5.0) + scaleF(2.0) * anim;
+    const rounding = if (is_launch_group) scaleF(8.0) + scaleF(4.0) * anim else scaleF(5.0) + scaleF(2.0) * anim;
 
     const draw = ByteGui.GetWindowDrawList() orelse return;
     const saved_flags = draw.Flags;
     draw.Flags |= bytegui.ByteDrawListFlags_AntiAliasedFill;
+
+    if (is_efmi) {
+        const h = base_size.y + scaleF(4.0) * anim;
+        const y = base_pos.y + base_size.y * 0.5 - h * 0.5;
+        const visual_pos = ByteVec2{ .x = efmiVisualLeft(), .y = y };
+        const visual_size = ByteVec2{ .x = efmiVisibleWidth() + efmiUnderlapWidth(), .y = h };
+        const label_pos = ByteVec2{ .x = efmiLabelLeft(), .y = y };
+        const label_size = ByteVec2{ .x = efmiLabelWidth(), .y = h };
+        Ui.DrawRoundedLeftEdgeShadowedRectFilled(draw, visual_pos, visual_size, rounding, color, darkerEfmiShadowColor(color), opacity, launchVisualPos(), launchVisualSize(), launchVisualRounding(), scaleF(EFMI_SHADOW_WIDTH), EFMI_SHADOW_STRENGTH);
+        draw.Flags = saved_flags;
+        _ = drawAnimatedButtonLabelTexture(draw, id, label_pos, label_size, anim, opacity);
+        return;
+    }
+
+    const center = ByteVec2{ .x = base_pos.x + base_size.x * 0.5, .y = base_pos.y + base_size.y * 0.5 };
+    const size = ByteVec2{ .x = base_size.x + scaleF(12.0) * anim, .y = base_size.y + (if (is_launch_group) scaleF(4.0) else scaleF(3.0)) * anim };
+    const pos = ByteVec2{ .x = center.x - size.x * 0.5, .y = center.y - size.y * 0.5 };
     draw.AddRectFilled(pos, .{ .x = pos.x + size.x, .y = pos.y + size.y }, toU32(applyOpacity(color, opacity)), rounding);
     draw.Flags = saved_flags;
-    _ = drawAnimatedButtonLabelTexture(draw, is_launch, pos, size, anim, opacity);
+    _ = drawAnimatedButtonLabelTexture(draw, id, pos, size, anim, opacity);
 }
 
 fn drawLogoVisual(draw: ?*ByteDrawList, opacity: f32) void {
@@ -1391,6 +1638,7 @@ fn drawUI() void {
 
     draw.AddText(g_font_version, scaleF(12.0), snapPixelVec2(scaleVec2(VERSION_X, VERSION_Y)), toU32(applyOpacity(g_button_colors[4].current, render_opacity)), g_version_display, null);
     drawAnimatedBoxButtonVisual("toggle_btn", toggleButtonLabel(), scaleVec2(TOGGLE_X, TOGGLE_Y + TOGGLE_Y_OFFSET), scaleVec2(TOGGLE_W, TOGGLE_H), g_toggle_anim.value, true, g_toggle_current_color, render_opacity);
+    if (g_efmi_button_visible) drawAnimatedBoxButtonVisual("efmi_btn", LABEL_EFMI, scaleVec2(EFMI_X, EFMI_Y), scaleVec2(EFMI_W, EFMI_H), g_efmi_anim.value, true, g_efmi_current_color, render_opacity);
     drawAnimatedBoxButtonVisual("launch_btn", "Launch Game", scaleVec2(LAUNCH_X, LAUNCH_Y), scaleVec2(LAUNCH_W, LAUNCH_H), g_launch_anim.value, g_launch_btn_enabled, g_launch_current_color, render_opacity);
 }
 
@@ -1437,10 +1685,11 @@ fn registerLaunchRightClick() bool {
     return true;
 }
 
-fn launchGameAction(mode: GameLaunchMode) void {
+fn launchGameAction(requested_mode: GameLaunchMode) void {
     resetLaunchRightClickSequence();
     cancelCloseCountdown();
-    if (!g_launch_btn_enabled or g_game_exe_path == null) {
+    const mode = selectedLaunchMode(requested_mode);
+    if (!g_launch_btn_enabled) {
         setLoaderPendingLaunchMode(null);
         appendStatus(strings.status_launch_requested_unavailable, .{});
         return;
@@ -1448,12 +1697,40 @@ fn launchGameAction(mode: GameLaunchMode) void {
 
     setLoaderPendingLaunchMode(mode);
     const launch_result: loader.LaunchError!void = switch (mode) {
-        .normal => loader.launchGame(g_game_exe_path.?),
-        .dx11 => loader.launchGameWithArgs(g_game_exe_path.?, "-force-d3d11"),
+        .normal => blk: {
+            const game_path = g_game_exe_path orelse {
+                setLoaderPendingLaunchMode(null);
+                appendStatus(strings.status_launch_requested_unavailable, .{});
+                return;
+            };
+            startLaunchCooldown(mode);
+            break :blk loader.launchGame(game_path);
+        },
+        .dx11 => blk: {
+            const game_path = g_game_exe_path orelse {
+                setLoaderPendingLaunchMode(null);
+                appendStatus(strings.status_launch_requested_unavailable, .{});
+                return;
+            };
+            startLaunchCooldown(mode);
+            break :blk loader.launchGameWithArgs(game_path, "-force-d3d11");
+        },
+        .efmi => blk: {
+            const efmi_path = g_efmi_launcher_path orelse {
+                setLoaderPendingLaunchMode(null);
+                appendStatus(strings.status_efmi_missing_path, .{});
+                return;
+            };
+            startLaunchCooldown(mode);
+            break :blk cli.launchEfmiLauncher(efmi_path);
+        },
     };
     launch_result catch |err| {
         setLoaderPendingLaunchMode(null);
-        appendStatus(strings.status_launch_failed_fmt, .{loader.describeLaunchError(err)});
+        switch (mode) {
+            .normal, .dx11 => appendStatus(strings.status_launch_failed_fmt, .{loader.describeLaunchError(err)}),
+            .efmi => appendStatus(strings.status_efmi_launch_failed_fmt, .{cli.describeEfmiLaunchError(err)}),
+        }
         return;
     };
 
@@ -1492,6 +1769,7 @@ fn onButtonActivated(id: i32) void {
         4 => openReleaseTag(),
         5 => launchGameAction(defaultLaunchMode()),
         6 => setLoaderMinimizeOnLaunch(!g_minimize_on_launch),
+        7 => if (g_launch_btn_enabled) setEfmiOnLaunch(!g_efmi_on_launch),
         else => {},
     }
 }
@@ -1518,6 +1796,7 @@ fn handleLButtonDown(hwnd: c.HWND, l_param: c.LPARAM) c.LRESULT {
             4 => fromByteGuiRect(getVersionRect()),
             5 => getLaunchRect(false),
             6 => getToggleRect(true),
+            7 => getEfmiRect(true),
             else => std.mem.zeroes(c.RECT),
         };
 
@@ -1637,7 +1916,7 @@ fn wndProc(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) call
     switch (msg) {
         c.WM_SETCURSOR => {
             if (lowWordU(l_param) == 1) {
-                _ = c.SetCursor(loadCursorResource(if (g_hovered_button == 5 or g_hovered_button == 6) IDC_HAND_ID else IDC_ARROW_ID));
+                _ = c.SetCursor(loadCursorResource(if (g_hovered_button == 5 or g_hovered_button == 6 or g_hovered_button == 7) IDC_HAND_ID else IDC_ARROW_ID));
                 return 1;
             }
         },
@@ -1744,6 +2023,7 @@ fn initGuiResources(platform_hwnd: ?bgc.HWND) void {
 }
 
 fn initializeGuiState() void {
+    refreshEfmiAvailability();
     refreshGamePathStatus();
     appendInitialStatusLines();
     if (!startLoaderWorker()) appendStatus(strings.status_monitor_failed, .{});
@@ -1815,6 +2095,7 @@ fn shutdownGuiApp() void {
     bytegui.ByteGui_ImplOpenGL_Shutdown();
     bytegui.ByteGui_ImplWin32_Shutdown();
     cleanupRenderResources();
+    clearDetectedEfmiLauncherPath();
     if (g_hwnd != null) bytegui.ByteGui_ImplWin32_DestroyPlatformWindow();
     if (ByteGui.GetCurrentContext() != null) ByteGui.DestroyContext(null);
     if (g_game_exe_path) |path| allocator.free(path);
@@ -1883,6 +2164,10 @@ pub fn main(init: std.process.Init.Minimal) void {
     defer if (config.game_exe_override_path) |path| allocator.free(path);
 
     g_game_exe_override_path = config.game_exe_override_path;
+    g_efmi_requested = config.efmi_requested;
+    g_efmi_search_enabled = config.efmi_search_enabled;
+    g_efmi_launcher_path = config.efmi_launcher_path;
+    g_efmi_on_launch = config.efmi_requested and config.efmi_search_enabled;
     g_force_dx11 = config.dx11;
     g_wine_mode = if (config.cli) false else resolveWineMode(config);
     g_allow_minimize = if (config.cli) true else resolveAllowMinimize(config, g_wine_mode);
