@@ -14,7 +14,7 @@
 
     .version_info = .{
         .company_name = "DynamiByte",
-        .file_description = "A tool that removes the transparency filter of Endfeild in Vulkan",
+        .file_description = "A tool that removes the transparency filter of Endfield in Vulkan",
         .internal_name = "EFU",
         .legal_copyright = "© 2026 DynamiByte",
         .comments = "Author: DynamiByte",
