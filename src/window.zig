@@ -4,7 +4,7 @@ const std = @import("std");
 const bytegui = @import("bytegui.zig");
 const cli = @import("cli.zig");
 const loader = @import("loader.zig");
-const app_version = @import("version.zig");
+const app_version = @import("version");
 const strings = @import("strings.zig");
 pub const c = @import("win32.zig");
 

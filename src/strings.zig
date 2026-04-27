@@ -1,6 +1,5 @@
 // Shared UI text and subset inputs
 const std = @import("std");
-const app_version = @import("version.zig");
 const loader = @import("loader.zig");
 
 pub const label_launch = "Launch Game";
@@ -49,11 +48,19 @@ fn appendLine(list: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, l
     try list.append(allocator, '\n');
 }
 
+fn hasVersionPrefix(version: []const u8) bool {
+    return version.len > 0 and (version[0] == 'v' or version[0] == 'V');
+}
+
+fn trimVersionPrefix(version: []const u8) []const u8 {
+    return if (hasVersionPrefix(version)) version[1..] else version;
+}
+
 // Version display text
 pub fn computeVersionDisplay(out_buf: []u8, version_str: []const u8) ![]const u8 {
     var parts: [4][]const u8 = .{ "", "", "", "" };
     var count: usize = 0;
-    var parts_it = std.mem.splitScalar(u8, app_version.trimVersionPrefix(version_str), '.');
+    var parts_it = std.mem.splitScalar(u8, trimVersionPrefix(version_str), '.');
     while (parts_it.next()) |part| {
         if (count == parts.len) break;
         parts[count] = part;

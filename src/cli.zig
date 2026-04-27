@@ -1,7 +1,7 @@
 // CLI launcher path
 const std = @import("std");
 
-const app_version = @import("version.zig");
+const app_version = @import("version");
 const loader = @import("loader.zig");
 const strings = @import("strings.zig");
 const c = @import("win32.zig");

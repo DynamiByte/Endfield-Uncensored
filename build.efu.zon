@@ -1,0 +1,23 @@
+.{
+    .name = "Endfield Uncensored",
+    .version = "5.0.0.1",
+    .zig_version = "0.16.0",
+
+    .outputs = .{
+        .exe = "EFU.exe",
+        .dll = "EFU.dll",
+    },
+
+    .manifest = .{
+        .requested_execution_level = "highestAvailable",
+    },
+
+    .version_info = .{
+        .company_name = "DynamiByte",
+        .file_description = "Endfield Uncensored",
+        .internal_name = "EFU",
+        .legal_copyright = "© 2026 DynamiByte",
+        .product_name = "Endfield Uncensored",
+        .comments = "Author: DynamiByte",
+    },
+}
