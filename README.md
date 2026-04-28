@@ -1,8 +1,8 @@
 # Endfield Uncensored
 
-Endfield Uncensored is a small Windows loader and runtime patch for *Arknights: Endfield* that removes the transparency-based censorship filter.
+Endfield Uncensored is a standalone Windows loader and runtime patch for *Arknights: Endfield* that removes the transparency-based censorship filter.
 
-![Version](https://img.shields.io/badge/version-5.0.0.1-orange)
+![Version](https://img.shields.io/badge/version-5.0.0.2-orange)
 ![Build](https://img.shields.io/badge/preview-orange)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-green)
 
@@ -12,12 +12,13 @@ The bundled font files are not covered by the project license. They remain under
 
 ## Highlights
 
-- Single-binary release: `EFU.exe` embeds the mod (a `.dll` file), extracting only when it needs to inject
+- Single-binary release: `EFU.exe` embeds the patch DLL and extracts it only when needed for injection
 - Full custom Zig GUI stack with an OpenGL renderer, embedded font subsets, and no external GUI framework
 - Interactive CLI mode and silent one-shot mode
-- Launch support for the normal game path and DX11 mode
-- Optional EFMI / XXMI launcher handoff from CLI
-- Automatic game path detection from `Player.log` (GRYPHLINK log) and common install paths
+- Launch support for the normal game path, DX11 mode, and optional EFMI / XXMI handoff
+- GUI EFMI support when EFMI / XXMI is detected, with an attached EFMI launch toggle
+- Alt+F12 runtime toggle for the replacement dither patch, limited to the active game window
+- Automatic game path detection from `Player.log` / GRYPHLINK data and common install paths
 - Can inject after launching from EFU or after you start the game elsewhere
 - Post-launch behavior toggle to minimize or stay open, then return to ready state after the game closes
 
@@ -34,15 +35,13 @@ The bundled font files are not covered by the project license. They remain under
 
 This carries the same general risk profile as other runtime modding tools such as 3DMigoto based loaders.
 
-If your antivirus flags the build, report it in Github issues. I try to avoid flagging. For Windows Defender / Windows Security, choose `Allow on device` if you trust the release you downloaded.
+If your antivirus flags the build, report it in GitHub issues. I try to avoid flagging. For Windows Defender / Windows Security, choose `Allow on device` if you trust the release you downloaded.
 
 ---
 
 ## Quick Start
 
-(Note that this does not all apply to the latest release as of now)
-
-1. Download the latest release from the [Releases](https://github.com/DynamiByte/Endfield-Uncensored/releases) page
+1. Download the latest `EFU.exe` from the [Releases](https://github.com/DynamiByte/Endfield-Uncensored/releases) page
 2. Run `EFU.exe` as Administrator
 3. If EFU finds the game path, press `Launch Game`
 4. If EFU does not find the path, or you prefer not to launch from the app, start the game normally and EFU will inject when `Endfield.exe` appears
@@ -55,7 +54,16 @@ If you keep EFU open, it returns to a ready state after the game closes so you c
 - The launch button is only enabled when EFU knows the game path and the game is not already running
 - Triple right click the `Launch Game` button to use the alternate launch mode for that launch
 - Starting EFU with `-DX11` makes the normal launch path use `-force-d3d11`
+- If EFMI / XXMI is detected, the GUI can show an EFMI toggle attached to the launch button
+- Starting EFU with `-EFMI` enables EFMI launch mode by default when the GUI opens
 - If EFU is left waiting, it can still inject when the game is launched externally
+
+### Runtime Toggle
+
+v5.0.0.2 replaces the old RET dither patch behavior with an Alt+F12 toggle.
+
+- Press `Alt+F12` while the game window is active to toggle the replacement dither patch
+- The hotkey is limited to the active game window so it should not fire globally while using other apps
 
 ---
 
@@ -72,13 +80,14 @@ Arguments are case-insensitive. Prefixes `-`, `--`, and `/` are accepted. Boolea
 - `-DX11`: launch the game with `-force-d3d11`
 - `--gp` / `--game-path [PATH_TO_Endfield.exe]`: use the provided game executable instead of auto-detection for the normal game launch path
 - `-y` / `-yes`: auto-confirm prompts used by the EFMI CLI flow
-- `--EFMI [PATH_TO_XXMI Launcher.exe]`: launch EFMI through XXMI, with optional explicit launcher path
+- `--EFMI [PATH_TO_XXMI Launcher.exe]`: launch EFMI through XXMI, optionally using an explicit launcher path
+- `--EFMI false`: prevent EFU from auto-detecting XXMI and showing the EFMI button in the GUI
 - `--wm` / `--fwm` / `--force-wine-mode true|false`: GUI-only override for Wine detection
 - `--am` / `--allow-minimize true|false`: GUI-only override for minimize behavior
 
 ### EFMI / XXMI integration
 
-`EFMI` switches EFU into the CLI path and starts XXMI with `--nogui --xxmi EFMI` before injecting.
+`EFMI` starts XXMI with `--nogui --xxmi EFMI` before EFU waits for Endfield and injects like normal.
 
 If no path is supplied, EFU looks for:
 
@@ -86,11 +95,11 @@ If no path is supplied, EFU looks for:
 
 `DX11` and `EFMI` are mutually exclusive.
 `game-path` and `EFMI` are also mutually exclusive for the same reason.
-EFMI handles that itself.
+EFMI handles the game launch itself.
 
 ### Silent mode
 
-`-silent` is intended for one-shot use. It requires EFU to successfully detect the normal game path or the EFMI launcher path.
+`-silent` is intended for one-shot use. No GUI or CLI output. It requires EFU to successfully detect the normal game path or the EFMI launcher path.
 
 ---
 
@@ -100,19 +109,41 @@ To build from source you currently need:
 
 - Zig [`0.16.0`](https://ziglang.org/download/0.16.0/zig-x86_64-windows-0.16.0.zip)
 
-Build with:
+Build the normal single-binary launcher with:
 
 ```bash
-zig build -Doptimize=ReleaseSmall
+zig build
 ```
 
-The generated artifact is:
+The default build uses `ReleaseSmall` and generates:
 
 ```bash
 ./zig-out/bin/EFU.exe
 ```
 
-The default build packages the patch DLL into the executable instead of generating a separate DLL beside it.
+The normal build packages the patch DLL into the executable instead of generating a separate DLL beside it.
+
+To build only the DLL artifact:
+
+```bash
+zig build -DLL
+```
+
+This generates:
+
+```bash
+./zig-out/bin/EFU.dll
+```
+
+Build metadata such as the app version, output names, manifest execution level, and Windows version-info strings are generated from `build.efu.zon`.
+
+---
+
+## License
+
+Endfield Uncensored is licensed under the AGPL-3.0-only license.
+
+Bundled fonts are distributed under their own licenses and are not covered by the project license.
 
 ---
 
@@ -121,4 +152,4 @@ The default build packages the patch DLL into the executable instead of generati
 - Releases: [GitHub Releases](https://github.com/DynamiByte/Endfield-Uncensored/releases)
 - GameBanana: [Endfield Uncensored](https://gamebanana.com/mods/651108)
 - Issues: [GitHub Issues](https://github.com/DynamiByte/Endfield-Uncensored/issues)
-- Discord: ["dynamicbyte"](https://discord.com/users/1077491551267213392)
+- Discord: [`dynamicbyte`](https://discord.com/users/1077491551267213392)
