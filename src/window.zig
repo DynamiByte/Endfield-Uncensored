@@ -2264,7 +2264,6 @@ fn drawDebugLogoDContactMarker(draw: *ByteDrawList, opacity: f32) void {
 fn drawDebugLayoutConstraintBounds(draw: *ByteDrawList, opacity: f32) void {
     const constraint_opacity = opacity * DEBUG_BOX_CONSTRAINT_OPACITY;
     const guide_opacity = opacity * DEBUG_BOX_GUIDE_OPACITY;
-    const window_size = platformWindowSize();
 
     const content_top = scaleF((WINDOW_HEIGHT - MAIN_CONTENT_SIZE) * 0.5);
     const content_height = scaleF(MAIN_CONTENT_SIZE);
@@ -2276,18 +2275,16 @@ fn drawDebugLayoutConstraintBounds(draw: *ByteDrawList, opacity: f32) void {
     const logo_slot_left = logo_right - scaleF(MAIN_CONTENT_SIZE);
     const text_slot_w = @max(1.0, scaleF(OUTPUT_W));
 
-    // Main horizontal layout lane and center split/edge constraints.
+    // Main horizontal layout lane and center split/edge constraints
     drawDebugBoxOutline(draw, .{ .x = logo_slot_left, .y = content_top }, .{ .x = logo_right - logo_slot_left, .y = content_height }, kDebugConstraintBoundsColor, constraint_opacity);
     drawDebugBoxOutline(draw, .{ .x = text_left, .y = content_top }, .{ .x = text_slot_w, .y = content_height }, kDebugConstraintBoundsColor, constraint_opacity);
     drawDebugOutlineBounds(draw, .{ .x = logo_slot_left, .y = content_top }, .{ .x = text_left + text_slot_w, .y = content_bottom }, kDebugGuideLineColor, guide_opacity);
-    drawDebugGuideVertical(draw, center_x, 0.0, window_size.y, kDebugGuideLineColor, guide_opacity);
-    drawDebugGuideHorizontal(draw, center_y, 0.0, window_size.x, kDebugGuideLineColor, guide_opacity);
     drawDebugGuideVertical(draw, logo_right, content_top, content_bottom, kDebugConstraintBoundsColor, guide_opacity);
     drawDebugGuideVertical(draw, text_left, content_top, content_bottom, kDebugConstraintBoundsColor, guide_opacity);
     drawDebugGuideHorizontal(draw, content_top, logo_slot_left, text_left + text_slot_w, kDebugConstraintBoundsColor, guide_opacity);
     drawDebugGuideHorizontal(draw, content_bottom, logo_slot_left, text_left + text_slot_w, kDebugConstraintBoundsColor, guide_opacity);
 
-    // Button/control base constraint boxes before hover animation expansion.
+    // Button/control base constraint boxes before expansion
     drawDebugBoxOutline(draw, scaleVec2(TOGGLE_X, TOGGLE_Y + TOGGLE_Y_OFFSET), scaleVec2(TOGGLE_W, TOGGLE_H), kDebugConstraintBoundsColor, constraint_opacity);
     drawDebugBoxOutline(draw, scaleVec2(LAUNCH_X, LAUNCH_Y), scaleVec2(LAUNCH_W, LAUNCH_H), kDebugConstraintBoundsColor, constraint_opacity);
     drawDebugBoxOutline(draw, scaleVec2(EFMI_X, EFMI_Y), scaleVec2(EFMI_W, EFMI_H), kDebugConstraintBoundsColor, constraint_opacity);
@@ -2345,6 +2342,7 @@ fn drawDebugBoxOverlay(draw: *ByteDrawList, opacity: f32) void {
 
     const debug_opacity = @min(opacity, DEBUG_BOX_OVERLAY_OPACITY);
     const window_size = platformWindowSize();
+    drawDebugWindowCenterGuides(draw, debug_opacity);
     drawDebugLayoutConstraintBounds(draw, debug_opacity);
     drawDebugBoxOutline(draw, .{}, window_size, kDebugWindowBoundsColor, debug_opacity);
 
@@ -2390,9 +2388,6 @@ fn drawDebugBoxOverlay(draw: *ByteDrawList, opacity: f32) void {
             debug_opacity,
         );
     }
-
-    // Draw these last so the full-window center guides sit above every debug rectangle.
-    drawDebugWindowCenterGuides(draw, debug_opacity);
 }
 
 fn drawOutputTextbox(draw: ?*ByteDrawList, opacity: f32, dt: f32) void {

@@ -49,7 +49,7 @@ pub const status_launching_game = "Launching game...";
 pub const status_launching_game_dx11 = "Launching game in DX11...";
 pub const status_launching_game_vulkan = "Launching game in Vulkan...";
 
-// User-visible loader error descriptions. These can be shown by both GUI and CLI.
+// User-visible loader error descriptions
 pub const temp_dll_out_of_memory = "The loader ran out of memory while preparing the temporary DLL.";
 pub const temp_dll_temp_path_unavailable = "Windows did not provide a usable temp directory.";
 pub const temp_dll_create_failed = "Failed to create the temporary DLL file.";
@@ -130,8 +130,7 @@ pub fn describeEfmiLaunchError(err: anyerror) []const u8 {
     };
 }
 
-// CLI-only user-facing text. This section is intentionally not consumed by GUI
-// font subset builders.
+// CLI user-facing text
 pub const cli = struct {
     pub const console_title = "Endfield Uncensored CLI";
     pub const efmi_missing_path_message = "You need to specify a location with --EFMI <PATH_TO_XXMI Launcher.exe>.";
@@ -242,7 +241,7 @@ pub fn computeVersionDisplay(out_buf: []u8, version_str: []const u8) ![]const u8
     };
 }
 
-// Font subset text: only include strings actually drawn with each GUI font.
+// Font subset text
 pub fn buildToggleLabelSubsetText(allocator: std.mem.Allocator) ![]u8 {
     var text: std.ArrayListUnmanaged(u8) = .empty;
     errdefer text.deinit(allocator);
