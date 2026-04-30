@@ -229,6 +229,12 @@ pub const ByteDrawListFlags_AntiAliasedFill: u32 = 1 << 0;
 pub const ByteDrawListFlags_AntiAliasedLines: u32 = 1 << 1;
 pub const ByteDrawListFlags = u32;
 
+pub const ByteDrawCornerFlags_TopLeft: u8 = 1 << 0;
+pub const ByteDrawCornerFlags_TopRight: u8 = 1 << 1;
+pub const ByteDrawCornerFlags_BottomRight: u8 = 1 << 2;
+pub const ByteDrawCornerFlags_BottomLeft: u8 = 1 << 3;
+pub const ByteDrawCornerFlags_All: u8 = ByteDrawCornerFlags_TopLeft | ByteDrawCornerFlags_TopRight | ByteDrawCornerFlags_BottomRight | ByteDrawCornerFlags_BottomLeft;
+
 pub const ByteVec2 = extern struct {
     x: f32 = 0.0,
     y: f32 = 0.0,
@@ -526,6 +532,45 @@ pub const ByteDrawList = struct {
         appendArc(&points, .{ .x = p_max.x - clamped_rounding, .y = p_min.y + clamped_rounding }, clamped_rounding, kPi * 1.5, kPi * 2.0, segments);
         appendArc(&points, .{ .x = p_max.x - clamped_rounding, .y = p_max.y - clamped_rounding }, clamped_rounding, 0.0, kPi * 0.5, segments);
         appendArc(&points, .{ .x = p_min.x + clamped_rounding, .y = p_max.y - clamped_rounding }, clamped_rounding, kPi * 0.5, kPi, segments);
+        self.AddConvexPolyFilled(points.items, col);
+    }
+
+    pub fn AddRectFilledCornerFlags(self: *ByteDrawList, p_min: ByteVec2, p_max: ByteVec2, col: ByteU32, rounding: f32, corner_flags: u8) void {
+        if ((col & BYTEGUI_COL32_A_MASK) == 0) return;
+        if (p_max.x <= p_min.x or p_max.y <= p_min.y) return;
+        if ((corner_flags & ByteDrawCornerFlags_All) == ByteDrawCornerFlags_All) {
+            self.AddRectFilled(p_min, p_max, col, rounding);
+            return;
+        }
+
+        var clamped_rounding = @max(0.0, rounding);
+        const max_rounding = @min((p_max.x - p_min.x) * 0.5, (p_max.y - p_min.y) * 0.5);
+        clamped_rounding = @min(clamped_rounding, max_rounding);
+        if (clamped_rounding <= 0.0 or (corner_flags & ByteDrawCornerFlags_All) == 0) {
+            self.AddRectFilled(p_min, p_max, col, 0.0);
+            return;
+        }
+
+        var points: ByteVec2List = .empty;
+        defer points.deinit(allocator);
+
+        const segments = @max(@as(i32, 3), @divTrunc(calcCircleSegmentCount(clamped_rounding), 4));
+        if ((corner_flags & ByteDrawCornerFlags_TopLeft) != 0) {
+            appendArc(&points, .{ .x = p_min.x + clamped_rounding, .y = p_min.y + clamped_rounding }, clamped_rounding, kPi, kPi * 1.5, segments);
+        } else points.append(allocator, p_min) catch return;
+
+        if ((corner_flags & ByteDrawCornerFlags_TopRight) != 0) {
+            appendArc(&points, .{ .x = p_max.x - clamped_rounding, .y = p_min.y + clamped_rounding }, clamped_rounding, kPi * 1.5, kPi * 2.0, segments);
+        } else points.append(allocator, .{ .x = p_max.x, .y = p_min.y }) catch return;
+
+        if ((corner_flags & ByteDrawCornerFlags_BottomRight) != 0) {
+            appendArc(&points, .{ .x = p_max.x - clamped_rounding, .y = p_max.y - clamped_rounding }, clamped_rounding, 0.0, kPi * 0.5, segments);
+        } else points.append(allocator, p_max) catch return;
+
+        if ((corner_flags & ByteDrawCornerFlags_BottomLeft) != 0) {
+            appendArc(&points, .{ .x = p_min.x + clamped_rounding, .y = p_max.y - clamped_rounding }, clamped_rounding, kPi * 0.5, kPi, segments);
+        } else points.append(allocator, .{ .x = p_min.x, .y = p_max.y }) catch return;
+
         self.AddConvexPolyFilled(points.items, col);
     }
 
@@ -1056,6 +1101,21 @@ pub const ByteGui = struct {
         const active_font = font orelse return .{};
         if (text.len == 0) return .{};
         return active_font.CalcTextSizeA(font_size, std.math.floatMax(f32), wrap_width, text, text_end);
+    }
+
+    pub fn CalcTextWidth(font: ?*ByteFont, font_size: f32, text: []const u8) f32 {
+        const active_font = font orelse return 0.0;
+        if (text.len == 0) return 0.0;
+        return @max(0.0, computeTextBounds(active_font, font_size, text).Width);
+    }
+
+    pub fn LayoutText(font: ?*ByteFont, font_size: f32, text: []const u8, wrap_width: f32) ?TextLayoutResult {
+        const active_font = font orelse return null;
+        return layoutText(active_font, font_size, text, wrap_width);
+    }
+
+    pub fn DrawTextSelectionHighlight(draw: ?*ByteDrawList, state: *TextSelectionHighlightState, params: TextSelectionHighlightParams) void {
+        drawTextSelectionHighlight(draw, state, params);
     }
 
     pub fn CalcTextHitRect(font: ?*ByteFont, font_size: f32, pos: ByteVec2, text: []const u8, padding: f32, text_end: ?usize, wrap_width: f32) c.RECT {
@@ -3497,14 +3557,14 @@ fn detectFontStyleFromPath(path: []const u8) i32 {
 }
 
 // Text layout and cache
-const TextBounds = struct {
+pub const TextBounds = struct {
     X: f32 = 0.0,
     Y: f32 = 0.0,
     Width: f32 = 0.0,
     Height: f32 = 0.0,
 };
 
-const TextLine = struct {
+pub const TextLine = struct {
     start: usize,
     end: usize,
     width: f32 = 0.0,
@@ -3548,17 +3608,681 @@ const TextMeasureSession = struct {
     }
 };
 
-const TextLayoutResult = struct {
+pub const TextLayoutResult = struct {
     lines: std.ArrayListUnmanaged(TextLine) = .empty,
     width: f32 = 0.0,
     height: f32 = 0.0,
     line_height: f32 = 0.0,
 
-    fn deinit(self: *TextLayoutResult) void {
+    pub fn deinit(self: *TextLayoutResult) void {
         self.lines.deinit(allocator);
         self.* = .{};
     }
 };
+
+pub const TextSelectionRange = struct {
+    start: usize,
+    end: usize,
+};
+
+pub const TextSelectionHighlightParams = struct {
+    font: ?*ByteFont,
+    font_size: f32,
+    text: []const u8,
+    layout: *const TextLayoutResult,
+    selection: ?TextSelectionRange,
+    base_pos: ByteVec2,
+    viewport_height: f32,
+    scroll_y: f32,
+    color: ByteVec4,
+    opacity: f32 = 1.0,
+    radius: f32 = 2.0,
+    dt: f32 = 1.0 / 60.0,
+};
+
+const TextSelectionHighlightRect = struct {
+    line_index: usize = 0,
+    current_min: ByteVec2 = .{},
+    current_max: ByteVec2 = .{},
+    target_min: ByteVec2 = .{},
+    target_max: ByteVec2 = .{},
+    alpha: f32 = 0.0,
+    target_alpha: f32 = 0.0,
+    scale_y: f32 = 0.65,
+    target_scale_y: f32 = 1.0,
+    corner_round: [4]f32 = [_]f32{ 1.0, 1.0, 1.0, 1.0 },
+    target_corner_round: [4]f32 = [_]f32{ 1.0, 1.0, 1.0, 1.0 },
+    grow_anchor_current: ByteVec2 = .{},
+    grow_anchor_target: ByteVec2 = .{},
+    matched: bool = false,
+};
+
+const TextSelectionHighlightTarget = struct {
+    line_index: usize,
+    min: ByteVec2,
+    max: ByteVec2,
+};
+
+pub const TextSelectionHighlightState = struct {
+    rects: std.ArrayListUnmanaged(TextSelectionHighlightRect) = .empty,
+
+    pub fn deinit(self: *TextSelectionHighlightState) void {
+        self.rects.deinit(allocator);
+        self.* = .{};
+    }
+};
+
+fn normalizedTextSelectionRange(selection: ?TextSelectionRange, text_len: usize) ?TextSelectionRange {
+    const range = selection orelse return null;
+    const start = @min(@min(range.start, range.end), text_len);
+    const end = @min(@max(range.start, range.end), text_len);
+    if (start == end) return null;
+    return .{ .start = start, .end = end };
+}
+
+fn textSelectionWidth(font: ?*ByteFont, font_size: f32, text: []const u8, start: usize, end: usize) f32 {
+    if (end <= start) return 0.0;
+    return ByteGui.CalcTextWidth(font, font_size, text[start..end]);
+}
+
+fn appendTextSelectionTargets(targets: *std.ArrayListUnmanaged(TextSelectionHighlightTarget), params: TextSelectionHighlightParams) bool {
+    const selection = normalizedTextSelectionRange(params.selection, params.text.len) orelse return true;
+    const line_height = @max(1.0, params.layout.line_height);
+    const bottom = params.base_pos.y + params.viewport_height;
+
+    for (params.layout.lines.items, 0..) |line, line_index| {
+        const sel_start = @max(selection.start, line.start);
+        const sel_end = @min(selection.end, line.end);
+        if (sel_end <= sel_start) continue;
+
+        const y = params.base_pos.y + @as(f32, @floatFromInt(line_index)) * line_height - params.scroll_y;
+        if (y + line_height < params.base_pos.y or y > bottom) continue;
+
+        const x0 = params.base_pos.x + textSelectionWidth(params.font, params.font_size, params.text, line.start, sel_start);
+        const x1 = params.base_pos.x + textSelectionWidth(params.font, params.font_size, params.text, line.start, sel_end);
+        if (x1 <= x0) continue;
+        targets.append(allocator, .{
+            .line_index = line_index,
+            .min = .{ .x = x0, .y = y },
+            .max = .{ .x = x1, .y = y + line_height },
+        }) catch return false;
+    }
+    return true;
+}
+
+fn findTextSelectionRect(rects: []const TextSelectionHighlightRect, line_index: usize) ?usize {
+    for (rects, 0..) |rect, i| {
+        if (rect.line_index == line_index) return i;
+    }
+    return null;
+}
+
+fn textSelectionSmoothFactor(dt: f32, rate: f32) f32 {
+    return std.math.clamp(1.0 - @exp(-@max(0.0, dt) * rate), 0.0, 1.0);
+}
+
+fn textSelectionApproach(current: f32, target: f32, t: f32) f32 {
+    return current + (target - current) * t;
+}
+
+fn textSelectionCornerRoundTargets(flags: u8) [4]f32 {
+    return [_]f32{
+        if ((flags & ByteDrawCornerFlags_TopLeft) != 0) 1.0 else 0.0,
+        if ((flags & ByteDrawCornerFlags_TopRight) != 0) 1.0 else 0.0,
+        if ((flags & ByteDrawCornerFlags_BottomRight) != 0) 1.0 else 0.0,
+        if ((flags & ByteDrawCornerFlags_BottomLeft) != 0) 1.0 else 0.0,
+    };
+}
+
+fn textSelectionRectCenter(min: ByteVec2, max: ByteVec2) ByteVec2 {
+    return .{
+        .x = (min.x + max.x) * 0.5,
+        .y = (min.y + max.y) * 0.5,
+    };
+}
+
+fn textSelectionEdgeRectFromAnchor(target_min: ByteVec2, target_max: ByteVec2, anchor: ByteVec2, out_min: *ByteVec2, out_max: *ByteVec2) void {
+    const center_x = (target_min.x + target_max.x) * 0.5;
+    const edge_x = if (anchor.x >= center_x) target_max.x else target_min.x;
+    out_min.* = .{ .x = edge_x, .y = target_min.y };
+    out_max.* = .{ .x = edge_x, .y = target_max.y };
+}
+
+fn textSelectionGrowthAnchorFromNeighbors(target: TextSelectionHighlightTarget, rects: []const TextSelectionHighlightRect) ByteVec2 {
+    if (rects.len == 0) return target.min;
+
+    var closest_index: ?usize = null;
+    var closest_line_delta: usize = std.math.maxInt(usize);
+    for (rects, 0..) |rect, i| {
+        if (@max(rect.alpha, rect.target_alpha) <= 0.01) continue;
+        const line_delta = if (target.line_index > rect.line_index) target.line_index - rect.line_index else rect.line_index - target.line_index;
+        if (line_delta < closest_line_delta) {
+            closest_line_delta = line_delta;
+            closest_index = i;
+        }
+    }
+
+    const closest = if (closest_index) |i| rects[i] else return target.min;
+
+    // New lower lines reveal from their left/start edge. New upper lines reveal
+    // from their right/end edge. That matches the visual point where multiline
+    // selection actually enters the new line, instead of pulling every line from
+    // the original selection point.
+    if (target.line_index > closest.line_index) return target.min;
+    if (target.line_index < closest.line_index) return target.max;
+
+    return target.min;
+}
+
+fn textSelectionCollapseAnchorFromTargets(rect: TextSelectionHighlightRect, targets: []const TextSelectionHighlightTarget) ByteVec2 {
+    if (targets.len == 0) return rect.grow_anchor_target;
+
+    var closest = targets[0];
+    var closest_line_delta: usize = if (rect.line_index > closest.line_index) rect.line_index - closest.line_index else closest.line_index - rect.line_index;
+    for (targets[1..]) |target| {
+        const line_delta = if (rect.line_index > target.line_index) rect.line_index - target.line_index else target.line_index - rect.line_index;
+        if (line_delta < closest_line_delta) {
+            closest_line_delta = line_delta;
+            closest = target;
+        }
+    }
+
+    // Mirror the reveal rule when a line disappears.
+    if (rect.line_index > closest.line_index) return rect.target_min;
+    if (rect.line_index < closest.line_index) return rect.target_max;
+
+    return rect.grow_anchor_target;
+}
+
+
+fn textSelectionEdgeCoverageFromStart(edge: f32, other_min: f32, other_max: f32, span: f32, epsilon: f32) f32 {
+    if (other_min > edge + epsilon or other_max < edge - epsilon) return 0.0;
+    return @max(0.0, @min(other_max, edge + span) - edge);
+}
+
+fn textSelectionEdgeCoverageFromEnd(edge: f32, other_min: f32, other_max: f32, span: f32, epsilon: f32) f32 {
+    if (other_max < edge - epsilon or other_min > edge + epsilon) return 0.0;
+    return @max(0.0, edge - @max(other_min, edge - span));
+}
+
+fn textSelectionApplyCornerMorph(rounding: *[4]f32, corner_index: usize, coverage: f32, span: f32) void {
+    if (coverage <= 0.0) return;
+    const t = std.math.clamp(coverage / @max(span, 0.001), 0.0, 1.0);
+    rounding[corner_index] = @min(rounding[corner_index], 1.0 - t);
+}
+
+fn textSelectionCornerRoundFromCurrentGeometry(rects: []const TextSelectionHighlightRect, index: usize, radius: f32) [4]f32 {
+    var rounding = [_]f32{ 1.0, 1.0, 1.0, 1.0 };
+    const rect = rects[index];
+    if (@max(rect.alpha, rect.target_alpha) <= 0.01) return rounding;
+
+    const epsilon: f32 = 0.75;
+    const span = @max(radius, 1.0);
+    for (rects, 0..) |other, other_index| {
+        if (other_index == index or @max(other.alpha, other.target_alpha) <= 0.01) continue;
+        if (other.current_max.x <= other.current_min.x or other.current_max.y <= other.current_min.y) continue;
+
+        // Use the animated/current geometry, not the final target geometry.
+        // That makes the corner transform exactly where the neighboring
+        // highlight is actually growing or collapsing, instead of snapping or
+        // fading at a corner before the neighbor reaches it.
+        if (@abs(other.current_max.y - rect.current_min.y) <= epsilon) {
+            textSelectionApplyCornerMorph(&rounding, 0, textSelectionEdgeCoverageFromStart(rect.current_min.x, other.current_min.x, other.current_max.x, span, epsilon), span);
+            textSelectionApplyCornerMorph(&rounding, 1, textSelectionEdgeCoverageFromEnd(rect.current_max.x, other.current_min.x, other.current_max.x, span, epsilon), span);
+        }
+
+        if (@abs(other.current_min.y - rect.current_max.y) <= epsilon) {
+            textSelectionApplyCornerMorph(&rounding, 3, textSelectionEdgeCoverageFromStart(rect.current_min.x, other.current_min.x, other.current_max.x, span, epsilon), span);
+            textSelectionApplyCornerMorph(&rounding, 2, textSelectionEdgeCoverageFromEnd(rect.current_max.x, other.current_min.x, other.current_max.x, span, epsilon), span);
+        }
+
+        if (@abs(other.current_max.x - rect.current_min.x) <= epsilon) {
+            textSelectionApplyCornerMorph(&rounding, 0, textSelectionEdgeCoverageFromStart(rect.current_min.y, other.current_min.y, other.current_max.y, span, epsilon), span);
+            textSelectionApplyCornerMorph(&rounding, 3, textSelectionEdgeCoverageFromEnd(rect.current_max.y, other.current_min.y, other.current_max.y, span, epsilon), span);
+        }
+
+        if (@abs(other.current_min.x - rect.current_max.x) <= epsilon) {
+            textSelectionApplyCornerMorph(&rounding, 1, textSelectionEdgeCoverageFromStart(rect.current_min.y, other.current_min.y, other.current_max.y, span, epsilon), span);
+            textSelectionApplyCornerMorph(&rounding, 2, textSelectionEdgeCoverageFromEnd(rect.current_max.y, other.current_min.y, other.current_max.y, span, epsilon), span);
+        }
+    }
+    return rounding;
+}
+
+fn syncTextSelectionHighlightState(state: *TextSelectionHighlightState, targets: []const TextSelectionHighlightTarget, dt: f32, corner_radius: f32) void {
+    for (state.rects.items) |*rect| rect.matched = false;
+
+    for (targets) |target| {
+        if (findTextSelectionRect(state.rects.items, target.line_index)) |index| {
+            var rect = &state.rects.items[index];
+            rect.target_min = target.min;
+            rect.target_max = target.max;
+            rect.target_alpha = 1.0;
+            rect.target_scale_y = 1.0;
+            rect.grow_anchor_target = textSelectionRectCenter(target.min, target.max);
+            rect.matched = true;
+        } else {
+            const anchor = textSelectionGrowthAnchorFromNeighbors(target, state.rects.items);
+            var start_min: ByteVec2 = .{};
+            var start_max: ByteVec2 = .{};
+            textSelectionEdgeRectFromAnchor(target.min, target.max, anchor, &start_min, &start_max);
+            state.rects.append(allocator, .{
+                .line_index = target.line_index,
+                .current_min = start_min,
+                .current_max = start_max,
+                .target_min = target.min,
+                .target_max = target.max,
+                .alpha = 0.0,
+                .target_alpha = 1.0,
+                .scale_y = 1.0,
+                .target_scale_y = 1.0,
+                .corner_round = [_]f32{ 1.0, 1.0, 1.0, 1.0 },
+                .target_corner_round = [_]f32{ 1.0, 1.0, 1.0, 1.0 },
+                .grow_anchor_current = textSelectionRectCenter(start_min, start_max),
+                .grow_anchor_target = textSelectionRectCenter(start_min, start_max),
+                .matched = true,
+            }) catch {};
+        }
+    }
+
+    for (state.rects.items) |*rect| {
+        if (!rect.matched) {
+            const collapse_point = textSelectionCollapseAnchorFromTargets(rect.*, targets);
+            var collapse_min: ByteVec2 = .{};
+            var collapse_max: ByteVec2 = .{};
+            textSelectionEdgeRectFromAnchor(rect.target_min, rect.target_max, collapse_point, &collapse_min, &collapse_max);
+            rect.target_min = collapse_min;
+            rect.target_max = collapse_max;
+            rect.target_alpha = 0.0;
+            rect.target_scale_y = 1.0;
+            rect.target_corner_round = [_]f32{ 1.0, 1.0, 1.0, 1.0 };
+            rect.grow_anchor_target = textSelectionRectCenter(rect.target_min, rect.target_max);
+        }
+    }
+
+    const move_t = textSelectionSmoothFactor(dt, 24.0);
+    const alpha_t = textSelectionSmoothFactor(dt, 14.0);
+    const stretch_t = textSelectionSmoothFactor(dt, 18.0);
+    const corner_t = textSelectionSmoothFactor(dt, 28.0);
+
+    var i: usize = 0;
+    while (i < state.rects.items.len) : (i += 1) {
+        var rect = &state.rects.items[i];
+        rect.current_min.x = textSelectionApproach(rect.current_min.x, rect.target_min.x, move_t);
+        rect.current_min.y = textSelectionApproach(rect.current_min.y, rect.target_min.y, move_t);
+        rect.current_max.x = textSelectionApproach(rect.current_max.x, rect.target_max.x, move_t);
+        rect.current_max.y = textSelectionApproach(rect.current_max.y, rect.target_max.y, move_t);
+        rect.grow_anchor_current.x = textSelectionApproach(rect.grow_anchor_current.x, rect.grow_anchor_target.x, move_t);
+        rect.grow_anchor_current.y = textSelectionApproach(rect.grow_anchor_current.y, rect.grow_anchor_target.y, move_t);
+        rect.alpha = textSelectionApproach(rect.alpha, rect.target_alpha, alpha_t);
+        rect.scale_y = textSelectionApproach(rect.scale_y, rect.target_scale_y, stretch_t);
+    }
+
+    i = 0;
+    while (i < state.rects.items.len) : (i += 1) {
+        const corner_target = textSelectionCornerRoundFromCurrentGeometry(state.rects.items, i, corner_radius);
+        var rect = &state.rects.items[i];
+        rect.target_corner_round = corner_target;
+        for (0..4) |corner_index| {
+            rect.corner_round[corner_index] = textSelectionApproach(rect.corner_round[corner_index], rect.target_corner_round[corner_index], corner_t);
+        }
+    }
+
+    i = 0;
+    while (i < state.rects.items.len) {
+        const rect = state.rects.items[i];
+        if (rect.target_alpha <= 0.0 and rect.alpha < 0.015) {
+            _ = state.rects.orderedRemove(i);
+            continue;
+        }
+        i += 1;
+    }
+}
+
+fn selectionIntervalsTouchOrOverlap(a0: f32, a1: f32, b0: f32, b1: f32, epsilon: f32) bool {
+    return @min(a1, b1) >= @max(a0, b0) - epsilon;
+}
+
+fn selectionIntervalContainsPoint(a0: f32, a1: f32, point: f32, epsilon: f32) bool {
+    return point >= a0 - epsilon and point <= a1 + epsilon;
+}
+
+fn clearSelectionCornerFlags(flags: *u8, mask: u8) void {
+    flags.* &= ByteDrawCornerFlags_All ^ mask;
+}
+
+fn textSelectionCornerFlags(rects: []const TextSelectionHighlightRect, index: usize) u8 {
+    var flags = ByteDrawCornerFlags_All;
+    const rect = rects[index];
+    if (@max(rect.alpha, rect.target_alpha) <= 0.01) return flags;
+
+    const epsilon: f32 = 0.75;
+    for (rects, 0..) |other, other_index| {
+        if (other_index == index or @max(other.alpha, other.target_alpha) <= 0.01) continue;
+
+        // Only flatten a corner when the neighboring highlight actually reaches
+        // that corner. A shorter adjacent line may touch the same edge, but it
+        // should not remove the exposed far corner.
+        if (@abs(other.target_max.y - rect.target_min.y) <= epsilon and
+            selectionIntervalsTouchOrOverlap(rect.target_min.x, rect.target_max.x, other.target_min.x, other.target_max.x, epsilon))
+        {
+            if (selectionIntervalContainsPoint(other.target_min.x, other.target_max.x, rect.target_min.x, epsilon)) {
+                clearSelectionCornerFlags(&flags, ByteDrawCornerFlags_TopLeft);
+            }
+            if (selectionIntervalContainsPoint(other.target_min.x, other.target_max.x, rect.target_max.x, epsilon)) {
+                clearSelectionCornerFlags(&flags, ByteDrawCornerFlags_TopRight);
+            }
+        }
+
+        if (@abs(other.target_min.y - rect.target_max.y) <= epsilon and
+            selectionIntervalsTouchOrOverlap(rect.target_min.x, rect.target_max.x, other.target_min.x, other.target_max.x, epsilon))
+        {
+            if (selectionIntervalContainsPoint(other.target_min.x, other.target_max.x, rect.target_min.x, epsilon)) {
+                clearSelectionCornerFlags(&flags, ByteDrawCornerFlags_BottomLeft);
+            }
+            if (selectionIntervalContainsPoint(other.target_min.x, other.target_max.x, rect.target_max.x, epsilon)) {
+                clearSelectionCornerFlags(&flags, ByteDrawCornerFlags_BottomRight);
+            }
+        }
+
+        if (@abs(other.target_max.x - rect.target_min.x) <= epsilon and
+            selectionIntervalsTouchOrOverlap(rect.target_min.y, rect.target_max.y, other.target_min.y, other.target_max.y, epsilon))
+        {
+            if (selectionIntervalContainsPoint(other.target_min.y, other.target_max.y, rect.target_min.y, epsilon)) {
+                clearSelectionCornerFlags(&flags, ByteDrawCornerFlags_TopLeft);
+            }
+            if (selectionIntervalContainsPoint(other.target_min.y, other.target_max.y, rect.target_max.y, epsilon)) {
+                clearSelectionCornerFlags(&flags, ByteDrawCornerFlags_BottomLeft);
+            }
+        }
+
+        if (@abs(other.target_min.x - rect.target_max.x) <= epsilon and
+            selectionIntervalsTouchOrOverlap(rect.target_min.y, rect.target_max.y, other.target_min.y, other.target_max.y, epsilon))
+        {
+            if (selectionIntervalContainsPoint(other.target_min.y, other.target_max.y, rect.target_min.y, epsilon)) {
+                clearSelectionCornerFlags(&flags, ByteDrawCornerFlags_TopRight);
+            }
+            if (selectionIntervalContainsPoint(other.target_min.y, other.target_max.y, rect.target_max.y, epsilon)) {
+                clearSelectionCornerFlags(&flags, ByteDrawCornerFlags_BottomRight);
+            }
+        }
+    }
+    return flags;
+}
+
+const TextSelectionClipRect = struct {
+    min: ByteVec2,
+    max: ByteVec2,
+};
+
+fn appendTextSelectionClipRect(rects: *std.ArrayListUnmanaged(TextSelectionClipRect), min: ByteVec2, max: ByteVec2) void {
+    if (max.x <= min.x + 0.01 or max.y <= min.y + 0.01) return;
+    rects.append(allocator, .{ .min = min, .max = max }) catch {};
+}
+
+fn subtractTextSelectionClipRect(pieces: *std.ArrayListUnmanaged(TextSelectionClipRect), cover: TextSelectionClipRect) void {
+    var i: usize = 0;
+    while (i < pieces.items.len) {
+        const piece = pieces.items[i];
+        const ix0 = @max(piece.min.x, cover.min.x);
+        const iy0 = @max(piece.min.y, cover.min.y);
+        const ix1 = @min(piece.max.x, cover.max.x);
+        const iy1 = @min(piece.max.y, cover.max.y);
+
+        if (ix1 <= ix0 + 0.01 or iy1 <= iy0 + 0.01) {
+            i += 1;
+            continue;
+        }
+
+        _ = pieces.orderedRemove(i);
+
+        appendTextSelectionClipRect(pieces, piece.min, .{ .x = piece.max.x, .y = iy0 });
+        appendTextSelectionClipRect(pieces, .{ .x = piece.min.x, .y = iy1 }, piece.max);
+        appendTextSelectionClipRect(pieces, .{ .x = piece.min.x, .y = iy0 }, .{ .x = ix0, .y = iy1 });
+        appendTextSelectionClipRect(pieces, .{ .x = ix1, .y = iy0 }, .{ .x = piece.max.x, .y = iy1 });
+    }
+}
+
+fn buildTextSelectionRoundedRectPolygonRadii(p_min: ByteVec2, p_max: ByteVec2, rounding_tl: f32, rounding_tr: f32, rounding_br: f32, rounding_bl: f32) ByteVec2List {
+    var points: ByteVec2List = .empty;
+    if (p_max.x <= p_min.x or p_max.y <= p_min.y) return points;
+
+    const max_rounding = @min((p_max.x - p_min.x) * 0.5, (p_max.y - p_min.y) * 0.5);
+    const radius_tl = std.math.clamp(rounding_tl, 0.0, max_rounding);
+    const radius_tr = std.math.clamp(rounding_tr, 0.0, max_rounding);
+    const radius_br = std.math.clamp(rounding_br, 0.0, max_rounding);
+    const radius_bl = std.math.clamp(rounding_bl, 0.0, max_rounding);
+
+    if (radius_tl <= 0.05 and radius_tr <= 0.05 and radius_br <= 0.05 and radius_bl <= 0.05) {
+        points.ensureTotalCapacity(allocator, 4) catch return .empty;
+        points.appendAssumeCapacity(p_min);
+        points.appendAssumeCapacity(.{ .x = p_max.x, .y = p_min.y });
+        points.appendAssumeCapacity(p_max);
+        points.appendAssumeCapacity(.{ .x = p_min.x, .y = p_max.y });
+        return points;
+    }
+
+    if (radius_tl > 0.05) {
+        const segments = @max(@as(i32, 3), @divTrunc(calcCircleSegmentCount(radius_tl), 4));
+        appendArc(&points, .{ .x = p_min.x + radius_tl, .y = p_min.y + radius_tl }, radius_tl, kPi, kPi * 1.5, segments);
+    } else points.append(allocator, p_min) catch return points;
+
+    if (radius_tr > 0.05) {
+        const segments = @max(@as(i32, 3), @divTrunc(calcCircleSegmentCount(radius_tr), 4));
+        appendArc(&points, .{ .x = p_max.x - radius_tr, .y = p_min.y + radius_tr }, radius_tr, kPi * 1.5, kPi * 2.0, segments);
+    } else points.append(allocator, .{ .x = p_max.x, .y = p_min.y }) catch return points;
+
+    if (radius_br > 0.05) {
+        const segments = @max(@as(i32, 3), @divTrunc(calcCircleSegmentCount(radius_br), 4));
+        appendArc(&points, .{ .x = p_max.x - radius_br, .y = p_max.y - radius_br }, radius_br, 0.0, kPi * 0.5, segments);
+    } else points.append(allocator, p_max) catch return points;
+
+    if (radius_bl > 0.05) {
+        const segments = @max(@as(i32, 3), @divTrunc(calcCircleSegmentCount(radius_bl), 4));
+        appendArc(&points, .{ .x = p_min.x + radius_bl, .y = p_max.y - radius_bl }, radius_bl, kPi * 0.5, kPi, segments);
+    } else points.append(allocator, .{ .x = p_min.x, .y = p_max.y }) catch return points;
+
+
+    return points;
+}
+
+fn textSelectionClipForPiece(draw: *const ByteDrawList, p_min: ByteVec2, p_max: ByteVec2) ?ByteVec4 {
+    const current = draw.CurrentClipRect;
+    const clip = ByteVec4{
+        .x = @max(current.x, p_min.x),
+        .y = @max(current.y, p_min.y),
+        .z = @min(current.z, p_max.x),
+        .w = @min(current.w, p_max.y),
+    };
+    if (clip.z <= clip.x or clip.w <= clip.y) return null;
+    return clip;
+}
+
+fn textSelectionEffectiveRadius(radius: f32) f32 {
+    // The caller uses a very small 2px radius. Once the corner arc is
+    // anti-aliased, that reads almost square, so use a slightly larger
+    // visual radius for text selection only.
+    return @max(radius * 1.75, radius + 1.5);
+}
+
+fn textSelectionColorWithAlphaScale(col: ByteU32, scale: f32) ByteU32 {
+    const alpha: ByteU32 = (col >> 24) & 0xFF;
+    const scaled_alpha: ByteU32 = @intFromFloat(@as(f32, @floatFromInt(alpha)) * std.math.clamp(scale, 0.0, 1.0) + 0.5);
+    return (col & ~BYTEGUI_COL32_A_MASK) | (@as(ByteU32, @min(scaled_alpha, @as(ByteU32, 0xFF))) << @as(u5, 24));
+}
+
+fn drawTextSelectionCornerAAFringe(draw: *ByteDrawList, p_min: ByteVec2, p_max: ByteVec2, clip_min: ByteVec2, clip_max: ByteVec2, corner_index: usize, radius: f32, col: ByteU32) void {
+    if ((col & BYTEGUI_COL32_A_MASK) == 0 or radius <= 0.05) return;
+
+    const old_clip = draw.CurrentClipRect;
+    const clip = textSelectionClipForPiece(draw, clip_min, clip_max) orelse return;
+    draw.SetClipRect(clip);
+    defer draw.SetClipRect(old_clip);
+
+    // Draw AA as a conservative outside-only coverage fringe. The solid core is
+    // already drawn once, so the fringe must not re-apply the full highlight
+    // alpha over it or the semi-transparent selection gets visibly darker.
+    const aa_width: f32 = 1.15;
+    const inner_radius = radius + 0.02;
+    const outer_radius = radius + aa_width;
+    const segments = @max(@as(i32, 6), @divTrunc(calcCircleSegmentCount(radius), 4));
+
+    var center: ByteVec2 = .{};
+    var a_min: f32 = 0.0;
+    var a_max: f32 = 0.0;
+
+    switch (corner_index) {
+        0 => {
+            center = .{ .x = p_min.x + radius, .y = p_min.y + radius };
+            a_min = kPi;
+            a_max = kPi * 1.5;
+        },
+        1 => {
+            center = .{ .x = p_max.x - radius, .y = p_min.y + radius };
+            a_min = kPi * 1.5;
+            a_max = kPi * 2.0;
+        },
+        2 => {
+            center = .{ .x = p_max.x - radius, .y = p_max.y - radius };
+            a_min = 0.0;
+            a_max = kPi * 0.5;
+        },
+        3 => {
+            center = .{ .x = p_min.x + radius, .y = p_max.y - radius };
+            a_min = kPi * 0.5;
+            a_max = kPi;
+        },
+        else => return,
+    }
+
+    const inner_col = textSelectionColorWithAlphaScale(col, 0.58);
+    const outer_col = col & ~BYTEGUI_COL32_A_MASK;
+    const uv = ByteVec2{ .x = 0.5, .y = 0.5 };
+    const base_idx: ByteDrawIdx = @intCast(draw.VtxBuffer.items.len);
+    const idx_start = draw.IdxBuffer.items.len;
+
+    var i: i32 = 0;
+    while (i <= segments) : (i += 1) {
+        const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(segments));
+        const a = a_min + (a_max - a_min) * t;
+        const dir = ByteVec2{ .x = @cos(a), .y = @sin(a) };
+        draw.addVertex(.{ .x = center.x + dir.x * inner_radius, .y = center.y + dir.y * inner_radius }, uv, inner_col) catch return;
+        draw.addVertex(.{ .x = center.x + dir.x * outer_radius, .y = center.y + dir.y * outer_radius }, uv, outer_col) catch return;
+    }
+
+    i = 0;
+    while (i < segments) : (i += 1) {
+        const inner0 = base_idx + @as(ByteDrawIdx, @intCast(i * 2));
+        const outer0 = inner0 + 1;
+        const inner1 = base_idx + @as(ByteDrawIdx, @intCast((i + 1) * 2));
+        const outer1 = inner1 + 1;
+        draw.addTriangleIndices(inner0, inner1, outer0) catch return;
+        draw.addTriangleIndices(outer0, inner1, outer1) catch return;
+    }
+
+    draw.addPrimitive(draw.WhiteTexture, @intCast(draw.IdxBuffer.items.len - idx_start)) catch return;
+}
+
+fn drawTextSelectionCornerAAFringes(draw: *ByteDrawList, p_min: ByteVec2, p_max: ByteVec2, clip_min: ByteVec2, clip_max: ByteVec2, col: ByteU32, rounding_tl: f32, rounding_tr: f32, rounding_br: f32, rounding_bl: f32) void {
+    drawTextSelectionCornerAAFringe(draw, p_min, p_max, clip_min, clip_max, 0, rounding_tl, col);
+    drawTextSelectionCornerAAFringe(draw, p_min, p_max, clip_min, clip_max, 1, rounding_tr, col);
+    drawTextSelectionCornerAAFringe(draw, p_min, p_max, clip_min, clip_max, 2, rounding_br, col);
+    drawTextSelectionCornerAAFringe(draw, p_min, p_max, clip_min, clip_max, 3, rounding_bl, col);
+}
+
+fn drawTextSelectionRectWithoutAlphaOverlap(draw: *ByteDrawList, covered: *std.ArrayListUnmanaged(TextSelectionClipRect), p_min: ByteVec2, p_max: ByteVec2, col: ByteU32, rounding_tl: f32, rounding_tr: f32, rounding_br: f32, rounding_bl: f32) void {
+    if ((col & BYTEGUI_COL32_A_MASK) == 0 or p_max.x <= p_min.x or p_max.y <= p_min.y) return;
+
+    var pieces: std.ArrayListUnmanaged(TextSelectionClipRect) = .empty;
+    defer pieces.deinit(allocator);
+    appendTextSelectionClipRect(&pieces, p_min, p_max);
+
+    for (covered.items) |cover| {
+        subtractTextSelectionClipRect(&pieces, cover);
+        if (pieces.items.len == 0) return;
+    }
+
+    const core_rounding_tl = rounding_tl;
+    const core_rounding_tr = rounding_tr;
+    const core_rounding_br = rounding_br;
+    const core_rounding_bl = rounding_bl;
+
+    var core_shape = buildTextSelectionRoundedRectPolygonRadii(p_min, p_max, core_rounding_tl, core_rounding_tr, core_rounding_br, core_rounding_bl);
+    defer core_shape.deinit(allocator);
+    if (core_shape.items.len < 3) return;
+
+    for (pieces.items) |piece| {
+        var clip = ByteGui.BuildRectPolygon(piece.min.x, piece.min.y, piece.max.x, piece.max.y);
+        defer clip.deinit(allocator);
+        var clipped = ByteGui.ClipPolygonAgainstConvexPolygon(core_shape.items, clip.items);
+        defer clipped.deinit(allocator);
+        if (clipped.items.len >= 3) draw.AddConvexPolyFilled(clipped.items, col);
+        drawTextSelectionCornerAAFringes(draw, p_min, p_max, piece.min, piece.max, col, rounding_tl, rounding_tr, rounding_br, rounding_bl);
+        appendTextSelectionClipRect(covered, piece.min, piece.max);
+    }
+}
+
+fn drawOneAnimatedTextSelectionRect(draw: *ByteDrawList, covered: *std.ArrayListUnmanaged(TextSelectionClipRect), params: TextSelectionHighlightParams, rect: TextSelectionHighlightRect) void {
+    if (rect.alpha <= 0.01) return;
+
+    var p_min = rect.current_min;
+    var p_max = rect.current_max;
+    if (p_max.x <= p_min.x or p_max.y <= p_min.y) return;
+
+    // Grow/collapse from a full-height edge instead of a point. Scaling Y here
+    // creates tiny temporal gaps between adjacent selected lines while a new
+    // line is expanding, so keep line edges locked to their animated rects.
+    if (p_max.x <= p_min.x or p_max.y <= p_min.y) return;
+
+    p_min.x = roundToNearestPixel(p_min.x);
+    p_min.y = roundToNearestPixel(p_min.y);
+    p_max.x = roundToNearestPixel(p_max.x);
+    p_max.y = roundToNearestPixel(p_max.y);
+    if (p_max.x <= p_min.x or p_max.y <= p_min.y) return;
+
+    const color = Ui.ColorToU32(Ui.ApplyOpacity(params.color, params.opacity * rect.alpha));
+    const radius = textSelectionEffectiveRadius(params.radius);
+    drawTextSelectionRectWithoutAlphaOverlap(
+        draw,
+        covered,
+        p_min,
+        p_max,
+        color,
+        radius * std.math.clamp(rect.corner_round[0], 0.0, 1.0),
+        radius * std.math.clamp(rect.corner_round[1], 0.0, 1.0),
+        radius * std.math.clamp(rect.corner_round[2], 0.0, 1.0),
+        radius * std.math.clamp(rect.corner_round[3], 0.0, 1.0),
+    );
+}
+
+fn drawAnimatedTextSelectionRects(draw: *ByteDrawList, state: *const TextSelectionHighlightState, params: TextSelectionHighlightParams) void {
+    const old_flags = draw.Flags;
+    draw.Flags &= ~ByteDrawListFlags_AntiAliasedFill;
+    defer draw.Flags = old_flags;
+
+    var covered: std.ArrayListUnmanaged(TextSelectionClipRect) = .empty;
+    defer covered.deinit(allocator);
+
+    // Active/current selection wins first. Fading old pieces are then clipped
+    // out of already-drawn pixels so translucent highlights never stack darker.
+    for (state.rects.items) |rect| {
+        if (!rect.matched) continue;
+        drawOneAnimatedTextSelectionRect(draw, &covered, params, rect);
+    }
+    for (state.rects.items) |rect| {
+        if (rect.matched) continue;
+        drawOneAnimatedTextSelectionRect(draw, &covered, params, rect);
+    }
+}
+
+fn drawTextSelectionHighlight(draw: ?*ByteDrawList, state: *TextSelectionHighlightState, params: TextSelectionHighlightParams) void {
+    const active_draw = draw orelse return;
+    var targets: std.ArrayListUnmanaged(TextSelectionHighlightTarget) = .empty;
+    defer targets.deinit(allocator);
+    if (!appendTextSelectionTargets(&targets, params)) return;
+    syncTextSelectionHighlightState(state, targets.items, params.dt, textSelectionEffectiveRadius(params.radius));
+    drawAnimatedTextSelectionRects(active_draw, state, params);
+}
 
 const BuiltTextTexture = struct {
     texture: ByteTextureID,
@@ -4711,4 +5435,3 @@ pub fn windowsFontPath(gpa: std.mem.Allocator, comptime file_name: []const u8) ?
 
     return std.fs.path.join(gpa, &.{ windir, "Fonts", file_name }) catch return null;
 }
-

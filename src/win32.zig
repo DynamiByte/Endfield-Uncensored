@@ -248,6 +248,8 @@ pub const ERROR_ACCESS_DENIED: DWORD = 5;
 pub const ERROR_INVALID_PARAMETER: DWORD = 87;
 pub const ERROR_INVALID_NAME: DWORD = 123;
 pub const KEY_EVENT: WORD = 0x0001;
+pub const CF_UNICODETEXT: UINT = 13;
+pub const GMEM_MOVEABLE: UINT = 0x0002;
 
 pub const WM_DESTROY: UINT = 0x0002;
 pub const WM_SIZE: UINT = 0x0005;
@@ -256,12 +258,14 @@ pub const WM_SETCURSOR: UINT = 0x0020;
 pub const WM_QUIT: UINT = 0x0012;
 pub const WM_SETICON: UINT = 0x0080;
 pub const WM_NCHITTEST: UINT = 0x0084;
+pub const WM_KEYDOWN: UINT = 0x0100;
 pub const WM_MOUSEMOVE: UINT = 0x0200;
 pub const WM_MOUSELEAVE: UINT = 0x02A3;
 pub const WM_LBUTTONDOWN: UINT = 0x0201;
 pub const WM_LBUTTONUP: UINT = 0x0202;
 pub const WM_RBUTTONDOWN: UINT = 0x0204;
 pub const WM_RBUTTONUP: UINT = 0x0205;
+pub const WM_MOUSEWHEEL: UINT = 0x020A;
 pub const WM_DPICHANGED: UINT = 0x02E0;
 
 pub const HTTRANSPARENT: LRESULT = -1;
@@ -272,6 +276,9 @@ pub const SIZE_MINIMIZED: WPARAM = 1;
 
 pub const PM_REMOVE: UINT = 0x0001;
 pub const TME_LEAVE: DWORD = 0x00000002;
+pub const VK_CONTROL: INT = 0x11;
+pub const VK_A: WPARAM = 0x41;
+pub const VK_C: WPARAM = 0x43;
 
 pub const SW_SHOWNORMAL: INT = 1;
 pub const SW_SHOW: INT = 5;
@@ -324,6 +331,10 @@ pub extern "kernel32" fn WaitForSingleObject(h_handle: HANDLE, dw_milliseconds: 
 pub extern "kernel32" fn GetTempPathW(n_buffer_length: DWORD, lp_buffer: [*]WCHAR) callconv(.winapi) DWORD;
 pub extern "kernel32" fn VirtualAllocEx(h_process: HANDLE, lp_address: ?*anyopaque, dw_size: usize, fl_allocation_type: DWORD, fl_protect: DWORD) callconv(.winapi) ?*anyopaque;
 pub extern "kernel32" fn VirtualFreeEx(h_process: HANDLE, lp_address: *anyopaque, dw_size: usize, dw_free_type: DWORD) callconv(.winapi) BOOL;
+pub extern "kernel32" fn GlobalAlloc(u_flags: UINT, dw_bytes: usize) callconv(.winapi) ?HANDLE;
+pub extern "kernel32" fn GlobalLock(h_mem: HANDLE) callconv(.winapi) ?*anyopaque;
+pub extern "kernel32" fn GlobalUnlock(h_mem: HANDLE) callconv(.winapi) BOOL;
+pub extern "kernel32" fn GlobalFree(h_mem: HANDLE) callconv(.winapi) ?HANDLE;
 pub extern "kernel32" fn WriteProcessMemory(h_process: HANDLE, lp_base_address: *anyopaque, lp_buffer: *const anyopaque, n_size: usize, lp_number_of_bytes_written: ?*usize) callconv(.winapi) BOOL;
 pub extern "kernel32" fn GetModuleHandleA(lp_module_name: ?[*:0]const u8) callconv(.winapi) ?HMODULE;
 pub extern "kernel32" fn GetProcAddress(h_module: HMODULE, lp_proc_name: [*:0]const u8) callconv(.winapi) ?*anyopaque;
@@ -361,6 +372,10 @@ pub extern "user32" fn ReleaseCapture() callconv(.winapi) BOOL;
 pub extern "user32" fn GetAsyncKeyState(v_key: INT) callconv(.winapi) SHORT;
 pub extern "user32" fn PtInRect(lprc: *const RECT, pt: POINT) callconv(.winapi) BOOL;
 pub extern "user32" fn DefWindowProcW(hwnd: HWND, msg: UINT, w_param: WPARAM, l_param: LPARAM) callconv(.winapi) LRESULT;
+pub extern "user32" fn OpenClipboard(hwnd_new_owner: ?HWND) callconv(.winapi) BOOL;
+pub extern "user32" fn EmptyClipboard() callconv(.winapi) BOOL;
+pub extern "user32" fn SetClipboardData(format: UINT, h_mem: HANDLE) callconv(.winapi) ?HANDLE;
+pub extern "user32" fn CloseClipboard() callconv(.winapi) BOOL;
 pub extern "user32" fn CreateWindowExW(ex_style: DWORD, class_name: LPCWSTR, window_name: LPCWSTR, style: DWORD, x: INT, y: INT, width: INT, height: INT, parent: ?HWND, menu: ?HMENU, instance: ?HINSTANCE, param: ?*anyopaque) callconv(.winapi) ?HWND;
 pub extern "user32" fn RegisterClassExW(wnd_class: *const WNDCLASSEXW) callconv(.winapi) ATOM;
 pub extern "user32" fn UnregisterClassW(class_name: LPCWSTR, instance: ?HINSTANCE) callconv(.winapi) BOOL;

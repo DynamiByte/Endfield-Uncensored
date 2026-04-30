@@ -12,15 +12,12 @@ const allocator = std.heap.c_allocator;
 
 const ByteGui = bytegui.ByteGui;
 const ByteGuiStyle = bytegui.ByteGuiStyle;
-const ByteGuiStyleVar_Alpha = bytegui.ByteGuiStyleVar_Alpha;
 const ByteGuiWindowFlags_NoBackground = bytegui.ByteGuiWindowFlags_NoBackground;
 const ByteGuiWindowFlags_NoDecoration = bytegui.ByteGuiWindowFlags_NoDecoration;
 const ByteGuiWindowFlags_NoMove = bytegui.ByteGuiWindowFlags_NoMove;
 const ByteGuiWindowFlags_NoNav = bytegui.ByteGuiWindowFlags_NoNav;
 const ByteGuiWindowFlags_NoResize = bytegui.ByteGuiWindowFlags_NoResize;
 const ByteGuiWindowFlags_NoSavedSettings = bytegui.ByteGuiWindowFlags_NoSavedSettings;
-const ByteGuiWindowFlags_NoScrollbar = bytegui.ByteGuiWindowFlags_NoScrollbar;
-const ByteGuiWindowFlags_NoScrollWithMouse = bytegui.ByteGuiWindowFlags_NoScrollWithMouse;
 const ByteDrawList = bytegui.ByteDrawList;
 const ByteFont = bytegui.ByteFont;
 const ByteFontConfig = bytegui.ByteFontConfig;
@@ -72,10 +69,13 @@ const INFO_Y = 7.0;
 const INFO_W = 20.0;
 const INFO_H = 20.0;
 
-const OUTPUT_X = 252.0;
-const OUTPUT_Y = 42.0;
-const OUTPUT_W = 224.0;
-const OUTPUT_H = 115.0;
+const MAIN_CONTENT_SIZE = 90.0;
+const MAIN_CONTENT_CENTER_EDGE_OFFSET = MAIN_CONTENT_SIZE * 0.10;
+const OUTPUT_W = MAIN_CONTENT_SIZE * 2.48;
+const OUTPUT_SCROLLBAR_W = 4.0;
+const OUTPUT_SCROLLBAR_PAD = 2.0;
+const OUTPUT_SCROLLBAR_MIN_H = 18.0;
+const OUTPUT_WHEEL_LINES = 3.0;
 
 const VERSION_X = 10.0;
 const VERSION_Y = 175.0;
@@ -107,22 +107,21 @@ const DRAG_THRESHOLD = 12;
 const PROCESS_POLL_MS: u64 = 175;
 const LAUNCH_COOLDOWN_MS: u64 = 3_000;
 const EFMI_LAUNCH_COOLDOWN_MS: u64 = 10_000;
-const LOGO_CANVAS_X = 62.0;
-const LOGO_CANVAS_Y = 52.0;
-const LOGO_CANVAS_W = 190.0;
-const LOGO_CANVAS_H = 100.0;
 const BUTTON_LABEL_HOVER_DELTA = 0.02;
 const BUTTON_LABEL_SUPERSAMPLE = 1.0;
 const BUTTON_LABEL_RENDER_SCALE = 1.25;
 const IDC_ARROW_ID: u16 = 32512;
+const IDC_IBEAM_ID: u16 = 32513;
 const IDC_HAND_ID: u16 = 32649;
+const WHEEL_DELTA = 120;
 const embedded_dll = @embedFile("EFUHook");
 const LOGO_EF_PATH = "M3.37,13.25h7.9V9.68H3.37V7.37H9.68L11.46,5.6V3.82H0V19.45H11.6V15.81H3.37ZM7.52,1.18h.23l.36.62h.52L8.2,1.1A.51.51,0,0,0,8.53.59C8.53.16,8.19,0,7.77,0H7.05V1.8h.47Zm0-.81h.21c.22,0,.34,0,.34.22S8,.84,7.73.84H7.52ZM0,37H3.38V30.8H11V27.24H3.38v-2.3h7.8V21.41H0ZM.59,1.4h.58l.12.4h.49L1.17,0H.61L0,1.8H.48ZM.73.92C.78.74.83.54.88.35h0c0,.18.1.39.15.57l0,.15H.68Zm54.69.55a.82.82,0,0,1-.48-.18l-.27.29a1.19,1.19,0,0,0,.74.26c.47,0,.74-.26,.74-.56A.49.49,0,0,0,55.77.8L55.52.71c-.17-.06-.3-.1-.3-.2s.09-.15.24-.15a.67.67,0,0,1,.4.14L56.1.23A1,1,0,0,0,55.46,0c-.42,0-.71.24-.71.54a.52.52,0,0,0,.39.48l.26.1c.16.06.27.09.27.2S55.59,1.47,55.42,1.47ZM12.46,37h3.39V26.09H12.5l3.35-3.34V21.41H12.46ZM21.35,1.22c0-.22,0-.46-.06-.66h0l.19.39L22,1.8h.48V0H22V.62a6.26,6.26,0,0,0,.06.65h0L21.87.88,21.38,0H20.9V1.8h.45ZM28.45,0H28V1.8h.48ZM39.34,19a6.45,6.45,0,0,0,2.22-1.22A5.88,5.88,0,0,0,42.9,16a7.87,7.87,0,0,0,.69-2,11.46,11.46,0,0,0,.18-2.09v-.63a11,11,0,0,0-.14-1.77,9.85,9.85,0,0,0-.45-1.69,4.78,4.78,0,0,0-.89-1.55A7.34,7.34,0,0,0,40.89,5a6.33,6.33,0,0,0-2-.85,12.06,12.06,0,0,0-2.74-.29H28.9V19.45h7.21A9.93,9.93,0,0,0,39.34,19Zm-7-3.28H28.94l3.36-3.36V7.52h3.54c2.91,0,4.36,1.33,4.36,4v.12q0,4-4.36,4ZM41.42,1.08h.65V1.8h.46V0h-.46V.71h-.65V0H41V1.8h.47Zm7,.72h.47V.39h.53V0H47.9V.39h.53Zm-13.59,0a1,1,0,0,0,.65-.22V.79h-.73v.35h.32v.29a.53.53,0,0,1-.19,0,.49.49,0,0,1-.54-.56.5.5,0,0,1,.5-.55.53.53,0,0,1,.36.14l.25-.27A.91.91,0,0,0,34.83,0a.91.91,0,0,0-1,.93A.88.88,0,0,0,34.84,1.84Zm-20.39-.5.21-.26.46.72h.52L14.93.74l.6-.71H15l-.56.7h0V0H14V1.8h.48Zm6.46,29.43h7.9V27.2h-7.9V24.88h6.33L29,23.13v-1.8H17.55V37h11.6V33.33H20.91Zm38.47,0h-.09v.12h.09ZM27.18,16.12V3.87H23.82v9.81L16.9,3.87H13.12v15.6h3.35V9.14l7.35,10.33ZM59.38,31h-.09v.13h.09Zm.56,0h-.18v.11h.18Zm8.89,2H66.91v.46h1.57v.74H66.91v.15l1.82,1.26v-.36l.5-.18V33.68h-.4ZM58.64,21.41V36.9h15.5V21.41Zm3.56,9.26h.22a.56.56,0,0,0,0-.12h.2l-.07.11h.32V31H63v.15h-.13v.25c0,.07,0,.11-.06.13a.36.36,0,0,1-.19,0,.42.42,0,0,0,0-.15h.1s0,0,0,0v-.24h-.39a.64.64,0,0,1-.2.42.63.63,0,0,0-.12-.11.52.52,0,0,0,.16-.31h-.14V31h.15Zm.38.75a.73.73,0,0,0-.18-.16l.1-.08a.55.55,0,0,1,.19.14Zm-1.51-.55v-.15h.45a.75.75,0,0,0-.06-.13l.16-.06s.06.12.08.16l-.08,0h.44v.15h-.55a.37.37,0,0,1,0,.11H62v.07c0,.29,0,.41-.09.46a.2.2,0,0,1-.13.06h-.19a.32.32,0,0,0-.06-.15h.24s0-.11.06-.28h-.32a.65.65,0,0,1-.31.46.45.45,0,0,0-.11-.13.61.61,0,0,0,.28-.59Zm-.87-.26H61v1h-.17V31.5h-.45v.07H60.2Zm-.59,0h.48v.82c0,.08,0,.12-.06.14a.38.38,0,0,1-.2,0,.47.47,0,0,0-.06-.15h.14s0,0,0,0v-.17h-.2a.54.54,0,0,1-.18.35.58.58,0,0,0-.12-.1.61.61,0,0,0,.17-.5Zm-.47,0h.38v.67h-.23v.09h-.15Zm0,2.74L60,31.76h.92l-1.23,2.33h-.57Zm2,2.84-2,.4v-.7l2-.41Zm12.79.41H71.45l-.72-.37V34.37l-.42.16v-.85h-.24v1l.46-.17v1l-1.62.6v.44l-2-1.42v1.38H66V35.21L64,36.6H62.82l-1.67-1.19.62-.46,1.65,1.14L66,34.31v-.15H64.41v-.74H66V33h-2v.18l-.86.6,1,.64v.88l-1.6-1.1-1.47,1v.12l-1.92.41v-.25l1.6-2.76H61l.68-.91h.9l-.32.43H66v-.46h.92v.46h2v.72h.27V32h.84v.94h.46v.6l.2-.08V32.29h.84v.85l.21-.08v-1.3h.84v1l1-.4v2.54l-.84.35V33.57l-.21.08V35.3l-.84.35V34l-.21.08v1.78h2.32Zm-12-1.78.63-.46.86.59v.92Zm.59-1.5L63,33H61.89Zm-2.5-2.58h-.18v.11h.18Zm1.14,3.07h-.21l-.43.83.38-.09v-.1l1-.72-.47-.32ZM42.62,33.2h0ZM34.05,21.39H30.66V37H41.59V33.11H34.05Zm22.86,3.87A4.74,4.74,0,0,0,56,23.72a6.75,6.75,0,0,0-1.4-1.24,6.06,6.06,0,0,0-2-.85,11.64,11.64,0,0,0-2.75-.3h-7.2V33.19l3.4-3.4V25h3.54q4.36,0,4.36,4v.13q0,4-4.36,4H42.63V37h7.22a9.91,9.91,0,0,0,3.22-.48,6.29,6.29,0,0,0,2.22-1.22,5.84,5.84,0,0,0,1.34-1.78,7.62,7.62,0,0,0,.69-2,11.54,11.54,0,0,0,.18-2.09v-.63A11.17,11.17,0,0,0,57.36,27,9.43,9.43,0,0,0,56.91,25.26Zm3.91,5.51h-.45V31h.45Zm0,.36h-.45v.21h.45Zm1.59-.23.1-.08h-.15V31h.19A.55.55,0,0,0,62.41,30.9Zm.17.12h.16v-.2h-.22a.61.61,0,0,1,.15.12Z";
+const LOGO_EF_END_D_PATH = "M39.34,19a6.45,6.45,0,0,0,2.22-1.22A5.88,5.88,0,0,0,42.9,16a7.87,7.87,0,0,0,.69-2,11.46,11.46,0,0,0,.18-2.09v-.63a11,11,0,0,0-.14-1.77,9.85,9.85,0,0,0-.45-1.69,4.78,4.78,0,0,0-.89-1.55A7.34,7.34,0,0,0,40.89,5a6.33,6.33,0,0,0-2-.85,12.06,12.06,0,0,0-2.74-.29H28.9V19.45h7.21A9.93,9.93,0,0,0,39.34,19Zm-7-3.28H28.94l3.36-3.36V7.52h3.54c2.91,0,4.36,1.33,4.36,4v.12q0,4-4.36,4Z";
 const LOGO_TEXT_PATH = "M18.298828125 7.857421875 V26.876953125 Q18.298828125 30.111328125 18.087890625 31.4208984375 Q17.876953125 32.73046875 16.83984375 34.1103515625 Q15.802734375 35.490234375 14.1064453125 36.2021484375 Q12.41015625 36.9140625 10.107421875 36.9140625 Q7.55859375 36.9140625 5.607421875 36.0703125 Q3.65625 35.2265625 2.689453125 33.873046875 Q1.72265625 32.51953125 1.546875 31.0166015625 Q1.37109375 29.513671875 1.37109375 24.697265625 V7.857421875 H8.771484375 V29.197265625 Q8.771484375 31.060546875 8.9736328125 31.5791015625 Q9.17578125 32.09765625 9.791015625 32.09765625 Q10.494140625 32.09765625 10.6962890625 31.5263671875 Q10.8984375 30.955078125 10.8984375 28.828125 V7.857421875 Z M37.6875 7.857421875 V36.31640625 H31.201171875 L27.3515625 23.37890625 V36.31640625 H21.1640625 V7.857421875 H27.3515625 L31.5 20.671875 V7.857421875 Z M57.9375 20.267578125 H50.537109375 V15.310546875 Q50.537109375 13.1484375 50.2998046875 12.6123046875 Q50.0625 12.076171875 49.25390625 12.076171875 Q48.33984375 12.076171875 48.09375 12.7265625 Q47.84765625 13.376953125 47.84765625 15.5390625 V28.7578125 Q47.84765625 30.83203125 48.09375 31.46484375 Q48.33984375 32.09765625 49.201171875 32.09765625 Q50.02734375 32.09765625 50.2822265625 31.46484375 Q50.537109375 30.83203125 50.537109375 28.494140625 V24.92578125 H57.9375 V26.033203125 Q57.9375 30.4453125 57.3134765625 32.291015625 Q56.689453125 34.13671875 54.5537109375 35.525390625 Q52.41796875 36.9140625 49.2890625 36.9140625 Q46.037109375 36.9140625 43.927734375 35.736328125 Q41.818359375 34.55859375 41.1328125 32.4755859375 Q40.447265625 30.392578125 40.447265625 26.208984375 V17.89453125 Q40.447265625 14.818359375 40.658203125 13.2802734375 Q40.869140625 11.7421875 41.9150390625 10.318359375 Q42.9609375 8.89453125 44.8154296875 8.0771484375 Q46.669921875 7.259765625 49.078125 7.259765625 Q52.34765625 7.259765625 54.474609375 8.525390625 Q56.6015625 9.791015625 57.26953125 11.6806640625 Q57.9375 13.5703125 57.9375 17.560546875 Z M60.591796875 7.857421875 H72.931640625 V13.552734375 H67.9921875 V18.94921875 H72.615234375 V24.36328125 H67.9921875 V30.62109375 H73.423828125 V36.31640625 H60.591796875 Z M92.07421875 7.857421875 V36.31640625 H85.587890625 L81.73828125 23.37890625 V36.31640625 H75.55078125 V7.857421875 H81.73828125 L85.88671875 20.671875 V7.857421875 Z M110.724609375 16.470703125 H103.8515625 V14.361328125 Q103.8515625 12.884765625 103.587890625 12.48046875 Q103.32421875 12.076171875 102.708984375 12.076171875 Q102.041015625 12.076171875 101.6982421875 12.62109375 Q101.35546875 13.166015625 101.35546875 14.2734375 Q101.35546875 15.697265625 101.7421875 16.41796875 Q102.111328125 17.138671875 103.833984375 18.158203125 Q108.7734375 21.09375 110.056640625 22.974609375 Q111.33984375 24.85546875 111.33984375 29.0390625 Q111.33984375 32.080078125 110.6279296875 33.521484375 Q109.916015625 34.962890625 107.876953125 35.9384765625 Q105.837890625 36.9140625 103.130859375 36.9140625 Q100.16015625 36.9140625 98.0595703125 35.7890625 Q95.958984375 34.6640625 95.30859375 32.923828125 Q94.658203125 31.18359375 94.658203125 27.984375 V26.12109375 H101.53125 V29.583984375 Q101.53125 31.18359375 101.8212890625 31.640625 Q102.111328125 32.09765625 102.849609375 32.09765625 Q103.587890625 32.09765625 103.9482421875 31.517578125 Q104.30859375 30.9375 104.30859375 29.794921875 Q104.30859375 27.28125 103.623046875 26.5078125 Q102.919921875 25.734375 100.16015625 23.923828125 Q97.400390625 22.095703125 96.50390625 21.26953125 Q95.607421875 20.443359375 95.0185546875 18.984375 Q94.4296875 17.525390625 94.4296875 15.2578125 Q94.4296875 11.98828125 95.2646484375 10.4765625 Q96.099609375 8.96484375 97.962890625 8.1123046875 Q99.826171875 7.259765625 102.462890625 7.259765625 Q105.345703125 7.259765625 107.3759765625 8.19140625 Q109.40625 9.123046875 110.0654296875 10.5380859375 Q110.724609375 11.953125 110.724609375 15.345703125 Z M130.5703125 24.521484375 Q130.5703125 28.810546875 130.3681640625 30.5947265625 Q130.166015625 32.37890625 129.1025390625 33.85546875 Q128.0390625 35.33203125 126.228515625 36.123046875 Q124.41796875 36.9140625 122.009765625 36.9140625 Q119.724609375 36.9140625 117.9052734375 36.1669921875 Q116.0859375 35.419921875 114.978515625 33.92578125 Q113.87109375 32.431640625 113.66015625 30.673828125 Q113.44921875 28.916015625 113.44921875 24.521484375 V19.65234375 Q113.44921875 15.36328125 113.6513671875 13.5791015625 Q113.853515625 11.794921875 114.9169921875 10.318359375 Q115.98046875 8.841796875 117.791015625 8.05078125 Q119.6015625 7.259765625 122.009765625 7.259765625 Q124.294921875 7.259765625 126.1142578125 8.0068359375 Q127.93359375 8.75390625 129.041015625 10.248046875 Q130.1484375 11.7421875 130.359375 13.5 Q130.5703125 15.2578125 130.5703125 19.65234375 Z M123.169921875 15.169921875 Q123.169921875 13.18359375 122.9501953125 12.6298828125 Q122.73046875 12.076171875 122.044921875 12.076171875 Q121.46484375 12.076171875 121.1572265625 12.5244140625 Q120.849609375 12.97265625 120.849609375 15.169921875 V28.458984375 Q120.849609375 30.9375 121.0517578125 31.517578125 Q121.25390625 32.09765625 121.9921875 32.09765625 Q122.748046875 32.09765625 122.958984375 31.4296875 Q123.169921875 30.76171875 123.169921875 28.248046875 Z M133.330078125 7.857421875 H138.568359375 Q143.806640625 7.857421875 145.6611328125 8.26171875 Q147.515625 8.666015625 148.6845703125 10.3271484375 Q149.853515625 11.98828125 149.853515625 15.626953125 Q149.853515625 18.94921875 149.02734375 20.091796875 Q148.201171875 21.234375 145.775390625 21.462890625 Q147.97265625 22.0078125 148.728515625 22.921875 Q149.484375 23.8359375 149.6689453125 24.6005859375 Q149.853515625 25.365234375 149.853515625 28.810546875 V36.31640625 H142.98046875 V26.859375 Q142.98046875 24.57421875 142.6201171875 24.029296875 Q142.259765625 23.484375 140.73046875 23.484375 V36.31640625 H133.330078125 Z M140.73046875 12.7265625 V19.0546875 Q141.978515625 19.0546875 142.4794921875 18.7119140625 Q142.98046875 18.369140625 142.98046875 16.48828125 V14.923828125 Q142.98046875 13.5703125 142.4970703125 13.1484375 Q142.013671875 12.7265625 140.73046875 12.7265625 Z M152.71875 7.857421875 H165.05859375 V13.552734375 H160.119140625 V18.94921875 H164.7421875 V24.36328125 H160.119140625 V30.62109375 H165.55078125 V36.31640625 H152.71875 Z M167.677734375 7.857421875 H173.21484375 Q178.576171875 7.857421875 180.4658203125 8.349609375 Q182.35546875 8.841796875 183.33984375 9.966796875 Q184.32421875 11.091796875 184.5703125 12.4716796875 Q184.81640625 13.8515625 184.81640625 17.89453125 V27.861328125 Q184.81640625 31.693359375 184.4560546875 32.9853515625 Q184.095703125 34.27734375 183.19921875 35.0068359375 Q182.302734375 35.736328125 180.984375 36.0263671875 Q179.666015625 36.31640625 177.01171875 36.31640625 H167.677734375 Z M175.078125 12.7265625 V31.447265625 Q176.677734375 31.447265625 177.046875 30.8056640625 Q177.416015625 30.1640625 177.416015625 27.31640625 V16.259765625 Q177.416015625 14.326171875 177.29296875 13.78125 Q177.169921875 13.236328125 176.73046875 12.9814453125 Q176.291015625 12.7265625 175.078125 12.7265625 Z";
 
-const LOGO_PATH_LAYERS = [_]Ui.SvgPathLayer{
-    .{ .path = LOGO_EF_PATH, .transform = .{ .a = 2.211, .d = 2.211, .e = LOGO_CANVAS_X + 13.0, .f = LOGO_CANVAS_Y + 3.0 } },
-    .{ .path = LOGO_TEXT_PATH, .transform = .{ .a = 0.893583, .d = 0.2, .e = LOGO_CANVAS_X + 11.774814, .f = LOGO_CANVAS_Y + 84.0 } },
+const LOGO_BASE_PATH_LAYERS = [_]Ui.SvgPathLayer{
+    .{ .path = LOGO_EF_PATH, .transform = .{ .a = 2.211, .d = 2.211, .e = 13.0, .f = 3.0 } },
+    .{ .path = LOGO_TEXT_PATH, .transform = .{ .a = 0.893583, .d = 0.2, .e = 11.774814, .f = 84.0 } },
 };
 
 const ScalarAnim = struct {
@@ -231,6 +230,42 @@ const GameLaunchMode = enum {
     efmi,
 };
 
+const OutputDragMode = enum {
+    none,
+    select,
+    scrollbar,
+};
+
+const OutputScrollbarMetrics = struct {
+    track_x: f32,
+    track_h: f32,
+    thumb_y: f32,
+    thumb_h: f32,
+    width: f32,
+    max_scroll: f32,
+};
+
+const OutputTextLayout = struct {
+    layout: bytegui.TextLayoutResult,
+    viewport: ByteVec2,
+    overflow: bool,
+
+    fn deinit(self: *OutputTextLayout) void {
+        self.layout.deinit();
+    }
+};
+
+const OutputSelectionRange = struct {
+    start: usize,
+    end: usize,
+};
+
+const LogoBounds = struct {
+    min: ByteVec2 = .{},
+    max: ByteVec2 = .{},
+    valid: bool = false,
+};
+
 // App state
 var g_hwnd: ?c.HWND = null;
 var g_running = true;
@@ -244,13 +279,25 @@ var g_font_version: ?*ByteFont = null;
 var g_font_launch: ?*ByteFont = null;
 var g_font_toggle: ?*ByteFont = null;
 
-var g_logo_layers: [LOGO_PATH_LAYERS.len]?Ui.ParsedSvgLayer = .{null} ** LOGO_PATH_LAYERS.len;
+var g_logo_layers: [LOGO_BASE_PATH_LAYERS.len]?Ui.ParsedSvgLayer = .{null} ** LOGO_BASE_PATH_LAYERS.len;
+var g_logo_bounds: LogoBounds = .{};
+var g_logo_end_d_bounds: LogoBounds = .{};
+var g_logo_end_d_contact: ?ByteVec2 = null;
 var g_launch_label_texture: TextTexture = .{};
 var g_toggle_label_texture: TextTexture = .{};
 var g_efmi_top_label_texture: TextTexture = .{};
 var g_efmi_bottom_label_texture: TextTexture = .{};
 
 var g_output_lines: std.ArrayListUnmanaged([]u8) = .empty;
+var g_output_scroll_y: f32 = 0.0;
+var g_output_content_height: f32 = 0.0;
+var g_output_pending_autoscroll = true;
+var g_output_selection_anchor: ?usize = null;
+var g_output_selection_cursor: usize = 0;
+var g_output_selection_highlight: bytegui.TextSelectionHighlightState = .{};
+var g_output_drag_mode: OutputDragMode = .none;
+var g_output_scroll_drag_start_y: i32 = 0;
+var g_output_scroll_drag_start_scroll: f32 = 0.0;
 var g_minimize_on_launch = false;
 var g_efmi_on_launch = false;
 var g_efmi_requested = false;
@@ -336,6 +383,11 @@ fn lowWordSigned(value: c.LPARAM) i32 {
 fn highWordSigned(value: c.LPARAM) i32 {
     const bits: usize = @bitCast(value);
     const hi: u16 = @truncate((bits >> 16) & 0xFFFF);
+    return @as(i16, @bitCast(hi));
+}
+
+fn highWordSignedWParam(value: c.WPARAM) i32 {
+    const hi: u16 = @truncate((value >> 16) & 0xFFFF);
     return @as(i16, @bitCast(hi));
 }
 
@@ -522,6 +574,15 @@ fn allocOwnedLine(comptime fmt: []const u8, args: anytype) ?[]u8 {
     return std.fmt.allocPrint(allocator, fmt, args) catch null;
 }
 
+fn clearOutputSelection() void {
+    g_output_selection_anchor = null;
+    g_output_selection_cursor = 0;
+}
+
+fn scheduleOutputAutoscroll() void {
+    g_output_pending_autoscroll = true;
+}
+
 // Status text
 fn appendStatus(comptime fmt: []const u8, args: anytype) void {
     const line = allocOwnedLine(fmt, args) orelse return;
@@ -530,6 +591,7 @@ fn appendStatus(comptime fmt: []const u8, args: anytype) void {
 
 fn appendOwnedStatusLine(line: []u8) void {
     g_output_lines.append(allocator, line) catch allocator.free(line);
+    scheduleOutputAutoscroll();
 }
 
 fn setLastOwnedStatusLine(line: []u8) void {
@@ -541,12 +603,17 @@ fn setLastOwnedStatusLine(line: []u8) void {
     const last_index = g_output_lines.items.len - 1;
     allocator.free(g_output_lines.items[last_index]);
     g_output_lines.items[last_index] = line;
+    scheduleOutputAutoscroll();
 }
 
 fn clearStatusLines() void {
     for (g_output_lines.items) |line| allocator.free(line);
     g_output_lines.deinit(allocator);
     g_output_lines = .empty;
+    g_output_scroll_y = 0.0;
+    g_output_content_height = 0.0;
+    clearOutputSelection();
+    scheduleOutputAutoscroll();
 }
 
 fn cancelCloseCountdown() void {
@@ -804,6 +871,47 @@ fn cleanupLogoLayers() void {
         if (slot.*) |*layer| layer.deinit();
         slot.* = null;
     }
+    g_logo_bounds = .{};
+    g_logo_end_d_bounds = .{};
+    g_logo_end_d_contact = null;
+}
+
+fn deinitLogoLayerSlots(slots: []?Ui.ParsedSvgLayer) void {
+    for (slots) |*slot| {
+        if (slot.*) |*layer| layer.deinit();
+        slot.* = null;
+    }
+}
+
+fn logoBoundsFromSlots(slots: []const ?Ui.ParsedSvgLayer) LogoBounds {
+    var bounds = LogoBounds{};
+    for (slots) |slot| {
+        const layer = slot orelse continue;
+        if (layer.bounds_min.x >= layer.bounds_max.x or layer.bounds_min.y >= layer.bounds_max.y) continue;
+        if (!bounds.valid) {
+            bounds = .{ .min = layer.bounds_min, .max = layer.bounds_max, .valid = true };
+        } else {
+            bounds.min.x = @min(bounds.min.x, layer.bounds_min.x);
+            bounds.min.y = @min(bounds.min.y, layer.bounds_min.y);
+            bounds.max.x = @max(bounds.max.x, layer.bounds_max.x);
+            bounds.max.y = @max(bounds.max.y, layer.bounds_max.y);
+        }
+    }
+    return bounds;
+}
+
+fn scaledLogoLayer(base: Ui.SvgPathLayer, scale: f32, tx: f32, ty: f32) Ui.SvgPathLayer {
+    return .{
+        .path = base.path,
+        .transform = .{
+            .a = base.transform.a * scale,
+            .b = base.transform.b * scale,
+            .c = base.transform.c * scale,
+            .d = base.transform.d * scale,
+            .e = base.transform.e * scale + tx,
+            .f = base.transform.f * scale + ty,
+        },
+    };
 }
 
 fn cleanupButtonLabelTextures() void {
@@ -847,8 +955,67 @@ fn rebuildButtonLabelTextures() bool {
 fn rebuildLogoLayers() void {
     cleanupLogoLayers();
     const dpi_scale = bytegui.ByteGui_ImplWin32_GetDpiScale();
-    for (&LOGO_PATH_LAYERS, 0..) |layer, i| {
-        g_logo_layers[i] = Ui.BuildParsedSvgLayer(layer, dpi_scale);
+
+    var base_layers: [LOGO_BASE_PATH_LAYERS.len]?Ui.ParsedSvgLayer = .{null} ** LOGO_BASE_PATH_LAYERS.len;
+    defer deinitLogoLayerSlots(base_layers[0..]);
+    for (&LOGO_BASE_PATH_LAYERS, 0..) |layer, i| {
+        base_layers[i] = Ui.BuildParsedSvgLayer(layer, dpi_scale);
+    }
+
+    const base_bounds = logoBoundsFromSlots(base_layers[0..]);
+    if (!base_bounds.valid) return;
+
+    const coverage_pad = 1.0 / @max(dpi_scale, 1.0);
+    const raw_min = ByteVec2{ .x = base_bounds.min.x + coverage_pad, .y = base_bounds.min.y + coverage_pad };
+    const raw_max = ByteVec2{ .x = base_bounds.max.x - coverage_pad, .y = base_bounds.max.y - coverage_pad };
+    const raw_w = @max(1.0, raw_max.x - raw_min.x);
+    const raw_h = @max(1.0, raw_max.y - raw_min.y);
+    const logo_scale = @max(0.01, (MAIN_CONTENT_SIZE - coverage_pad * 2.0) / raw_h);
+    const logo_w = raw_w * logo_scale + coverage_pad * 2.0;
+    const logo_right = WINDOW_WIDTH * 0.5 - MAIN_CONTENT_CENTER_EDGE_OFFSET;
+    const target_min = ByteVec2{
+        .x = logo_right - logo_w,
+        .y = (WINDOW_HEIGHT - MAIN_CONTENT_SIZE) * 0.5,
+    };
+    const tx = target_min.x + coverage_pad - raw_min.x * logo_scale;
+    const ty = target_min.y + coverage_pad - raw_min.y * logo_scale;
+
+    for (&LOGO_BASE_PATH_LAYERS, 0..) |base, i| {
+        g_logo_layers[i] = Ui.BuildParsedSvgLayer(scaledLogoLayer(base, logo_scale, tx, ty), dpi_scale);
+    }
+    g_logo_bounds = logoBoundsFromSlots(g_logo_layers[0..]);
+
+    const end_d_layer = Ui.SvgPathLayer{
+        .path = LOGO_EF_END_D_PATH,
+        .transform = LOGO_BASE_PATH_LAYERS[0].transform,
+    };
+    if (Ui.BuildParsedSvgLayer(scaledLogoLayer(end_d_layer, logo_scale, tx, ty), dpi_scale)) |layer| {
+        var measured_layer = layer;
+        defer measured_layer.deinit();
+        if (measured_layer.bounds_min.x < measured_layer.bounds_max.x and measured_layer.bounds_min.y < measured_layer.bounds_max.y) {
+            g_logo_end_d_bounds = .{
+                .min = measured_layer.bounds_min,
+                .max = measured_layer.bounds_max,
+                .valid = true,
+            };
+        }
+        var contact = ByteVec2{};
+        var contact_sum = -std.math.floatMax(f32);
+        for (measured_layer.fill_vertices) |vertex| {
+            const sum = vertex.pos.x + vertex.pos.y;
+            if (sum > contact_sum) {
+                contact_sum = sum;
+                contact = vertex.pos;
+            }
+        }
+        for (measured_layer.fringe_vertices) |vertex| {
+            const sum = vertex.pos.x + vertex.pos.y;
+            if (sum > contact_sum) {
+                contact_sum = sum;
+                contact = vertex.pos;
+            }
+        }
+        if (contact_sum > -std.math.floatMax(f32)) g_logo_end_d_contact = contact;
     }
 }
 
@@ -910,6 +1077,7 @@ fn uploadPreparedStartupAssets(prepared: *const StartupPreparedAssets) bool {
 fn cleanupRenderResources() void {
     cleanupLogoLayers();
     cleanupButtonLabelTextures();
+    g_output_selection_highlight.deinit();
 }
 
 fn windowUsesLayeredOpacity() bool {
@@ -1406,6 +1574,335 @@ fn hitTestButton(pt: c.POINT) i32 {
     return 0;
 }
 
+fn outputTextRect() c.RECT {
+    const y = if (g_logo_bounds.valid) g_logo_bounds.min.y else (WINDOW_HEIGHT - MAIN_CONTENT_SIZE) * 0.5;
+    const h = if (g_logo_bounds.valid) g_logo_bounds.max.y - g_logo_bounds.min.y else MAIN_CONTENT_SIZE;
+    const x = WINDOW_WIDTH * 0.5 + MAIN_CONTENT_CENTER_EDGE_OFFSET;
+
+    return makeRectL(scaleF(x), scaleF(y), @max(1.0, scaleF(OUTPUT_W)), @max(1.0, scaleF(h)));
+}
+
+fn outputViewportSizeFromRect(rect: c.RECT) ByteVec2 {
+    return .{
+        .x = @max(1.0, @as(f32, @floatFromInt(rect.right - rect.left))),
+        .y = @max(1.0, @as(f32, @floatFromInt(rect.bottom - rect.top))),
+    };
+}
+
+fn pointInOutputTextRect(pt: c.POINT) bool {
+    return pointInRect(outputTextRect(), pt);
+}
+
+fn outputMaxScrollFor(content_height: f32, viewport_height: f32) f32 {
+    return @max(0.0, content_height - viewport_height);
+}
+
+fn clampOutputScrollTo(max_scroll: f32) void {
+    g_output_scroll_y = std.math.clamp(g_output_scroll_y, 0.0, max_scroll);
+}
+
+fn buildOutputText(out: *std.ArrayListUnmanaged(u8)) bool {
+    for (g_output_lines.items, 0..) |line, index| {
+        out.appendSlice(allocator, line) catch return false;
+        if (index + 1 < g_output_lines.items.len) out.append(allocator, '\n') catch return false;
+    }
+    return true;
+}
+
+fn layoutOutputText(text: []const u8) ?OutputTextLayout {
+    const font = g_font_textbox orelse return null;
+    const rect = outputTextRect();
+    const viewport = outputViewportSizeFromRect(rect);
+    var wrap_width = viewport.x;
+    var layout = ByteGui.LayoutText(font, font.LegacySize, text, wrap_width) orelse return null;
+    var overflow = layout.height > viewport.y + 0.5;
+
+    if (overflow) {
+        const reserved_w = scaleF(OUTPUT_SCROLLBAR_W + OUTPUT_SCROLLBAR_PAD * 2.0);
+        const reduced_wrap_width = @max(1.0, viewport.x - reserved_w);
+        if (reduced_wrap_width < wrap_width) {
+            layout.deinit();
+            wrap_width = reduced_wrap_width;
+            layout = ByteGui.LayoutText(font, font.LegacySize, text, wrap_width) orelse return null;
+            overflow = layout.height > viewport.y + 0.5;
+        }
+    }
+
+    return .{
+        .layout = layout,
+        .viewport = viewport,
+        .overflow = overflow,
+    };
+}
+
+fn refreshOutputLayoutState() void {
+    var text: std.ArrayListUnmanaged(u8) = .empty;
+    defer text.deinit(allocator);
+    if (!buildOutputText(&text)) return;
+
+    var laid_out = layoutOutputText(text.items) orelse return;
+    defer laid_out.deinit();
+    g_output_content_height = laid_out.layout.height;
+    clampOutputScrollTo(outputMaxScrollFor(g_output_content_height, laid_out.viewport.y));
+}
+
+fn outputScrollbarMetricsFor(content_height: f32, viewport_height: f32) ?OutputScrollbarMetrics {
+    const max_scroll = outputMaxScrollFor(content_height, viewport_height);
+    if (max_scroll <= 0.5) return null;
+
+    const rect = outputTextRect();
+    const width = scaleF(OUTPUT_SCROLLBAR_W);
+    const pad = scaleF(OUTPUT_SCROLLBAR_PAD);
+    const track_y = @as(f32, @floatFromInt(rect.top)) + pad;
+    const track_h = @max(1.0, viewport_height - pad * 2.0);
+    const thumb_h = std.math.clamp(track_h * (viewport_height / @max(viewport_height, content_height)), scaleF(OUTPUT_SCROLLBAR_MIN_H), track_h);
+    const range = @max(0.0, track_h - thumb_h);
+    const thumb_y = track_y + if (range > 0.0) (std.math.clamp(g_output_scroll_y, 0.0, max_scroll) / max_scroll) * range else 0.0;
+
+    return .{
+        .track_x = @as(f32, @floatFromInt(rect.right)) - pad - width,
+        .track_h = track_h,
+        .thumb_y = thumb_y,
+        .thumb_h = thumb_h,
+        .width = width,
+        .max_scroll = max_scroll,
+    };
+}
+
+fn currentOutputScrollbarMetrics() ?OutputScrollbarMetrics {
+    const rect = outputTextRect();
+    const viewport = outputViewportSizeFromRect(rect);
+    return outputScrollbarMetricsFor(g_output_content_height, viewport.y);
+}
+
+fn pointInOutputScrollbarThumb(pt: c.POINT) bool {
+    const metrics = currentOutputScrollbarMetrics() orelse return false;
+    const hit_pad = scaleF(3.0);
+    return pointInRect(makeRectL(metrics.track_x - hit_pad, metrics.thumb_y - hit_pad, metrics.width + hit_pad * 2.0, metrics.thumb_h + hit_pad * 2.0), pt);
+}
+
+fn setOutputScrollY(value: f32) void {
+    const rect = outputTextRect();
+    const viewport = outputViewportSizeFromRect(rect);
+    g_output_pending_autoscroll = false;
+    g_output_scroll_y = std.math.clamp(value, 0.0, outputMaxScrollFor(g_output_content_height, viewport.y));
+}
+
+fn scrollOutputBy(delta_y: f32) bool {
+    refreshOutputLayoutState();
+    const rect = outputTextRect();
+    const viewport = outputViewportSizeFromRect(rect);
+    const max_scroll = outputMaxScrollFor(g_output_content_height, viewport.y);
+    if (max_scroll <= 0.5) return false;
+
+    setOutputScrollY(g_output_scroll_y + delta_y);
+    return true;
+}
+
+fn nextTextIndex(text: []const u8, index: usize, end: usize) usize {
+    if (index >= end) return end;
+    const cp_len = std.unicode.utf8ByteSequenceLength(text[index]) catch 1;
+    return @min(end, index + cp_len);
+}
+
+fn outputTextWidth(text: []const u8, start: usize, end: usize) f32 {
+    const font = g_font_textbox orelse return 0.0;
+    if (end <= start) return 0.0;
+    return ByteGui.CalcTextWidth(font, font.LegacySize, text[start..end]);
+}
+
+fn outputLineIndexAtX(text: []const u8, line: bytegui.TextLine, x: f32) usize {
+    if (x <= 0.0 or line.end <= line.start) return line.start;
+    if (x >= line.width) return line.end;
+
+    var index = line.start;
+    while (index < line.end) {
+        const next = nextTextIndex(text, index, line.end);
+        const left_w = outputTextWidth(text, line.start, index);
+        const right_w = outputTextWidth(text, line.start, next);
+        if (x < (left_w + right_w) * 0.5) return index;
+        index = next;
+    }
+    return line.end;
+}
+
+fn outputIndexFromPointWithLayout(text: []const u8, layout: *const bytegui.TextLayoutResult, pt: c.POINT) usize {
+    if (text.len == 0 or layout.lines.items.len == 0) return 0;
+
+    const rect = outputTextRect();
+    const x = @as(f32, @floatFromInt(pt.x - rect.left));
+    const y = @as(f32, @floatFromInt(pt.y - rect.top)) + g_output_scroll_y;
+    if (y <= 0.0) return outputLineIndexAtX(text, layout.lines.items[0], x);
+
+    const line_height = @max(1.0, layout.line_height);
+    const line_index_f = @floor(y / line_height);
+    if (line_index_f >= @as(f32, @floatFromInt(layout.lines.items.len))) return text.len;
+
+    const line_index: usize = @intFromFloat(@max(0.0, line_index_f));
+    return outputLineIndexAtX(text, layout.lines.items[line_index], x);
+}
+
+fn outputIndexFromPoint(pt: c.POINT) usize {
+    var text: std.ArrayListUnmanaged(u8) = .empty;
+    defer text.deinit(allocator);
+    if (!buildOutputText(&text)) return 0;
+
+    var laid_out = layoutOutputText(text.items) orelse return text.items.len;
+    defer laid_out.deinit();
+    return outputIndexFromPointWithLayout(text.items, &laid_out.layout, pt);
+}
+
+fn clampOutputSelection(text_len: usize) void {
+    if (g_output_selection_anchor) |anchor| g_output_selection_anchor = @min(anchor, text_len);
+    g_output_selection_cursor = @min(g_output_selection_cursor, text_len);
+}
+
+fn outputSelectionRange(text_len: usize) ?OutputSelectionRange {
+    const anchor = g_output_selection_anchor orelse return null;
+    const cursor = g_output_selection_cursor;
+    if (anchor == cursor) return null;
+    return .{
+        .start = @min(anchor, cursor),
+        .end = @min(@max(anchor, cursor), text_len),
+    };
+}
+
+fn selectedOutputTextAlloc() ?[]u8 {
+    var text: std.ArrayListUnmanaged(u8) = .empty;
+    defer text.deinit(allocator);
+    if (!buildOutputText(&text)) return null;
+
+    clampOutputSelection(text.items.len);
+    const selection = outputSelectionRange(text.items.len) orelse return null;
+    if (selection.end <= selection.start) return null;
+    return allocator.dupe(u8, text.items[selection.start..selection.end]) catch null;
+}
+
+fn selectAllOutputText() void {
+    var text: std.ArrayListUnmanaged(u8) = .empty;
+    defer text.deinit(allocator);
+    if (!buildOutputText(&text) or text.items.len == 0) {
+        clearOutputSelection();
+        return;
+    }
+
+    g_output_selection_anchor = 0;
+    g_output_selection_cursor = text.items.len;
+}
+
+fn controlKeyDown() bool {
+    return (@as(u16, @bitCast(c.GetAsyncKeyState(c.VK_CONTROL))) & 0x8000) != 0;
+}
+
+fn copyOutputSelectionToClipboard(hwnd: c.HWND) bool {
+    const selected = selectedOutputTextAlloc() orelse return false;
+    defer allocator.free(selected);
+
+    const h_mem = c.GlobalAlloc(c.GMEM_MOVEABLE, (selected.len + 1) * @sizeOf(u16)) orelse return false;
+    var transferred = false;
+    defer {
+        if (!transferred) _ = c.GlobalFree(h_mem);
+    }
+
+    const raw = c.GlobalLock(h_mem) orelse return false;
+    const wide: [*]u16 = @ptrCast(@alignCast(raw));
+    const wide_len = std.unicode.wtf8ToWtf16Le(wide[0..selected.len], selected) catch return false;
+    wide[wide_len] = 0;
+    _ = c.GlobalUnlock(h_mem);
+
+    if (c.OpenClipboard(hwnd) == c.FALSE) return false;
+    defer _ = c.CloseClipboard();
+    if (c.EmptyClipboard() == c.FALSE) return false;
+    if (c.SetClipboardData(c.CF_UNICODETEXT, h_mem) == null) return false;
+    transferred = true;
+    return true;
+}
+
+fn handleOutputKeyDown(hwnd: c.HWND, w_param: c.WPARAM) c.LRESULT {
+    if (!controlKeyDown()) return -1;
+    switch (w_param) {
+        c.VK_A => {
+            selectAllOutputText();
+            return 0;
+        },
+        c.VK_C => {
+            _ = copyOutputSelectionToClipboard(hwnd);
+            return 0;
+        },
+        else => return -1,
+    }
+}
+
+fn updateOutputSelectionAtPoint(pt: c.POINT) void {
+    g_output_selection_cursor = outputIndexFromPoint(pt);
+}
+
+fn beginOutputMouseDown(hwnd: c.HWND, pt: c.POINT) bool {
+    if (!pointInOutputTextRect(pt)) return false;
+
+    applyHoveredButton(0);
+    if (pointInOutputScrollbarThumb(pt)) {
+        g_output_drag_mode = .scrollbar;
+        g_output_scroll_drag_start_y = pt.y;
+        g_output_scroll_drag_start_scroll = g_output_scroll_y;
+    } else {
+        const index = outputIndexFromPoint(pt);
+        g_output_selection_anchor = index;
+        g_output_selection_cursor = index;
+        g_output_drag_mode = .select;
+    }
+    _ = c.SetCapture(hwnd);
+    return true;
+}
+
+fn updateOutputScrollbarDrag(pt: c.POINT) void {
+    const metrics = currentOutputScrollbarMetrics() orelse return;
+    const drag_range = @max(1.0, metrics.track_h - metrics.thumb_h);
+    const dy = @as(f32, @floatFromInt(pt.y - g_output_scroll_drag_start_y));
+    setOutputScrollY(g_output_scroll_drag_start_scroll + (dy / drag_range) * metrics.max_scroll);
+}
+
+fn updateOutputDrag(pt: c.POINT) bool {
+    switch (g_output_drag_mode) {
+        .none => return false,
+        .select => {
+            const rect = outputTextRect();
+            const line_step = if (g_font_textbox) |font| font.LegacySize else scaleF(13.0);
+            if (pt.y < rect.top) {
+                _ = scrollOutputBy(-line_step);
+            } else if (pt.y >= rect.bottom) {
+                _ = scrollOutputBy(line_step);
+            }
+            updateOutputSelectionAtPoint(pt);
+            return true;
+        },
+        .scrollbar => {
+            updateOutputScrollbarDrag(pt);
+            return true;
+        },
+    }
+}
+
+fn finishOutputDrag() bool {
+    if (g_output_drag_mode == .none) return false;
+    g_output_drag_mode = .none;
+    _ = c.ReleaseCapture();
+    return true;
+}
+
+fn handleOutputMouseWheel(hwnd: c.HWND, w_param: c.WPARAM, l_param: c.LPARAM) c.LRESULT {
+    var pt = c.POINT{ .x = lowWordSigned(l_param), .y = highWordSigned(l_param) };
+    _ = c.ScreenToClient(hwnd, &pt);
+    if (!pointInRoundedRectClient(pt) or !pointInOutputTextRect(pt)) return -1;
+
+    const delta = highWordSignedWParam(w_param);
+    if (delta == 0) return 0;
+    const line_step = if (g_font_textbox) |font| font.LegacySize * OUTPUT_WHEEL_LINES else scaleF(13.0) * OUTPUT_WHEEL_LINES;
+    const steps = @as(f32, @floatFromInt(delta)) / @as(f32, @floatFromInt(WHEEL_DELTA));
+    _ = scrollOutputBy(-steps * line_step);
+    return 0;
+}
+
 fn applyHoveredButton(next_hover: i32) void {
     const prev_hover = g_hovered_button;
     if (prev_hover == next_hover) return;
@@ -1454,38 +1951,35 @@ fn updateHoverStates(dt: f32) void {
     if (!g_cursor_in_window) applyHoveredButton(0);
 }
 
+fn yellowBandContactPointPx() ByteVec2 {
+    if (g_logo_end_d_contact) |contact| return .{ .x = scaleF(contact.x), .y = scaleF(contact.y) };
+    const bounds = if (g_logo_end_d_bounds.valid) g_logo_end_d_bounds else g_logo_bounds;
+    if (bounds.valid) return .{ .x = scaleF(bounds.max.x), .y = scaleF(bounds.max.y) };
+    return scaleVec2(WINDOW_WIDTH * 0.5, WINDOW_HEIGHT * 0.5);
+}
+
 fn drawYellowRotatedRect(draw: ?*ByteDrawList, opacity: f32) void {
+    const active_draw = draw orelse return;
     const window_size = platformWindowSize();
-    const rect_left = scaleF(-95.0);
-    const rect_top = scaleF(1.0);
-    const rect_width = scaleF(403.0);
-    const rect_height = scaleF(194.0);
-    const pivot_x = rect_left + rect_width * 0.3;
-    const pivot_y = rect_top + rect_height * 0.5;
+    const contact = yellowBandContactPointPx();
+    const edge_axis = ByteVec2{ .x = 0.70710677, .y = -0.70710677 };
+    const fill_axis = ByteVec2{ .x = 0.70710677, .y = 0.70710677 };
+    const span = @sqrt(window_size.x * window_size.x + window_size.y * window_size.y);
+    const thickness = @max(1.0, window_size.y - windowCornerRadiusPx() * 0.4);
+    const contact_start = ByteVec2{ .x = contact.x - edge_axis.x * span, .y = contact.y - edge_axis.y * span };
+    const contact_end = ByteVec2{ .x = contact.x + edge_axis.x * span, .y = contact.y + edge_axis.y * span };
+    const edge_start = ByteVec2{ .x = contact_start.x - fill_axis.x * thickness, .y = contact_start.y - fill_axis.y * thickness };
+    const edge_end = ByteVec2{ .x = contact_end.x - fill_axis.x * thickness, .y = contact_end.y - fill_axis.y * thickness };
+    const subject = [_]ByteVec2{
+        edge_start,
+        edge_end,
+        contact_end,
+        contact_start,
+    };
     const color = toU32(applyOpacity(.{ .x = 1.0, .y = 250.0 / 255.0, .z = 0.0, .w = 1.0 }, opacity));
-    if (g_wine_mode) {
-        const active_draw = draw orelse return;
-        const ccos = @cos(-45.0 * std.math.pi / 180.0);
-        const ssin = @sin(-45.0 * std.math.pi / 180.0);
-        const subject = [_]ByteVec2{
-            Ui.RotatePoint(rect_left, rect_top, pivot_x, pivot_y, ccos, ssin),
-            Ui.RotatePoint(rect_left + rect_width, rect_top, pivot_x, pivot_y, ccos, ssin),
-            Ui.RotatePoint(rect_left + rect_width, rect_top + rect_height, pivot_x, pivot_y, ccos, ssin),
-            Ui.RotatePoint(rect_left, rect_top + rect_height, pivot_x, pivot_y, ccos, ssin),
-        };
-        var clip = ByteGui.BuildRectPolygon(0.0, 0.0, window_size.x, window_size.y);
-        defer clip.deinit(allocator);
-        var clipped = ByteGui.ClipPolygonAgainstConvexPolygon(subject[0..], clip.items);
-        defer clipped.deinit(allocator);
-        if (clipped.items.len >= 3) active_draw.AddConvexPolyFilled(clipped.items, color);
-        return;
-    }
-    Ui.DrawRotatedRectClippedToCornerOnlyRoundedRect(
-        draw,
-        .{ .x = rect_left, .y = rect_top },
-        .{ .x = rect_width, .y = rect_height },
-        .{ .x = pivot_x, .y = pivot_y },
-        -45.0 * std.math.pi / 180.0,
+    ByteGui.DrawConvexPolyFilledClippedToCornerOnlyRoundedRect(
+        active_draw,
+        subject[0..],
         .{ .x = 0.0, .y = 0.0 },
         window_size,
         windowCornerRadiusPx(),
@@ -1588,7 +2082,7 @@ fn drawAnimatedBoxButtonVisual(id: []const u8, _: []const u8, base_pos: ByteVec2
 }
 
 fn drawLogoVisual(draw: ?*ByteDrawList, opacity: f32) void {
-    var valid_layers: [LOGO_PATH_LAYERS.len]Ui.ParsedSvgLayer = undefined;
+    var valid_layers: [LOGO_BASE_PATH_LAYERS.len]Ui.ParsedSvgLayer = undefined;
     var n_valid: usize = 0;
     for (g_logo_layers) |slot| {
         if (slot) |layer| {
@@ -1602,7 +2096,86 @@ fn drawLogoVisual(draw: ?*ByteDrawList, opacity: f32) void {
     Ui.DrawParsedSvgLayers(draw, valid_layers[0..n_valid], col, ds);
 }
 
-fn drawUI() void {
+fn drawOutputScrollbar(draw: *ByteDrawList, laid_out: *const OutputTextLayout, opacity: f32) void {
+    if (!laid_out.overflow) return;
+    const metrics = outputScrollbarMetricsFor(laid_out.layout.height, laid_out.viewport.y) orelse return;
+    const color = if (g_output_drag_mode == .scrollbar)
+        ByteVec4{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.75 }
+    else
+        ByteVec4{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.40 };
+
+    draw.AddRectFilled(
+        .{ .x = metrics.track_x, .y = metrics.thumb_y },
+        .{ .x = metrics.track_x + metrics.width, .y = metrics.thumb_y + metrics.thumb_h },
+        toU32(applyOpacity(color, opacity)),
+        metrics.width * 0.5,
+    );
+}
+
+fn drawOutputTextbox(draw: ?*ByteDrawList, opacity: f32, dt: f32) void {
+    const active_draw = draw orelse return;
+    const font = g_font_textbox orelse return;
+    var text: std.ArrayListUnmanaged(u8) = .empty;
+    defer text.deinit(allocator);
+    if (!buildOutputText(&text)) return;
+
+    clampOutputSelection(text.items.len);
+    var laid_out = layoutOutputText(text.items) orelse return;
+    defer laid_out.deinit();
+
+    g_output_content_height = laid_out.layout.height;
+    const max_scroll = outputMaxScrollFor(g_output_content_height, laid_out.viewport.y);
+    if (g_output_pending_autoscroll) {
+        g_output_scroll_y = max_scroll;
+        g_output_pending_autoscroll = false;
+    } else {
+        clampOutputScrollTo(max_scroll);
+    }
+
+    const rect = outputTextRect();
+    const base_x = @as(f32, @floatFromInt(rect.left));
+    const base_y = @as(f32, @floatFromInt(rect.top));
+    const bottom = @as(f32, @floatFromInt(rect.bottom));
+    const line_height = @max(1.0, laid_out.layout.line_height);
+    const saved_clip = active_draw.CurrentClipRect;
+    active_draw.SetClipRect(.{
+        .x = @as(f32, @floatFromInt(rect.left)),
+        .y = @as(f32, @floatFromInt(rect.top)),
+        .z = @as(f32, @floatFromInt(rect.right)),
+        .w = @as(f32, @floatFromInt(rect.bottom)),
+    });
+
+    const selection = if (outputSelectionRange(text.items.len)) |range|
+        bytegui.TextSelectionRange{ .start = range.start, .end = range.end }
+    else
+        null;
+    ByteGui.DrawTextSelectionHighlight(active_draw, &g_output_selection_highlight, .{
+        .font = font,
+        .font_size = font.LegacySize,
+        .text = text.items,
+        .layout = &laid_out.layout,
+        .selection = selection,
+        .base_pos = .{ .x = base_x, .y = base_y },
+        .viewport_height = @as(f32, @floatFromInt(rect.bottom - rect.top)),
+        .scroll_y = g_output_scroll_y,
+        .color = .{ .x = 0.15, .y = 0.38, .z = 1.0, .w = 0.25 },
+        .opacity = opacity,
+        .radius = scaleF(2.0),
+        .dt = dt,
+    });
+
+    const text_col = toU32(applyOpacity(.{ .x = 0.0, .y = 0.0, .z = 0.0, .w = 1.0 }, opacity));
+    for (laid_out.layout.lines.items, 0..) |line, line_index| {
+        const y = base_y + @as(f32, @floatFromInt(line_index)) * line_height - g_output_scroll_y;
+        if (y + line_height < base_y or y > bottom) continue;
+        active_draw.AddText(font, font.LegacySize, .{ .x = base_x, .y = y }, text_col, text.items[line.start..line.end], null);
+    }
+
+    active_draw.SetClipRect(saved_clip);
+    drawOutputScrollbar(active_draw, &laid_out, opacity);
+}
+
+fn drawUI(dt: f32) void {
     const render_opacity: f32 = 1.0;
     const window_size = platformWindowSize();
     ByteGui.SetNextWindowPos(.{});
@@ -1621,20 +2194,7 @@ fn drawUI() void {
     ByteGui.DrawWindowControlGlyph(draw, scaleVec2(CLOSE_X, CLOSE_Y + CLOSE_Y_OFFSET), scaleVec2(CLOSE_W, CLOSE_H), toU32(applyOpacity(g_button_colors[1].current, render_opacity)), true);
     drawLogoVisual(draw, render_opacity);
 
-    const output_inset = scaleF(1.0);
-    const output_pos = scaleVec2(OUTPUT_X, OUTPUT_Y);
-    const output_size = scaleVec2(OUTPUT_W, OUTPUT_H);
-    ByteGui.SetCursorScreenPos(.{ .x = output_pos.x + output_inset, .y = output_pos.y + output_inset });
-    _ = ByteGui.BeginChild("##output", .{
-        .x = @max(1.0, output_size.x - output_inset * 2.0),
-        .y = @max(1.0, output_size.y - output_inset * 2.0),
-    }, false, ByteGuiWindowFlags_NoBackground | ByteGuiWindowFlags_NoScrollbar | ByteGuiWindowFlags_NoScrollWithMouse);
-    ByteGui.PushStyleVar(ByteGuiStyleVar_Alpha, render_opacity);
-    ByteGui.PushFont(g_font_textbox);
-    for (g_output_lines.items) |line| ByteGui.TextWrapped("{s}", .{line});
-    ByteGui.PopFont();
-    ByteGui.PopStyleVar(1);
-    ByteGui.EndChild();
+    drawOutputTextbox(draw, render_opacity, dt);
 
     draw.AddText(g_font_version, scaleF(12.0), snapPixelVec2(scaleVec2(VERSION_X, VERSION_Y)), toU32(applyOpacity(g_button_colors[4].current, render_opacity)), g_version_display, null);
     drawAnimatedBoxButtonVisual("toggle_btn", toggleButtonLabel(), scaleVec2(TOGGLE_X, TOGGLE_Y + TOGGLE_Y_OFFSET), scaleVec2(TOGGLE_W, TOGGLE_H), g_toggle_anim.value, true, g_toggle_current_color, render_opacity);
@@ -1777,6 +2337,7 @@ fn onButtonActivated(id: i32) void {
 fn handleLButtonDown(hwnd: c.HWND, l_param: c.LPARAM) c.LRESULT {
     const pt = c.POINT{ .x = lowWordSigned(l_param), .y = highWordSigned(l_param) };
     if (!pointInRoundedRectClient(pt)) return 0;
+    clearOutputSelection();
 
     const hit_id = hitTestButton(pt);
     if (hit_id != 0) {
@@ -1804,6 +2365,8 @@ fn handleLButtonDown(hwnd: c.HWND, l_param: c.LPARAM) c.LRESULT {
         return 0;
     }
 
+    if (beginOutputMouseDown(hwnd, pt)) return 0;
+
     g_dragging = true;
     g_drag_offset = .{ .x = lowWordSigned(l_param), .y = highWordSigned(l_param) };
     _ = c.SetCapture(hwnd);
@@ -1822,6 +2385,7 @@ fn handleMouseMove(hwnd: c.HWND, l_param: c.LPARAM) c.LRESULT {
         g_last_cursor_screen_valid = false;
     }
     if (cursor_moved) g_hover_requires_cursor_motion = false;
+    if (updateOutputDrag(pt)) return 0;
     if (g_hover_requires_cursor_motion and !g_dragging and !g_press_captured) return 0;
 
     if (pointInRoundedRectClient(pt)) {
@@ -1856,6 +2420,8 @@ fn handleMouseLeave() c.LRESULT {
 }
 
 fn handleLButtonUp(l_param: c.LPARAM) c.LRESULT {
+    if (finishOutputDrag()) return 0;
+
     if (g_dragging) {
         g_dragging = false;
         _ = c.ReleaseCapture();
@@ -1880,6 +2446,7 @@ fn handleRButtonDown(l_param: c.LPARAM) c.LRESULT {
         resetLaunchRightClickSequence();
         return -1;
     }
+    clearOutputSelection();
 
     if (hitTestButton(pt) == 5) return 0;
 
@@ -1916,7 +2483,13 @@ fn wndProc(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) call
     switch (msg) {
         c.WM_SETCURSOR => {
             if (lowWordU(l_param) == 1) {
-                _ = c.SetCursor(loadCursorResource(if (g_hovered_button == 5 or g_hovered_button == 6 or g_hovered_button == 7) IDC_HAND_ID else IDC_ARROW_ID));
+                var cursor_id = if (g_hovered_button == 5 or g_hovered_button == 6 or g_hovered_button == 7) IDC_HAND_ID else IDC_ARROW_ID;
+                var pt = std.mem.zeroes(c.POINT);
+                if (c.GetCursorPos(&pt) != c.FALSE) {
+                    _ = c.ScreenToClient(active_hwnd, &pt);
+                    if (pointInOutputTextRect(pt) and !pointInOutputScrollbarThumb(pt)) cursor_id = IDC_IBEAM_ID;
+                }
+                _ = c.SetCursor(loadCursorResource(cursor_id));
                 return 1;
             }
         },
@@ -1936,6 +2509,14 @@ fn wndProc(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) call
         },
         c.WM_RBUTTONUP => {
             const result = handleRButtonUp(l_param);
+            if (result != -1) return result;
+        },
+        c.WM_MOUSEWHEEL => {
+            const result = handleOutputMouseWheel(active_hwnd, w_param, l_param);
+            if (result != -1) return result;
+        },
+        c.WM_KEYDOWN => {
+            const result = handleOutputKeyDown(active_hwnd, w_param);
             if (result != -1) return result;
         },
         c.WM_SIZE => {
@@ -2036,9 +2617,13 @@ fn prewarmVisibleTextCaches() void {
         _ = ByteGui.PrewarmTextTexture(font, scaleF(12.0), 0.0, g_version_display);
     }
     if (g_font_textbox) |font| {
-        const output_inset = scaleF(1.0);
-        const output_width = @max(1.0, scaleF(OUTPUT_W) - output_inset * 2.0);
-        for (g_output_lines.items) |line| _ = ByteGui.PrewarmTextTexture(font, font.LegacySize, output_width, line);
+        var text: std.ArrayListUnmanaged(u8) = .empty;
+        defer text.deinit(allocator);
+        if (!buildOutputText(&text)) return;
+
+        var laid_out = layoutOutputText(text.items) orelse return;
+        defer laid_out.deinit();
+        for (laid_out.layout.lines.items) |line| _ = ByteGui.PrewarmTextTexture(font, font.LegacySize, 0.0, text.items[line.start..line.end]);
     }
 }
 
@@ -2130,7 +2715,7 @@ fn runGui() !u8 {
         bytegui.ByteGui_ImplOpenGL_NewFrame();
         bytegui.ByteGui_ImplWin32_NewFrame();
         ByteGui.NewFrame();
-        drawUI();
+        drawUI(dt);
         ByteGui.Render();
 
         const clear_color = [4]f32{ 0, 0, 0, 0 };
