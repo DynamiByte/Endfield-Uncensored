@@ -236,15 +236,6 @@ const OutputDragMode = enum {
     scrollbar,
 };
 
-const OutputScrollbarMetrics = struct {
-    track_x: f32,
-    track_h: f32,
-    thumb_y: f32,
-    thumb_h: f32,
-    width: f32,
-    max_scroll: f32,
-};
-
 const OutputTextLayout = struct {
     layout: bytegui.TextLayoutResult,
     viewport: ByteVec2,
@@ -295,6 +286,7 @@ var g_output_pending_autoscroll = true;
 var g_output_selection_anchor: ?usize = null;
 var g_output_selection_cursor: usize = 0;
 var g_output_selection_highlight: bytegui.TextSelectionHighlightState = .{};
+var g_output_scrollbar_visual: bytegui.ScrollbarVisualState = .{};
 var g_output_drag_mode: OutputDragMode = .none;
 var g_output_scroll_drag_start_y: i32 = 0;
 var g_output_scroll_drag_start_scroll: f32 = 0.0;
@@ -1646,30 +1638,24 @@ fn refreshOutputLayoutState() void {
     clampOutputScrollTo(outputMaxScrollFor(g_output_content_height, laid_out.viewport.y));
 }
 
-fn outputScrollbarMetricsFor(content_height: f32, viewport_height: f32) ?OutputScrollbarMetrics {
-    const max_scroll = outputMaxScrollFor(content_height, viewport_height);
-    if (max_scroll <= 0.5) return null;
-
+fn outputScrollbarMetricsFor(content_height: f32, viewport_height: f32) ?bytegui.ScrollbarMetrics {
     const rect = outputTextRect();
     const width = scaleF(OUTPUT_SCROLLBAR_W);
     const pad = scaleF(OUTPUT_SCROLLBAR_PAD);
-    const track_y = @as(f32, @floatFromInt(rect.top)) + pad;
-    const track_h = @max(1.0, viewport_height - pad * 2.0);
-    const thumb_h = std.math.clamp(track_h * (viewport_height / @max(viewport_height, content_height)), scaleF(OUTPUT_SCROLLBAR_MIN_H), track_h);
-    const range = @max(0.0, track_h - thumb_h);
-    const thumb_y = track_y + if (range > 0.0) (std.math.clamp(g_output_scroll_y, 0.0, max_scroll) / max_scroll) * range else 0.0;
-
-    return .{
-        .track_x = @as(f32, @floatFromInt(rect.right)) - pad - width,
-        .track_h = track_h,
-        .thumb_y = thumb_y,
-        .thumb_h = thumb_h,
-        .width = width,
-        .max_scroll = max_scroll,
-    };
+    return ByteGui.CalcVerticalScrollbarMetrics(.{
+        .track_pos = .{
+            .x = @as(f32, @floatFromInt(rect.right)) - pad - width,
+            .y = @as(f32, @floatFromInt(rect.top)) + pad,
+        },
+        .track_size = .{ .x = width, .y = @max(1.0, viewport_height - pad * 2.0) },
+        .content_height = content_height,
+        .viewport_height = viewport_height,
+        .scroll_y = g_output_scroll_y,
+        .min_thumb_height = scaleF(OUTPUT_SCROLLBAR_MIN_H),
+    });
 }
 
-fn currentOutputScrollbarMetrics() ?OutputScrollbarMetrics {
+fn currentOutputScrollbarMetrics() ?bytegui.ScrollbarMetrics {
     const rect = outputTextRect();
     const viewport = outputViewportSizeFromRect(rect);
     return outputScrollbarMetricsFor(g_output_content_height, viewport.y);
@@ -1678,7 +1664,16 @@ fn currentOutputScrollbarMetrics() ?OutputScrollbarMetrics {
 fn pointInOutputScrollbarThumb(pt: c.POINT) bool {
     const metrics = currentOutputScrollbarMetrics() orelse return false;
     const hit_pad = scaleF(3.0);
-    return pointInRect(makeRectL(metrics.track_x - hit_pad, metrics.thumb_y - hit_pad, metrics.width + hit_pad * 2.0, metrics.thumb_h + hit_pad * 2.0), pt);
+    return ByteGui.PointInScrollbarThumb(metrics, .{ .x = @floatFromInt(pt.x), .y = @floatFromInt(pt.y) }, hit_pad);
+}
+
+fn cursorInOutputScrollbarThumb(metrics: bytegui.ScrollbarMetrics) bool {
+    const hwnd = g_hwnd orelse return false;
+    var pt = std.mem.zeroes(c.POINT);
+    if (c.GetCursorPos(&pt) == c.FALSE) return false;
+    _ = c.ScreenToClient(hwnd, &pt);
+    const hit_pad = scaleF(3.0);
+    return ByteGui.PointInScrollbarThumb(metrics, .{ .x = @floatFromInt(pt.x), .y = @floatFromInt(pt.y) }, hit_pad);
 }
 
 fn setOutputScrollY(value: f32) void {
@@ -1857,9 +1852,8 @@ fn beginOutputMouseDown(hwnd: c.HWND, pt: c.POINT) bool {
 
 fn updateOutputScrollbarDrag(pt: c.POINT) void {
     const metrics = currentOutputScrollbarMetrics() orelse return;
-    const drag_range = @max(1.0, metrics.track_h - metrics.thumb_h);
     const dy = @as(f32, @floatFromInt(pt.y - g_output_scroll_drag_start_y));
-    setOutputScrollY(g_output_scroll_drag_start_scroll + (dy / drag_range) * metrics.max_scroll);
+    setOutputScrollY(ByteGui.ScrollbarDragScroll(metrics, g_output_scroll_drag_start_scroll, dy));
 }
 
 fn updateOutputDrag(pt: c.POINT) bool {
@@ -2096,20 +2090,19 @@ fn drawLogoVisual(draw: ?*ByteDrawList, opacity: f32) void {
     Ui.DrawParsedSvgLayers(draw, valid_layers[0..n_valid], col, ds);
 }
 
-fn drawOutputScrollbar(draw: *ByteDrawList, laid_out: *const OutputTextLayout, opacity: f32) void {
+fn drawOutputScrollbar(draw: *ByteDrawList, laid_out: *const OutputTextLayout, opacity: f32, dt: f32) void {
     if (!laid_out.overflow) return;
     const metrics = outputScrollbarMetricsFor(laid_out.layout.height, laid_out.viewport.y) orelse return;
-    const color = if (g_output_drag_mode == .scrollbar)
-        ByteVec4{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.75 }
-    else
-        ByteVec4{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.40 };
-
-    draw.AddRectFilled(
-        .{ .x = metrics.track_x, .y = metrics.thumb_y },
-        .{ .x = metrics.track_x + metrics.width, .y = metrics.thumb_y + metrics.thumb_h },
-        toU32(applyOpacity(color, opacity)),
-        metrics.width * 0.5,
-    );
+    ByteGui.DrawVerticalScrollbar(draw, &g_output_scrollbar_visual, .{
+        .metrics = metrics,
+        .idle_color = .{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.40 },
+        .hover_color = .{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.55 },
+        .active_color = .{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.75 },
+        .hovered = cursorInOutputScrollbarThumb(metrics),
+        .active = g_output_drag_mode == .scrollbar,
+        .opacity = opacity,
+        .dt = dt,
+    });
 }
 
 fn drawOutputTextbox(draw: ?*ByteDrawList, opacity: f32, dt: f32) void {
@@ -2172,7 +2165,7 @@ fn drawOutputTextbox(draw: ?*ByteDrawList, opacity: f32, dt: f32) void {
     }
 
     active_draw.SetClipRect(saved_clip);
-    drawOutputScrollbar(active_draw, &laid_out, opacity);
+    drawOutputScrollbar(active_draw, &laid_out, opacity, dt);
 }
 
 fn drawUI(dt: f32) void {

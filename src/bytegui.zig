@@ -1117,6 +1117,22 @@ pub const ByteGui = struct {
         drawTextSelectionHighlight(draw, state, params);
     }
 
+    pub fn CalcVerticalScrollbarMetrics(params: VerticalScrollbarParams) ?ScrollbarMetrics {
+        return calcVerticalScrollbarMetrics(params);
+    }
+
+    pub fn PointInScrollbarThumb(metrics: ScrollbarMetrics, point: ByteVec2, hit_pad: f32) bool {
+        return pointInScrollbarThumb(metrics, point, hit_pad);
+    }
+
+    pub fn ScrollbarDragScroll(metrics: ScrollbarMetrics, start_scroll: f32, drag_delta: f32) f32 {
+        return scrollbarDragScroll(metrics, start_scroll, drag_delta);
+    }
+
+    pub fn DrawVerticalScrollbar(draw: ?*ByteDrawList, state: *ScrollbarVisualState, params: ScrollbarDrawParams) void {
+        drawVerticalScrollbar(draw, state, params);
+    }
+
     pub fn CalcTextHitRect(font: ?*ByteFont, font_size: f32, pos: ByteVec2, text: []const u8, padding: f32, text_end: ?usize, wrap_width: f32) c.RECT {
         const active_font = font orelse return makeHitRectFromBounds(pos.x - padding, pos.y - padding, pos.x + padding, pos.y + padding);
         const slice = sliceFromOptionalEnd(text, text_end);
@@ -3622,6 +3638,39 @@ pub const TextSelectionRange = struct {
     end: usize,
 };
 
+pub const VerticalScrollbarParams = struct {
+    track_pos: ByteVec2,
+    track_size: ByteVec2,
+    content_height: f32,
+    viewport_height: f32,
+    scroll_y: f32,
+    min_thumb_height: f32,
+};
+
+pub const ScrollbarMetrics = struct {
+    track_pos: ByteVec2,
+    track_size: ByteVec2,
+    thumb_pos: ByteVec2,
+    thumb_size: ByteVec2,
+    max_scroll: f32,
+};
+
+pub const ScrollbarVisualState = struct {
+    visual_t: f32 = 0.0,
+};
+
+pub const ScrollbarDrawParams = struct {
+    metrics: ScrollbarMetrics,
+    idle_color: ByteVec4,
+    hover_color: ByteVec4,
+    active_color: ByteVec4,
+    hovered: bool = false,
+    active: bool = false,
+    opacity: f32 = 1.0,
+    dt: f32 = 1.0 / 60.0,
+    fade_seconds: f32 = 0.16,
+};
+
 pub const TextSelectionHighlightParams = struct {
     font: ?*ByteFont,
     font_size: f32,
@@ -4254,6 +4303,134 @@ fn drawTextSelectionHighlight(draw: ?*ByteDrawList, state: *TextSelectionHighlig
     if (!appendTextSelectionTargets(&targets, params)) return;
     syncTextSelectionHighlightState(state, targets.items, params.dt, textSelectionEffectiveRadius(params.radius));
     drawAnimatedTextSelectionRects(active_draw, state, params);
+}
+
+fn calcVerticalScrollbarMetrics(params: VerticalScrollbarParams) ?ScrollbarMetrics {
+    const max_scroll = @max(0.0, params.content_height - params.viewport_height);
+    if (max_scroll <= 0.5 or params.track_size.x <= 0.0 or params.track_size.y <= 0.0) return null;
+
+    const track_h = @max(1.0, params.track_size.y);
+    const min_thumb_h = @min(track_h, @max(1.0, params.min_thumb_height));
+    const thumb_h = std.math.clamp(track_h * (params.viewport_height / @max(params.viewport_height, params.content_height)), min_thumb_h, track_h);
+    const range = @max(0.0, track_h - thumb_h);
+    const thumb_y = params.track_pos.y + if (range > 0.0) (std.math.clamp(params.scroll_y, 0.0, max_scroll) / max_scroll) * range else 0.0;
+
+    return .{
+        .track_pos = params.track_pos,
+        .track_size = .{ .x = params.track_size.x, .y = track_h },
+        .thumb_pos = .{ .x = params.track_pos.x, .y = thumb_y },
+        .thumb_size = .{ .x = params.track_size.x, .y = thumb_h },
+        .max_scroll = max_scroll,
+    };
+}
+
+fn pointInScrollbarThumb(metrics: ScrollbarMetrics, point: ByteVec2, hit_pad: f32) bool {
+    return point.x >= metrics.thumb_pos.x - hit_pad and
+        point.x < metrics.thumb_pos.x + metrics.thumb_size.x + hit_pad and
+        point.y >= metrics.thumb_pos.y - hit_pad and
+        point.y < metrics.thumb_pos.y + metrics.thumb_size.y + hit_pad;
+}
+
+fn scrollbarDragScroll(metrics: ScrollbarMetrics, start_scroll: f32, drag_delta: f32) f32 {
+    const drag_range = @max(1.0, metrics.track_size.y - metrics.thumb_size.y);
+    return start_scroll + (drag_delta / drag_range) * metrics.max_scroll;
+}
+
+fn updateScrollbarVisualState(state: *ScrollbarVisualState, hovered: bool, active: bool, dt: f32, fade_seconds: f32) void {
+    const target: f32 = if (active) 1.0 else if (hovered) 0.55 else 0.0;
+    const step = if (fade_seconds > 0.0) @min(1.0, @max(0.0, dt) / fade_seconds) else 1.0;
+    if (state.visual_t < target) {
+        state.visual_t = @min(target, state.visual_t + step);
+    } else {
+        state.visual_t = @max(target, state.visual_t - step);
+    }
+}
+
+fn drawVerticalScrollbar(draw: ?*ByteDrawList, state: *ScrollbarVisualState, params: ScrollbarDrawParams) void {
+    const active_draw = draw orelse return;
+    updateScrollbarVisualState(state, params.hovered, params.active, params.dt, params.fade_seconds);
+
+    const hover_t = 0.55;
+    const color = if (state.visual_t <= hover_t)
+        Ui.LerpColor(params.idle_color, params.hover_color, state.visual_t / hover_t)
+    else
+        Ui.LerpColor(params.hover_color, params.active_color, (state.visual_t - hover_t) / (1.0 - hover_t));
+    const col = Ui.ColorToU32(Ui.ApplyOpacity(color, params.opacity));
+    if ((col & BYTEGUI_COL32_A_MASK) == 0) return;
+
+    const p_min = ByteVec2{
+        .x = roundToNearestPixel(params.metrics.thumb_pos.x),
+        .y = roundToNearestPixel(params.metrics.thumb_pos.y),
+    };
+    const p_max = ByteVec2{
+        .x = roundToNearestPixel(params.metrics.thumb_pos.x + params.metrics.thumb_size.x),
+        .y = roundToNearestPixel(params.metrics.thumb_pos.y + params.metrics.thumb_size.y),
+    };
+    const size = ByteVec2{
+        .x = @max(1.0, p_max.x - p_min.x),
+        .y = @max(1.0, p_max.y - p_min.y),
+    };
+    const radius = @min(size.x, size.y) * 0.5;
+
+    drawPixelRoundedRect(active_draw, p_min, size, radius, col);
+}
+
+fn roundedRectSignedDistance(pos: ByteVec2, size: ByteVec2, radius: f32, point: ByteVec2) f32 {
+    const center = ByteVec2{ .x = pos.x + size.x * 0.5, .y = pos.y + size.y * 0.5 };
+    const half = ByteVec2{ .x = size.x * 0.5, .y = size.y * 0.5 };
+    const inner = ByteVec2{ .x = half.x - radius, .y = half.y - radius };
+    const q = ByteVec2{
+        .x = @abs(point.x - center.x) - inner.x,
+        .y = @abs(point.y - center.y) - inner.y,
+    };
+    const outside = ByteVec2{ .x = @max(q.x, 0.0), .y = @max(q.y, 0.0) };
+    return @sqrt(outside.x * outside.x + outside.y * outside.y) + @min(@max(q.x, q.y), 0.0) - radius;
+}
+
+fn drawPixelRoundedRect(draw: *ByteDrawList, pos: ByteVec2, size: ByteVec2, radius: f32, col: ByteU32) void {
+    const corner_span = @min(@max(0.0, radius), @min(size.x, size.y) * 0.5);
+    if (corner_span <= 0.0) {
+        draw.AddRectFilled(pos, .{ .x = pos.x + size.x, .y = pos.y + size.y }, col, 0.0);
+        return;
+    }
+
+    const width: i32 = @intFromFloat(@max(1.0, @round(size.x)));
+    const height: i32 = @intFromFloat(@max(1.0, @round(size.y)));
+    const ss: i32 = 4;
+    const sample_count: i32 = ss * ss;
+    const sample_scale = 1.0 / @as(f32, @floatFromInt(ss));
+    const old_flags = draw.Flags;
+    draw.Flags &= ~ByteDrawListFlags_AntiAliasedFill;
+    defer draw.Flags = old_flags;
+
+    var row: i32 = 0;
+    while (row < height) : (row += 1) {
+        var col_index: i32 = 0;
+        while (col_index < width) : (col_index += 1) {
+            var covered: i32 = 0;
+            var sy: i32 = 0;
+            while (sy < ss) : (sy += 1) {
+                var sx: i32 = 0;
+                while (sx < ss) : (sx += 1) {
+                    const sample = ByteVec2{
+                        .x = pos.x + @as(f32, @floatFromInt(col_index)) + (@as(f32, @floatFromInt(sx)) + 0.5) * sample_scale,
+                        .y = pos.y + @as(f32, @floatFromInt(row)) + (@as(f32, @floatFromInt(sy)) + 0.5) * sample_scale,
+                    };
+                    if (roundedRectSignedDistance(pos, size, corner_span, sample) <= 0.0) covered += 1;
+                }
+            }
+            if (covered == 0) continue;
+
+            const coverage: u8 = @intCast(@divTrunc(covered * 255, sample_count));
+            const pixel_col = applyCoverageToColor(col, coverage);
+            draw.AddRectFilled(
+                .{ .x = pos.x + @as(f32, @floatFromInt(col_index)), .y = pos.y + @as(f32, @floatFromInt(row)) },
+                .{ .x = pos.x + @as(f32, @floatFromInt(col_index + 1)), .y = pos.y + @as(f32, @floatFromInt(row + 1)) },
+                pixel_col,
+                0.0,
+            );
+        }
+    }
 }
 
 const BuiltTextTexture = struct {
