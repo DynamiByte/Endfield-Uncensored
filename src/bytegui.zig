@@ -675,7 +675,6 @@ pub const ByteDrawList = struct {
         self.AddConvexPolyFilledHorizontalGradient(points.items, col_left, col_right, p_min.x, p_max.x, gradient_center);
     }
 
-
     fn AddPolylineInternal(self: *ByteDrawList, points: []const ByteVec2, col: ByteU32, closed: bool, thickness: f32) void {
         if (points.len < 2 or thickness <= 0.0 or (col & BYTEGUI_COL32_A_MASK) == 0) return;
 
@@ -1766,7 +1765,6 @@ pub const Ui = struct {
         );
     }
 
-
     pub fn DrawAnimatedTextureCentered(
         draw: ?*ByteDrawList,
         texture: *const TextTexture,
@@ -2568,7 +2566,6 @@ fn horizontalGradientColor(x: f32, gradient_left: f32, gradient_right: f32, grad
     if (@abs(width) <= 0.0001) return col_left;
     return lerpPackedColor(col_left, col_right, biasedHorizontalGradientT((x - gradient_left) / width, gradient_center));
 }
-
 
 fn byteLengthSqr(v: ByteVec2) f32 {
     return v.x * v.x + v.y * v.y;
@@ -3764,10 +3761,6 @@ fn textSelectionGrowthAnchorFromNeighbors(target: TextSelectionHighlightTarget, 
 
     const closest = if (closest_index) |i| rects[i] else return target.min;
 
-    // New lower lines reveal from their left/start edge. New upper lines reveal
-    // from their right/end edge. That matches the visual point where multiline
-    // selection actually enters the new line, instead of pulling every line from
-    // the original selection point.
     if (target.line_index > closest.line_index) return target.min;
     if (target.line_index < closest.line_index) return target.max;
 
@@ -3787,13 +3780,11 @@ fn textSelectionCollapseAnchorFromTargets(rect: TextSelectionHighlightRect, targ
         }
     }
 
-    // Mirror the reveal rule when a line disappears.
     if (rect.line_index > closest.line_index) return rect.target_min;
     if (rect.line_index < closest.line_index) return rect.target_max;
 
     return rect.grow_anchor_target;
 }
-
 
 fn textSelectionEdgeCoverageFromStart(edge: f32, other_min: f32, other_max: f32, span: f32, epsilon: f32) f32 {
     if (other_min > edge + epsilon or other_max < edge - epsilon) return 0.0;
@@ -3822,10 +3813,6 @@ fn textSelectionCornerRoundFromCurrentGeometry(rects: []const TextSelectionHighl
         if (other_index == index or @max(other.alpha, other.target_alpha) <= 0.01) continue;
         if (other.current_max.x <= other.current_min.x or other.current_max.y <= other.current_min.y) continue;
 
-        // Use the animated/current geometry, not the final target geometry.
-        // That makes the corner transform exactly where the neighboring
-        // highlight is actually growing or collapsing, instead of snapping or
-        // fading at a corner before the neighbor reaches it.
         if (@abs(other.current_max.y - rect.current_min.y) <= epsilon) {
             textSelectionApplyCornerMorph(&rounding, 0, textSelectionEdgeCoverageFromStart(rect.current_min.x, other.current_min.x, other.current_max.x, span, epsilon), span);
             textSelectionApplyCornerMorph(&rounding, 1, textSelectionEdgeCoverageFromEnd(rect.current_max.x, other.current_min.x, other.current_max.x, span, epsilon), span);
@@ -3960,9 +3947,6 @@ fn textSelectionCornerFlags(rects: []const TextSelectionHighlightRect, index: us
     for (rects, 0..) |other, other_index| {
         if (other_index == index or @max(other.alpha, other.target_alpha) <= 0.01) continue;
 
-        // Only flatten a corner when the neighboring highlight actually reaches
-        // that corner. A shorter adjacent line may touch the same edge, but it
-        // should not remove the exposed far corner.
         if (@abs(other.target_max.y - rect.target_min.y) <= epsilon and
             selectionIntervalsTouchOrOverlap(rect.target_min.x, rect.target_max.x, other.target_min.x, other.target_max.x, epsilon))
         {
@@ -4082,7 +4066,6 @@ fn buildTextSelectionRoundedRectPolygonRadii(p_min: ByteVec2, p_max: ByteVec2, r
         appendArc(&points, .{ .x = p_min.x + radius_bl, .y = p_max.y - radius_bl }, radius_bl, kPi * 0.5, kPi, segments);
     } else points.append(allocator, .{ .x = p_min.x, .y = p_max.y }) catch return points;
 
-
     return points;
 }
 
@@ -4099,9 +4082,6 @@ fn textSelectionClipForPiece(draw: *const ByteDrawList, p_min: ByteVec2, p_max: 
 }
 
 fn textSelectionEffectiveRadius(radius: f32) f32 {
-    // The caller uses a very small 2px radius. Once the corner arc is
-    // anti-aliased, that reads almost square, so use a slightly larger
-    // visual radius for text selection only.
     return @max(radius * 1.75, radius + 1.5);
 }
 
@@ -4119,9 +4099,6 @@ fn drawTextSelectionCornerAAFringe(draw: *ByteDrawList, p_min: ByteVec2, p_max: 
     draw.SetClipRect(clip);
     defer draw.SetClipRect(old_clip);
 
-    // Draw AA as a conservative outside-only coverage fringe. The solid core is
-    // already drawn once, so the fringe must not re-apply the full highlight
-    // alpha over it or the semi-transparent selection gets visibly darker.
     const aa_width: f32 = 1.15;
     const inner_radius = radius + 0.02;
     const outer_radius = radius + aa_width;
@@ -4229,9 +4206,6 @@ fn drawOneAnimatedTextSelectionRect(draw: *ByteDrawList, covered: *std.ArrayList
     var p_max = rect.current_max;
     if (p_max.x <= p_min.x or p_max.y <= p_min.y) return;
 
-    // Grow/collapse from a full-height edge instead of a point. Scaling Y here
-    // creates tiny temporal gaps between adjacent selected lines while a new
-    // line is expanding, so keep line edges locked to their animated rects.
     if (p_max.x <= p_min.x or p_max.y <= p_min.y) return;
 
     p_min.x = roundToNearestPixel(p_min.x);
@@ -4263,8 +4237,6 @@ fn drawAnimatedTextSelectionRects(draw: *ByteDrawList, state: *const TextSelecti
     var covered: std.ArrayListUnmanaged(TextSelectionClipRect) = .empty;
     defer covered.deinit(allocator);
 
-    // Active/current selection wins first. Fading old pieces are then clipped
-    // out of already-drawn pixels so translucent highlights never stack darker.
     for (state.rects.items) |rect| {
         if (!rect.matched) continue;
         drawOneAnimatedTextSelectionRect(draw, &covered, params, rect);
