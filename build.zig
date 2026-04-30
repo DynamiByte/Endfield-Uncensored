@@ -339,6 +339,7 @@ pub fn build(b: *std.Build) void {
 
     const version_module = addGeneratedVersionModule(b, generated_files, target, optimize);
 
+    const toggle_label_subset_text = strings.buildToggleLabelSubsetText(b.allocator) catch @panic("OOM");
     const version_info_subset_text = strings.buildVersionInfoSubsetText(b.allocator, version_str) catch @panic("OOM");
     const textbox_subset_text = strings.buildTextboxSubsetText(b.allocator) catch @panic("OOM");
 
@@ -356,7 +357,7 @@ pub fn build(b: *std.Build) void {
         .{
             .input_font_path = "fonts/Inter/Inter_18pt-Regular.ttf",
             .subset_text_name = "toggle-label.subset.txt",
-            .subset_text = strings.ui_toggle_labels_subset,
+            .subset_text = toggle_label_subset_text,
             .output_name = "toggle-label.ttf",
         },
         .{

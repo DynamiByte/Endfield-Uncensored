@@ -1,10 +1,12 @@
 // Game discovery, launch, and injection helpers
 const std = @import("std");
+const strings = @import("strings.zig");
 
 pub const c = @import("win32.zig");
 
 pub const target_exe_name = "Endfield.exe";
 pub const temp_dll_name_prefix = "EFU-";
+pub const game_dx11_arg = "-force-d3d11";
 
 pub const TempDllError = std.mem.Allocator.Error || error{
     TempPathUnavailable,
@@ -45,29 +47,11 @@ const max_path_bytes = std.Io.Dir.max_path_bytes;
 const file_attribute_directory: c.DWORD = 0x10;
 
 pub fn describeTempDllError(err: TempDllError) []const u8 {
-    return switch (err) {
-        error.OutOfMemory => "The loader ran out of memory while preparing the temporary DLL.",
-        error.TempPathUnavailable => "Windows did not provide a usable temp directory.",
-        error.TempFileCreateFailed => "Failed to create the temporary DLL file.",
-        error.TempFileWriteFailed => "Failed to write the temporary DLL file.",
-    };
+    return strings.describeTempDllError(err);
 }
 
 pub fn describeInjectError(err: InjectError) []const u8 {
-    return switch (err) {
-        error.InvalidPid => "No target process was provided.",
-        error.BadDllPath => "The temporary DLL path could not be encoded for Windows.",
-        error.OpenProcessFailed => "Failed to open the target process.",
-        error.AllocateRemoteMemoryFailed => "Failed to allocate memory inside the target process.",
-        error.WriteRemoteMemoryFailed => "Failed to write the DLL path into the target process.",
-        error.Kernel32NotFound => "Could not find kernel32.dll in the current process.",
-        error.LoadLibraryNotFound => "Could not locate LoadLibraryW.",
-        error.CreateRemoteThreadFailed => "Failed to start the remote loader thread.",
-        error.RemoteThreadWaitFailed => "The remote loader thread could not be waited on.",
-        error.RemoteThreadWaitTimedOut => "The remote loader thread timed out.",
-        error.GetRemoteThreadExitCodeFailed => "Could not read the remote loader thread exit code.",
-        error.LoadLibraryRemoteFailed => "The target process failed to load the DLL.",
-    };
+    return strings.describeInjectError(err);
 }
 
 pub fn injectErrorSuggestsElevation(err: InjectError) bool {
@@ -82,12 +66,7 @@ pub fn injectErrorSuggestsElevation(err: InjectError) bool {
 }
 
 pub fn describeLaunchError(err: LaunchError) []const u8 {
-    return switch (err) {
-        error.ExecutableNotFound => "The game executable could not be found.",
-        error.AccessDenied => "Windows denied access to the game executable.",
-        error.InvalidExecutablePath => "The game executable path is not valid.",
-        error.CreateProcessFailed => "Windows failed to start the game process.",
-    };
+    return strings.describeLaunchError(err);
 }
 
 fn classifyCreateProcessError() LaunchError {

@@ -6,13 +6,14 @@ const loader = @import("loader.zig");
 const strings = @import("strings.zig");
 const c = @import("win32.zig");
 
-const APP_TITLE = std.unicode.utf8ToUtf16LeStringLiteral("Endfield Uncensored");
+const APP_TITLE = std.unicode.utf8ToUtf16LeStringLiteral(strings.app_title);
 const VERSION_STR = app_version.version_str;
-const CLI_CONSOLE_TITLE = std.unicode.utf8ToUtf16LeStringLiteral("Endfield Uncensored CLI");
+const CLI_CONSOLE_TITLE = std.unicode.utf8ToUtf16LeStringLiteral(strings.cli.console_title);
 const EFMI_WAIT_TIMEOUT_MS: u64 = 10_000;
 const EFMI_DEFAULT_SUBPATH = "XXMI Launcher\\Resources\\Bin\\XXMI Launcher.exe";
-const EFMI_MISSING_PATH_MESSAGE = "You need to specify a location with --EFMI <PATH_TO_XXMI Launcher.exe>.";
-const BOOL_OVERRIDE_USAGE = "Use on/off, yes/no, true/false, y/n, or t/f.";
+const EFMI_MISSING_PATH_MESSAGE = strings.cli.efmi_missing_path_message;
+const EFMI_COMMAND_LINE_FMT = "\"{s}\" --nogui --xxmi EFMI";
+const CLI_BLANK_LINE = "\n";
 
 pub const BoolOverride = enum {
     auto,
@@ -259,18 +260,7 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
 }
 
 pub fn describeParseArgsError(err: ParseArgsError) []const u8 {
-    return switch (err) {
-        error.MissingForceWineModeValue => "Missing value for --force-wine-mode. " ++ BOOL_OVERRIDE_USAGE,
-        error.InvalidForceWineModeValue => "Invalid value for --force-wine-mode. " ++ BOOL_OVERRIDE_USAGE,
-        error.MissingAllowMinimizeValue => "Missing value for --allow-minimize. " ++ BOOL_OVERRIDE_USAGE,
-        error.InvalidAllowMinimizeValue => "Invalid value for --allow-minimize. " ++ BOOL_OVERRIDE_USAGE,
-        error.MissingGamePathValue => "Missing value for --game-path. Pass a path to Endfield.exe.",
-        error.InvalidGamePathValue => "Invalid value for --game-path. It must point to an existing .exe file.",
-        error.MutuallyExclusiveDx11AndEfmi => "-DX11 is mutually exclusive with -EFMI.",
-        error.MutuallyExclusiveGamePathAndEfmi => "--game-path is mutually exclusive with --EFMI.",
-        error.MutuallyExclusiveAutoYesAndGui => "-y and -yes are mutually exclusive with GUI mode.",
-        error.MutuallyExclusiveCliAndGuiArgs => "CLI arguments are mutually exclusive with GUI-only arguments.",
-    };
+    return strings.cli.describeParseArgsError(err);
 }
 
 fn ensureCliConsole() void {
@@ -296,7 +286,7 @@ fn cliPrint(io: std.Io, comptime fmt: []const u8, args: anytype) void {
 fn cliPrintHeader(io: std.Io) void {
     var version_buf: [64]u8 = undefined;
     const version_display = strings.computeVersionDisplay(&version_buf, VERSION_STR) catch VERSION_STR;
-    cliPrint(io, "\n[EFU Loader {s}]\n\n", .{version_display});
+    cliPrint(io, strings.cli.header_fmt, .{version_display});
 }
 
 fn getProcessPathWtf8(pid: u32, out_buf: []u8) !?[]const u8 {
@@ -337,12 +327,7 @@ fn cliReadCommand() ?u8 {
 }
 
 pub fn describeEfmiLaunchError(err: loader.LaunchError) []const u8 {
-    return switch (err) {
-        error.ExecutableNotFound => "The path to XXMI is invalid.",
-        error.AccessDenied => "Windows denied access to the EFMI launcher.",
-        error.InvalidExecutablePath => "The path to XXMI is invalid.",
-        error.CreateProcessFailed => "Windows failed to start the EFMI launcher.",
-    };
+    return strings.describeEfmiLaunchError(err);
 }
 
 pub fn launchEfmiLauncher(efmi_launcher_path: []const u8) loader.LaunchError!void {
@@ -350,7 +335,7 @@ pub fn launchEfmiLauncher(efmi_launcher_path: []const u8) loader.LaunchError!voi
     const launcher_path_w = c.wtf8ToWtf16LeZ(efmi_launcher_path, &path_buf) catch return error.InvalidExecutablePath;
 
     var command_line_utf8_buf: [std.Io.Dir.max_path_bytes + 32]u8 = undefined;
-    const command_line_utf8 = std.fmt.bufPrint(&command_line_utf8_buf, "\"{s}\" --nogui --xxmi EFMI", .{efmi_launcher_path}) catch return error.InvalidExecutablePath;
+    const command_line_utf8 = std.fmt.bufPrint(&command_line_utf8_buf, EFMI_COMMAND_LINE_FMT, .{efmi_launcher_path}) catch return error.InvalidExecutablePath;
 
     var command_line_wide_buf: [std.Io.Dir.max_path_bytes + 32]u16 = undefined;
     const command_line_wide = c.wtf8ToWtf16LeZ(command_line_utf8, &command_line_wide_buf) catch return error.InvalidExecutablePath;
@@ -374,31 +359,31 @@ fn waitForTargetProcessTimeout(timeout_ms: u64) u32 {
 
 // Injection flow
 fn cliInjectFoundProcess(io: std.Io, allocator: std.mem.Allocator, temp_dll_path: []const u8, pid: u32) !u8 {
-    cliPrint(io, "Process found (PID: {d})\n", .{pid});
+    cliPrint(io, strings.cli.process_found_fmt, .{pid});
 
     var process_path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     if (try getProcessPathWtf8(pid, &process_path_buf)) |path| {
-        cliPrint(io, "Process path: {s}\n", .{path});
+        cliPrint(io, strings.cli.process_path_fmt, .{path});
     } else {
-        cliPrint(io, "Warning: Could not get process path\n", .{});
+        cliPrint(io, strings.cli.process_path_warning, .{});
     }
 
     c.Sleep(10);
 
     const injection_succeeded = blk: {
         loader.injectDll(pid, temp_dll_path) catch |err| {
-            cliPrint(io, "Injection failed: {s}\n", .{loader.describeInjectError(err)});
+            cliPrint(io, strings.cli.injection_failed_fmt, .{loader.describeInjectError(err)});
             if (loader.injectErrorSuggestsElevation(err)) {
-                cliPrint(io, "Try running as administrator.\n", .{});
+                cliPrint(io, strings.status_try_run_admin ++ "\n", .{});
             }
-            cliPrint(io, "\n", .{});
+            cliPrint(io, CLI_BLANK_LINE, .{});
             break :blk false;
         };
-        cliPrint(io, "Injection successful.\n\n", .{});
+        cliPrint(io, strings.cli.injection_successful, .{});
         break :blk true;
     };
 
-    cliPrint(io, "Closing in 5 seconds...\n", .{});
+    cliPrint(io, strings.cli.closing_in_5_seconds, .{});
     c.Sleep(5000);
     _ = allocator;
     return if (injection_succeeded) 0 else 1;
@@ -406,7 +391,7 @@ fn cliInjectFoundProcess(io: std.Io, allocator: std.mem.Allocator, temp_dll_path
 
 fn silentCliError(comptime fmt: []const u8, args: anytype) noreturn {
     var buf: [512]u8 = undefined;
-    const message = std.fmt.bufPrint(&buf, fmt, args) catch "Silent mode failed.";
+    const message = std.fmt.bufPrint(&buf, fmt, args) catch strings.cli.silent_mode_failed;
     showErrorMessage(message);
     std.process.exit(1);
 }
@@ -416,7 +401,7 @@ fn cliWaitForProcessExitOrQuit(io: std.Io, pid: u32, allow_launch_info: bool) bo
         if (cliReadCommand()) |cmd| {
             switch (cmd) {
                 'Q' => return false,
-                'L' => if (allow_launch_info) cliPrint(io, "{s}\n\n", .{strings.status_game_already_running_startup}),
+                'L' => if (allow_launch_info) cliPrint(io, strings.status_game_already_running_startup ++ "\n\n", .{}),
                 else => {},
             }
         }
@@ -427,15 +412,15 @@ fn cliWaitForProcessExitOrQuit(io: std.Io, pid: u32, allow_launch_info: bool) bo
 
 fn cliPrintReadyState(io: std.Io, game_exe_path: ?[:0]const u16) void {
     if (game_exe_path != null) {
-        cliPrint(io, "{s}\n", .{strings.status_game_found});
-        cliPrint(io, "{s}\n", .{strings.status_launch_here_or_external});
-        cliPrint(io, "Press L to launch game. Press Q to quit.\n", .{});
+        cliPrint(io, strings.status_game_found ++ "\n", .{});
+        cliPrint(io, strings.status_launch_here_or_external ++ "\n", .{});
+        cliPrint(io, strings.cli.launch_ready_prompt, .{});
     } else {
-        cliPrint(io, "{s}\n", .{strings.status_game_not_found});
-        cliPrint(io, "{s}\n", .{strings.status_launch_externally});
-        cliPrint(io, "Press Q to quit.\n", .{});
+        cliPrint(io, strings.status_game_not_found ++ "\n", .{});
+        cliPrint(io, strings.status_launch_externally ++ "\n", .{});
+        cliPrint(io, strings.cli.quit_prompt, .{});
     }
-    cliPrint(io, "Waiting for {s}...\n\n", .{loader.target_exe_name});
+    cliPrint(io, strings.cli.waiting_for_target_fmt, .{loader.target_exe_name});
 }
 
 fn cliWaitForTargetProcessOrCommand(io: std.Io, game_exe_path: ?[:0]const u16, dx11: bool) CliWaitResult {
@@ -451,7 +436,7 @@ fn cliWaitForTargetProcessOrCommand(io: std.Io, game_exe_path: ?[:0]const u16, d
                 'L' => {
                     if (game_exe_path != null and !launch_requested) {
                         launchConfiguredGame(game_exe_path.?, dx11) catch |err| {
-                            cliPrint(io, "Launch failed: {s}\n\n", .{loader.describeLaunchError(err)});
+                            cliPrint(io, strings.cli.launch_failed_fmt, .{loader.describeLaunchError(err)});
                             continue;
                         };
                         launch_requested = true;
@@ -468,7 +453,7 @@ fn cliWaitForTargetProcessOrCommand(io: std.Io, game_exe_path: ?[:0]const u16, d
 
 fn launchConfiguredGame(game_exe_path: [:0]const u16, dx11: bool) loader.LaunchError!void {
     if (dx11) {
-        return loader.launchGameWithArgs(game_exe_path, "-force-d3d11");
+        return loader.launchGameWithArgs(game_exe_path, loader.game_dx11_arg);
     }
     return loader.launchGame(game_exe_path);
 }
@@ -500,10 +485,10 @@ fn runSilentCli(allocator: std.mem.Allocator, environ: std.process.Environ, embe
 
     const startup_pid = loader.findTargetProcess();
     if (startup_pid != 0) silentCliError("{s}", .{strings.status_game_already_running_startup});
-    if (game_exe_path == null) silentCliError("{s}\nYou cannot use silent mode when the game path cannot be found.", .{strings.status_game_not_found});
+    if (game_exe_path == null) silentCliError(strings.cli.silent_missing_game_path_fmt, .{strings.status_game_not_found});
 
     const temp_dll_path = loader.writeEmbeddedDllToTemp(allocator, embedded_dll) catch |err| {
-        silentCliError("Error: {s}", .{loader.describeTempDllError(err)});
+        silentCliError(strings.cli.error_fmt, .{loader.describeTempDllError(err)});
     };
     defer {
         loader.deleteTempDll(allocator, temp_dll_path);
@@ -511,7 +496,7 @@ fn runSilentCli(allocator: std.mem.Allocator, environ: std.process.Environ, embe
     }
 
     launchConfiguredGame(game_exe_path.?, dx11) catch |err| {
-        silentCliError("Launch failed: {s}", .{loader.describeLaunchError(err)});
+        silentCliError(strings.cli.launch_failed_plain_fmt, .{loader.describeLaunchError(err)});
     };
 
     var pid: u32 = 0;
@@ -525,11 +510,11 @@ fn runSilentCli(allocator: std.mem.Allocator, environ: std.process.Environ, embe
     loader.injectDll(pid, temp_dll_path) catch |err| {
         var buf: [512]u8 = undefined;
         if (loader.injectErrorSuggestsElevation(err)) {
-            const message = std.fmt.bufPrint(&buf, "Injection failed: {s}\nTry running as administrator.", .{loader.describeInjectError(err)}) catch "Injection failed.";
+            const message = std.fmt.bufPrint(&buf, strings.cli.injection_failed_elevation_fmt, .{loader.describeInjectError(err)}) catch strings.cli.injection_failed_fallback;
             showErrorMessage(message);
             std.process.exit(1);
         }
-        silentCliError("Injection failed: {s}", .{loader.describeInjectError(err)});
+        silentCliError(strings.status_injection_failed_fmt, .{loader.describeInjectError(err)});
     };
 
     return 0;
@@ -540,7 +525,7 @@ fn runSilentEfmiCli(allocator: std.mem.Allocator, embedded_dll: []const u8, efmi
     if (startup_pid != 0) silentCliError("{s}", .{strings.status_game_already_running_startup});
 
     const temp_dll_path = loader.writeEmbeddedDllToTemp(allocator, embedded_dll) catch |err| {
-        silentCliError("Error: {s}", .{loader.describeTempDllError(err)});
+        silentCliError(strings.cli.error_fmt, .{loader.describeTempDllError(err)});
     };
     defer {
         loader.deleteTempDll(allocator, temp_dll_path);
@@ -548,21 +533,21 @@ fn runSilentEfmiCli(allocator: std.mem.Allocator, embedded_dll: []const u8, efmi
     }
 
     launchEfmiLauncher(efmi_launcher_path) catch |err| {
-        silentCliError("EFMI launch failed: {s}", .{describeEfmiLaunchError(err)});
+        silentCliError(strings.cli.efmi_launch_failed_fmt, .{describeEfmiLaunchError(err)});
     };
 
     const pid = waitForTargetProcessTimeout(EFMI_WAIT_TIMEOUT_MS);
-    if (pid == 0) silentCliError("EFMI timeout.", .{});
+    if (pid == 0) silentCliError(strings.cli.efmi_timeout, .{});
 
     c.Sleep(10);
     loader.injectDll(pid, temp_dll_path) catch |err| {
         var buf: [512]u8 = undefined;
         if (loader.injectErrorSuggestsElevation(err)) {
-            const message = std.fmt.bufPrint(&buf, "Injection failed: {s}\nTry running as administrator.", .{loader.describeInjectError(err)}) catch "Injection failed.";
+            const message = std.fmt.bufPrint(&buf, strings.cli.injection_failed_elevation_fmt, .{loader.describeInjectError(err)}) catch strings.cli.injection_failed_fallback;
             showErrorMessage(message);
             std.process.exit(1);
         }
-        silentCliError("Injection failed: {s}", .{loader.describeInjectError(err)});
+        silentCliError(strings.status_injection_failed_fmt, .{loader.describeInjectError(err)});
     };
 
     return 0;
@@ -578,15 +563,15 @@ fn runEfmiCli(allocator: std.mem.Allocator, embedded_dll: []const u8, efmi_launc
 
     const startup_pid = loader.findTargetProcess();
     if (startup_pid != 0) {
-        cliPrint(io, "{s}\n", .{strings.status_game_already_running_startup});
-        cliPrint(io, "Closing in 5 seconds...\n", .{});
+        cliPrint(io, strings.status_game_already_running_startup ++ "\n", .{});
+        cliPrint(io, strings.cli.closing_in_5_seconds, .{});
         c.Sleep(5000);
         return 1;
     }
 
     const temp_dll_path = loader.writeEmbeddedDllToTemp(allocator, embedded_dll) catch |err| {
-        cliPrint(io, "Error: {s}\n", .{loader.describeTempDllError(err)});
-        cliPrint(io, "Closing in 5 seconds...\n", .{});
+        cliPrint(io, strings.cli.error_line_fmt, .{loader.describeTempDllError(err)});
+        cliPrint(io, strings.cli.closing_in_5_seconds, .{});
         c.Sleep(5000);
         return 1;
     };
@@ -595,26 +580,26 @@ fn runEfmiCli(allocator: std.mem.Allocator, embedded_dll: []const u8, efmi_launc
         allocator.free(temp_dll_path);
     }
 
-    cliPrint(io, "XXMI found.\n", .{});
-    cliPrint(io, "Location: {s}\n\n", .{efmi_launcher_path});
+    cliPrint(io, strings.cli.xxmi_found, .{});
+    cliPrint(io, strings.cli.location_fmt, .{efmi_launcher_path});
     if (!auto_yes) {
-        cliPrint(io, "Press Y to launch XXMI. Press Q to quit.\n", .{});
+        cliPrint(io, strings.cli.efmi_launch_prompt, .{});
         if (!cliWaitForEfmiLaunchOrQuit(false)) return 0;
-        cliPrint(io, "\n", .{});
+        cliPrint(io, CLI_BLANK_LINE, .{});
     }
-    cliPrint(io, "Launching EFMI...\n", .{});
+    cliPrint(io, strings.cli.launching_efmi_line, .{});
     launchEfmiLauncher(efmi_launcher_path) catch |err| {
-        cliPrint(io, "EFMI launch failed: {s}\n", .{describeEfmiLaunchError(err)});
-        cliPrint(io, "Closing in 5 seconds...\n", .{});
+        cliPrint(io, strings.cli.efmi_launch_failed_line_fmt, .{describeEfmiLaunchError(err)});
+        cliPrint(io, strings.cli.closing_in_5_seconds, .{});
         c.Sleep(5000);
         return 1;
     };
 
-    cliPrint(io, "Waiting for {s}...\n\n", .{loader.target_exe_name});
+    cliPrint(io, strings.cli.waiting_for_target_fmt, .{loader.target_exe_name});
     const pid = waitForTargetProcessTimeout(EFMI_WAIT_TIMEOUT_MS);
     if (pid == 0) {
-        cliPrint(io, "EFMI timeout.\n", .{});
-        cliPrint(io, "Closing in 5 seconds...\n", .{});
+        cliPrint(io, strings.cli.efmi_timeout_line, .{});
+        cliPrint(io, strings.cli.closing_in_5_seconds, .{});
         c.Sleep(5000);
         return 1;
     }
@@ -629,7 +614,7 @@ pub fn run(allocator: std.mem.Allocator, environ: std.process.Environ, mode: Mod
         }
 
         if (mode == .silent) {
-            silentCliError("XXMI was not found in the default location.\n{s}", .{EFMI_MISSING_PATH_MESSAGE});
+            silentCliError(strings.cli.xxmi_not_found_default_fmt, .{EFMI_MISSING_PATH_MESSAGE});
         }
 
         var threaded_efmi: std.Io.Threaded = .init(allocator, .{});
@@ -638,9 +623,9 @@ pub fn run(allocator: std.mem.Allocator, environ: std.process.Environ, mode: Mod
 
         ensureCliConsole();
         cliPrintHeader(efmi_io);
-        cliPrint(efmi_io, "XXMI was not found in the default location.\n", .{});
-        cliPrint(efmi_io, "{s}\n", .{EFMI_MISSING_PATH_MESSAGE});
-        cliPrint(efmi_io, "Closing in 5 seconds...\n", .{});
+        cliPrint(efmi_io, strings.cli.xxmi_not_found_default_line, .{});
+        cliPrint(efmi_io, EFMI_MISSING_PATH_MESSAGE ++ "\n", .{});
+        cliPrint(efmi_io, strings.cli.closing_in_5_seconds, .{});
         c.Sleep(5000);
         return 1;
     }
@@ -655,8 +640,8 @@ pub fn run(allocator: std.mem.Allocator, environ: std.process.Environ, mode: Mod
     cliPrintHeader(io);
 
     const temp_dll_path = loader.writeEmbeddedDllToTemp(allocator, embedded_dll) catch |err| {
-        cliPrint(io, "Error: {s}\n", .{loader.describeTempDllError(err)});
-        cliPrint(io, "Closing in 5 seconds...\n", .{});
+        cliPrint(io, strings.cli.error_line_fmt, .{loader.describeTempDllError(err)});
+        cliPrint(io, strings.cli.closing_in_5_seconds, .{});
         c.Sleep(5000);
         return 1;
     };
@@ -670,18 +655,18 @@ pub fn run(allocator: std.mem.Allocator, environ: std.process.Environ, mode: Mod
 
     const startup_pid = loader.findTargetProcess();
     if (startup_pid != 0) {
-        cliPrint(io, "{s}\n", .{strings.status_game_already_running_startup});
+        cliPrint(io, strings.status_game_already_running_startup ++ "\n", .{});
         if (game_exe_path != null) {
-            cliPrint(io, "Press L for launch info. Press Q to quit.\n", .{});
+            cliPrint(io, strings.cli.launch_info_prompt, .{});
         } else {
-            cliPrint(io, "Press Q to quit.\n", .{});
+            cliPrint(io, strings.cli.quit_prompt, .{});
         }
-        cliPrint(io, "Waiting for the game to close...\n\n", .{});
+        cliPrint(io, strings.cli.waiting_for_game_close, .{});
         if (!cliWaitForProcessExitOrQuit(io, startup_pid, game_exe_path != null)) return 0;
-        cliPrint(io, "{s}\n", .{strings.status_game_process_closed});
+        cliPrint(io, strings.status_game_process_closed ++ "\n", .{});
     }
 
-    cliPrint(io, "Ready.\n", .{});
+    cliPrint(io, strings.cli.ready_line, .{});
     cliPrintReadyState(io, game_exe_path);
 
     const pid = switch (cliWaitForTargetProcessOrCommand(io, game_exe_path, config.dx11)) {

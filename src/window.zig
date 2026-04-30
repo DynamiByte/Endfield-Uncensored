@@ -35,9 +35,11 @@ const embedded_textbox_font = @embedFile("text-box.ttf");
 
 // Layout and embedded assets
 const VERSION_STR = app_version.version_str;
-const APP_TITLE = std.unicode.utf8ToUtf16LeStringLiteral("Endfield Uncensored");
+const APP_TITLE = std.unicode.utf8ToUtf16LeStringLiteral(strings.app_title);
 const WINDOW_CLASS = std.unicode.utf8ToUtf16LeStringLiteral("EndfieldUncensoredGL");
 const README_URL = std.unicode.utf8ToUtf16LeStringLiteral("https://github.com/DynamiByte/Endfield-Uncensored/blob/master/README.md");
+const RELEASE_URL_FMT = "https://github.com/DynamiByte/Endfield-Uncensored/releases/tag/{s}";
+const SHELL_OPEN_OPERATION = std.unicode.utf8ToUtf16LeStringLiteral("open");
 const LABEL_LAUNCH = strings.label_launch;
 const LABEL_MINIMIZE = strings.label_minimize;
 const LABEL_STAY_OPEN = strings.label_stay_open;
@@ -337,8 +339,10 @@ var g_launch_right_click_last_tick: u64 = 0;
 var g_window_anim: WindowAnim = .{};
 var g_close_countdown: CloseCountdown = .{};
 var g_launch_anim: ScalarAnim = .{};
+var g_launch_label_anim: ScalarAnim = .{};
 var g_toggle_anim: ScalarAnim = .{};
 var g_efmi_anim: ScalarAnim = .{};
+var g_efmi_label_anim: ScalarAnim = .{};
 var g_button_colors = [_]ColorAnim{.{}} ** 5;
 var g_toggle_current_color = ByteVec4{ .x = 220.0 / 255.0, .y = 220.0 / 255.0, .z = 220.0 / 255.0, .w = 1.0 };
 var g_efmi_current_color = ByteVec4{ .x = 220.0 / 255.0, .y = 220.0 / 255.0, .z = 220.0 / 255.0, .w = 1.0 };
@@ -501,14 +505,6 @@ fn selectedLaunchMode(preferred_mode: GameLaunchMode) GameLaunchMode {
     return if (efmiLaunchSelected()) .efmi else preferred_mode;
 }
 
-fn appendLaunchModeHintStatus() void {
-    if (g_force_dx11) {
-        appendStatus(strings.status_mode_hint_dx11, .{});
-    } else {
-        appendStatus(strings.status_mode_hint_normal, .{});
-    }
-}
-
 fn appendLaunchModeStatus(mode: GameLaunchMode) void {
     switch (mode) {
         .normal => appendStatus(strings.status_launching_game_vulkan, .{}),
@@ -613,11 +609,13 @@ fn cancelCloseCountdown() void {
 }
 
 fn makeCountdownStatusLine(action: CloseCountdown.Action, seconds_remaining: i32) ?[]u8 {
-    return allocOwnedLine(strings.status_countdown_fmt, .{
-        if (action == .minimize) strings.countdown_action_minimize else strings.countdown_action_close,
-        seconds_remaining,
-        if (seconds_remaining == 1) "" else "s",
-    });
+    const action_text = if (action == .minimize) strings.countdown_action_minimize else strings.countdown_action_close;
+
+    if (seconds_remaining == 1) {
+        return allocOwnedLine(strings.status_countdown_one_fmt, .{ action_text, seconds_remaining });
+    }
+
+    return allocOwnedLine(strings.status_countdown_many_fmt, .{ action_text, seconds_remaining });
 }
 
 fn appendCountdownStatus(action: CloseCountdown.Action, seconds_remaining: i32) void {
@@ -936,11 +934,25 @@ fn rasterizeButtonLabelTexture(font: ?*ByteFont, logical_font_size: f32, text: [
     );
 }
 
+const EfmiLabelLines = struct {
+    top: []const u8,
+    bottom: []const u8,
+};
+
+fn efmiLabelLines() EfmiLabelLines {
+    const split = std.mem.indexOfScalar(u8, LABEL_EFMI, '\n') orelse LABEL_EFMI.len;
+    return .{
+        .top = LABEL_EFMI[0..split],
+        .bottom = if (split < LABEL_EFMI.len) LABEL_EFMI[split + 1 ..] else LABEL_EFMI[split..],
+    };
+}
+
 fn rebuildButtonLabelTextures() bool {
+    const efmi_lines = efmiLabelLines();
     const launch_ok = buildButtonLabelTexture(&g_launch_label_texture, g_font_launch, 24.0, LABEL_LAUNCH, 0.9);
     const toggle_ok = buildButtonLabelTexture(&g_toggle_label_texture, g_font_toggle, 20.0, toggleButtonLabel(), 0.45);
-    const efmi_top_ok = buildButtonLabelTexture(&g_efmi_top_label_texture, g_font_toggle, EFMI_LABEL_LINE_SIZE, "EF", 0.45);
-    const efmi_bottom_ok = buildButtonLabelTexture(&g_efmi_bottom_label_texture, g_font_toggle, EFMI_LABEL_LINE_SIZE, "MI", 0.45);
+    const efmi_top_ok = buildButtonLabelTexture(&g_efmi_top_label_texture, g_font_toggle, EFMI_LABEL_LINE_SIZE, efmi_lines.top, 0.45);
+    const efmi_bottom_ok = buildButtonLabelTexture(&g_efmi_bottom_label_texture, g_font_toggle, EFMI_LABEL_LINE_SIZE, efmi_lines.bottom, 0.45);
     return launch_ok and toggle_ok and efmi_top_ok and efmi_bottom_ok;
 }
 
@@ -1032,6 +1044,7 @@ const StartupPreparedAssets = struct {
 
 fn prepareStartupAssets(out_assets: *StartupPreparedAssets) void {
     out_assets.* = .{};
+    const efmi_lines = efmiLabelLines();
 
     if (rasterizeButtonLabelTexture(g_font_launch, 24.0, LABEL_LAUNCH, 0.9)) |raster| {
         out_assets.launch_label = raster;
@@ -1041,11 +1054,11 @@ fn prepareStartupAssets(out_assets: *StartupPreparedAssets) void {
         out_assets.toggle_label = raster;
         out_assets.toggle_label_ready = true;
     }
-    if (rasterizeButtonLabelTexture(g_font_toggle, EFMI_LABEL_LINE_SIZE, "EF", 0.45)) |raster| {
+    if (rasterizeButtonLabelTexture(g_font_toggle, EFMI_LABEL_LINE_SIZE, efmi_lines.top, 0.45)) |raster| {
         out_assets.efmi_top_label = raster;
         out_assets.efmi_top_label_ready = true;
     }
-    if (rasterizeButtonLabelTexture(g_font_toggle, EFMI_LABEL_LINE_SIZE, "MI", 0.45)) |raster| {
+    if (rasterizeButtonLabelTexture(g_font_toggle, EFMI_LABEL_LINE_SIZE, efmi_lines.bottom, 0.45)) |raster| {
         out_assets.efmi_bottom_label = raster;
         out_assets.efmi_bottom_label_ready = true;
     }
@@ -1315,7 +1328,7 @@ fn updateAnimations(dt: f32) void {
         }
     }
 
-    for (&[_]*ScalarAnim{ &g_launch_anim, &g_toggle_anim, &g_efmi_anim }) |anim| {
+    for (&[_]*ScalarAnim{ &g_launch_anim, &g_launch_label_anim, &g_toggle_anim, &g_efmi_anim, &g_efmi_label_anim }) |anim| {
         if (!anim.animating) continue;
         anim.elapsed += dt;
         const t = if (anim.duration > 0.0) anim.elapsed / anim.duration else 1.0;
@@ -1502,7 +1515,6 @@ fn efmiVisualLeft() f32 {
 fn efmiLabelLeft() f32 {
     return efmiVisualLeft();
 }
-
 
 fn getToggleRect(expanded_hit: bool) c.RECT {
     _ = expanded_hit;
@@ -1913,8 +1925,10 @@ fn applyHoveredButton(next_hover: i32) void {
 
     const launch_group_hovered = g_hovered_button == 5 or g_hovered_button == 7;
     startScalarAnim(&g_launch_anim, if (launch_group_hovered) 1.0 else 0.0, 0.18);
+    startScalarAnim(&g_launch_label_anim, if (g_hovered_button == 5) 1.0 else 0.0, 0.18);
     startScalarAnim(&g_toggle_anim, if (g_hovered_button == 6) 1.0 else 0.0, 0.18);
     startScalarAnim(&g_efmi_anim, if (launch_group_hovered) 1.0 else 0.0, 0.18);
+    startScalarAnim(&g_efmi_label_anim, if (g_hovered_button == 7) 1.0 else 0.0, 0.18);
 }
 
 fn beginMouseLeaveTracking(hwnd: c.HWND) void {
@@ -1928,10 +1942,34 @@ fn beginMouseLeaveTracking(hwnd: c.HWND) void {
     if (c.TrackMouseEvent(&track) != c.FALSE) g_mouse_leave_tracking = true;
 }
 
+fn cursorIdForClientPoint(pt: c.POINT) u16 {
+    if (!pointInRoundedRectClient(pt)) return IDC_ARROW_ID;
+
+    if (pointInOutputTextRect(pt) and !pointInOutputScrollbarThumb(pt)) return IDC_IBEAM_ID;
+
+    const hit_id = hitTestButton(pt);
+    if (hit_id == 5 or hit_id == 6 or hit_id == 7) return IDC_HAND_ID;
+
+    return IDC_ARROW_ID;
+}
+
+fn applyCursorId(cursor_id: u16) void {
+    _ = c.SetCursor(loadCursorResource(cursor_id));
+}
+
+fn applyCursorForClientPoint(pt: c.POINT) void {
+    applyCursorId(cursorIdForClientPoint(pt));
+}
+
+fn applyDefaultCursor() void {
+    applyCursorId(IDC_ARROW_ID);
+}
+
 fn clearWindowHoverState() void {
     g_cursor_in_window = false;
     g_mouse_leave_tracking = false;
     applyHoveredButton(0);
+    applyDefaultCursor();
 }
 
 fn armHoverAfterCursorMotion() void {
@@ -2011,33 +2049,53 @@ fn drawAnimatedTextureLabel(draw: ?*ByteDrawList, texture: *const TextTexture, i
     );
 }
 
+fn drawTextTextureCentered(draw: *ByteDrawList, texture: *const TextTexture, center: ByteVec2, scale: f32, opacity: f32) bool {
+    if (texture.texture == null or texture.display_size_px.x <= 0.0 or texture.display_size_px.y <= 0.0) return false;
+
+    const texture_size = if (texture.image_size_px.x > 0.0 and texture.image_size_px.y > 0.0) texture.image_size_px else texture.display_size_px;
+    const content_size = ByteVec2{
+        .x = texture.display_size_px.x * scale,
+        .y = texture.display_size_px.y * scale,
+    };
+    const image_size = ByteVec2{
+        .x = texture_size.x * scale,
+        .y = texture_size.y * scale,
+    };
+    const content_pos = ByteVec2{
+        .x = center.x - content_size.x * 0.5,
+        .y = center.y - content_size.y * 0.5,
+    };
+    const image_pos = ByteVec2{
+        .x = content_pos.x + texture.draw_offset_px.x * scale,
+        .y = content_pos.y + texture.draw_offset_px.y * scale,
+    };
+
+    draw.AddImage(
+        texture.texture,
+        image_pos,
+        .{ .x = image_pos.x + image_size.x, .y = image_pos.y + image_size.y },
+        texture.uv_min,
+        texture.uv_max,
+        toU32(applyOpacity(.{ .x = 0.0, .y = 0.0, .z = 0.0, .w = 1.0 }, opacity)),
+    );
+    return true;
+}
+
 fn drawEfmiButtonLabelTexture(draw: ?*ByteDrawList, pos: ByteVec2, size: ByteVec2, anim: f32, opacity: f32) bool {
-    const line_h = size.y * 0.5;
-    const line_size = ByteVec2{ .x = size.x, .y = line_h + scaleF(1.0) };
-    const top_ok = drawAnimatedTextureLabel(
-        draw,
-        &g_efmi_top_label_texture,
-        false,
-        .{ .x = pos.x, .y = pos.y + scaleF(2.0) },
-        line_size,
-        anim,
-        opacity,
-    );
-    const bottom_ok = drawAnimatedTextureLabel(
-        draw,
-        &g_efmi_bottom_label_texture,
-        false,
-        .{ .x = pos.x, .y = pos.y + line_h - scaleF(2.0) },
-        line_size,
-        anim,
-        opacity,
-    );
+    const active_draw = draw orelse return false;
+    const label_scale = 0.92 + 0.12 * clamp01(anim);
+    const base_gap = @max(scaleF(8.0), (g_efmi_top_label_texture.display_size_px.y + g_efmi_bottom_label_texture.display_size_px.y) * 0.38);
+    const center_gap = base_gap * label_scale;
+    const center = ByteVec2{ .x = pos.x + size.x * 0.5, .y = pos.y + size.y * 0.5 };
+    const top_ok = drawTextTextureCentered(active_draw, &g_efmi_top_label_texture, .{ .x = center.x, .y = center.y - center_gap * 0.5 }, label_scale, opacity);
+    const bottom_ok = drawTextTextureCentered(active_draw, &g_efmi_bottom_label_texture, .{ .x = center.x, .y = center.y + center_gap * 0.5 }, label_scale, opacity);
     return top_ok and bottom_ok;
 }
 
 fn drawAnimatedButtonLabelTexture(draw: ?*ByteDrawList, id: []const u8, pos: ByteVec2, size: ByteVec2, anim: f32, opacity: f32) bool {
     const is_launch = buttonIsLaunch(id);
-    if (buttonIsEfmi(id)) return drawEfmiButtonLabelTexture(draw, pos, size, anim, opacity);
+    if (is_launch) return drawAnimatedTextureLabel(draw, &g_launch_label_texture, true, pos, size, g_launch_label_anim.value, opacity);
+    if (buttonIsEfmi(id)) return drawEfmiButtonLabelTexture(draw, pos, size, g_efmi_label_anim.value, opacity);
     const text_texture = getButtonLabelTexture(id);
     return drawAnimatedTextureLabel(draw, text_texture, is_launch, pos, size, anim, opacity);
 }
@@ -2192,7 +2250,7 @@ fn drawUI(dt: f32) void {
     draw.AddText(g_font_version, scaleF(12.0), snapPixelVec2(scaleVec2(VERSION_X, VERSION_Y)), toU32(applyOpacity(g_button_colors[4].current, render_opacity)), g_version_display, null);
     drawAnimatedBoxButtonVisual("toggle_btn", toggleButtonLabel(), scaleVec2(TOGGLE_X, TOGGLE_Y + TOGGLE_Y_OFFSET), scaleVec2(TOGGLE_W, TOGGLE_H), g_toggle_anim.value, true, g_toggle_current_color, render_opacity);
     if (g_efmi_button_visible) drawAnimatedBoxButtonVisual("efmi_btn", LABEL_EFMI, scaleVec2(EFMI_X, EFMI_Y), scaleVec2(EFMI_W, EFMI_H), g_efmi_anim.value, true, g_efmi_current_color, render_opacity);
-    drawAnimatedBoxButtonVisual("launch_btn", "Launch Game", scaleVec2(LAUNCH_X, LAUNCH_Y), scaleVec2(LAUNCH_W, LAUNCH_H), g_launch_anim.value, g_launch_btn_enabled, g_launch_current_color, render_opacity);
+    drawAnimatedBoxButtonVisual("launch_btn", LABEL_LAUNCH, scaleVec2(LAUNCH_X, LAUNCH_Y), scaleVec2(LAUNCH_W, LAUNCH_H), g_launch_anim.value, g_launch_btn_enabled, g_launch_current_color, render_opacity);
 }
 
 fn refreshGamePathStatus() void {
@@ -2212,7 +2270,6 @@ fn maybeRestoreAfterExit() void {
         _ = c.ShowWindow(hwnd, c.SW_RESTORE);
         bringWindowToFront();
     }
-    appendLaunchModeHintStatus();
     appendStatus(strings.status_ready_for_injection_again, .{});
     g_minimized_by_toggle = false;
     g_stayed_open_by_toggle = false;
@@ -2266,7 +2323,7 @@ fn launchGameAction(requested_mode: GameLaunchMode) void {
                 return;
             };
             startLaunchCooldown(mode);
-            break :blk loader.launchGameWithArgs(game_path, "-force-d3d11");
+            break :blk loader.launchGameWithArgs(game_path, loader.game_dx11_arg);
         },
         .efmi => blk: {
             const efmi_path = g_efmi_launcher_path orelse {
@@ -2282,7 +2339,7 @@ fn launchGameAction(requested_mode: GameLaunchMode) void {
         setLoaderPendingLaunchMode(null);
         switch (mode) {
             .normal, .dx11 => appendStatus(strings.status_launch_failed_fmt, .{loader.describeLaunchError(err)}),
-            .efmi => appendStatus(strings.status_efmi_launch_failed_fmt, .{cli.describeEfmiLaunchError(err)}),
+            .efmi => appendStatus(strings.status_efmi_launch_failed_fmt, .{strings.describeEfmiLaunchError(err)}),
         }
         return;
     };
@@ -2294,7 +2351,7 @@ fn launchGameAction(requested_mode: GameLaunchMode) void {
 
 // External actions
 fn openReadme() void {
-    _ = c.ShellExecuteW(null, std.unicode.utf8ToUtf16LeStringLiteral("open"), README_URL, null, null, c.SW_SHOWNORMAL);
+    _ = c.ShellExecuteW(null, SHELL_OPEN_OPERATION, README_URL, null, null, c.SW_SHOWNORMAL);
 }
 
 fn openReleaseTag() void {
@@ -2304,13 +2361,13 @@ fn openReleaseTag() void {
     var url_utf8_buf: [160]u8 = undefined;
     const url_utf8 = std.fmt.bufPrint(
         &url_utf8_buf,
-        "https://github.com/DynamiByte/Endfield-Uncensored/releases/tag/{s}",
+        RELEASE_URL_FMT,
         .{normalized},
     ) catch return;
 
     var url_utf16_buf: [160]u16 = undefined;
     const url_utf16 = wtf8ToWtf16LeZ(url_utf8, &url_utf16_buf) catch return;
-    _ = c.ShellExecuteW(null, std.unicode.utf8ToUtf16LeStringLiteral("open"), url_utf16.ptr, null, null, c.SW_SHOWNORMAL);
+    _ = c.ShellExecuteW(null, SHELL_OPEN_OPERATION, url_utf16.ptr, null, null, c.SW_SHOWNORMAL);
 }
 
 // Input and window procedure
@@ -2368,6 +2425,8 @@ fn handleLButtonDown(hwnd: c.HWND, l_param: c.LPARAM) c.LRESULT {
 
 fn handleMouseMove(hwnd: c.HWND, l_param: c.LPARAM) c.LRESULT {
     const pt = c.POINT{ .x = lowWordSigned(l_param), .y = highWordSigned(l_param) };
+    applyCursorForClientPoint(pt);
+
     var screen_pt = std.mem.zeroes(c.POINT);
     const has_screen_pt = c.GetCursorPos(&screen_pt) != c.FALSE;
     const cursor_moved = !g_last_cursor_screen_valid or !has_screen_pt or screen_pt.x != g_last_cursor_screen.x or screen_pt.y != g_last_cursor_screen.y;
@@ -2409,6 +2468,7 @@ fn handleMouseMove(hwnd: c.HWND, l_param: c.LPARAM) c.LRESULT {
 
 fn handleMouseLeave() c.LRESULT {
     clearWindowHoverState();
+    applyDefaultCursor();
     return 0;
 }
 
@@ -2476,15 +2536,18 @@ fn wndProc(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) call
     switch (msg) {
         c.WM_SETCURSOR => {
             if (lowWordU(l_param) == 1) {
-                var cursor_id = if (g_hovered_button == 5 or g_hovered_button == 6 or g_hovered_button == 7) IDC_HAND_ID else IDC_ARROW_ID;
                 var pt = std.mem.zeroes(c.POINT);
                 if (c.GetCursorPos(&pt) != c.FALSE) {
                     _ = c.ScreenToClient(active_hwnd, &pt);
-                    if (pointInOutputTextRect(pt) and !pointInOutputScrollbarThumb(pt)) cursor_id = IDC_IBEAM_ID;
+                    applyCursorForClientPoint(pt);
+                } else {
+                    applyDefaultCursor();
                 }
-                _ = c.SetCursor(loadCursorResource(cursor_id));
                 return 1;
             }
+
+            applyDefaultCursor();
+            return 1;
         },
         c.WM_LBUTTONDOWN => return handleLButtonDown(active_hwnd, l_param),
         c.WM_MOUSEMOVE => {
@@ -2562,7 +2625,6 @@ fn wndProcBridge(hwnd: bgc.HWND, msg: bgc.UINT, w_param: bgc.WPARAM, l_param: bg
 
 // Startup and shutdown
 fn appendInitialStatusLines() void {
-    appendLaunchModeHintStatus();
     if (g_startup_target_pid != 0) {
         if (g_game_exe_path != null) appendStatus(strings.status_game_found, .{});
         appendStatus(strings.status_game_already_running_startup, .{});
@@ -2724,7 +2786,7 @@ pub fn main(init: std.process.Init.Minimal) void {
     g_environ = init.environ;
     const config = cli.parseLaunchConfig(allocator, init.environ, init.args) catch |err| {
         switch (err) {
-            error.OutOfMemory => cli.showArgumentError("Not enough memory to parse command line."),
+            error.OutOfMemory => cli.showArgumentError(strings.cli.parse_oom),
             error.MissingForceWineModeValue => cli.showArgumentError(cli.describeParseArgsError(error.MissingForceWineModeValue)),
             error.InvalidForceWineModeValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidForceWineModeValue)),
             error.MissingAllowMinimizeValue => cli.showArgumentError(cli.describeParseArgsError(error.MissingAllowMinimizeValue)),

@@ -1,4 +1,4 @@
-﻿// ByteGui - A minimal immediate mode GUI library for Endfield Uncensored, built on OpenGL.
+// ByteGui - A minimal immediate mode GUI library for Endfield Uncensored, built on OpenGL.
 
 const builtin = @import("builtin");
 const std = @import("std");
@@ -734,7 +734,9 @@ pub const ByteDrawList = struct {
         const texture = entry.Texture;
         if (texture == null) return;
         const snapped_pos = ByteVec2{ .x = @floor(pos.x + 0.5), .y = @floor(pos.y + 0.5) };
-        self.AddImage(texture, snapped_pos, .{ .x = snapped_pos.x + entry.DisplaySize.x, .y = snapped_pos.y + entry.DisplaySize.y }, entry.UvMin, entry.UvMax, col);
+        const image_pos = ByteVec2{ .x = snapped_pos.x + entry.DrawOffset.x, .y = snapped_pos.y + entry.DrawOffset.y };
+        const image_size = if (entry.ImageSize.x > 0.0 and entry.ImageSize.y > 0.0) entry.ImageSize else entry.DisplaySize;
+        self.AddImage(texture, image_pos, .{ .x = image_pos.x + image_size.x, .y = image_pos.y + image_size.y }, entry.UvMin, entry.UvMax, col);
     }
 
     pub fn AddImage(self: *ByteDrawList, user_texture_id: ByteTextureID, p_min: ByteVec2, p_max: ByteVec2, uv_min: ByteVec2, uv_max: ByteVec2, col: ByteU32) void {
@@ -810,6 +812,8 @@ const TextCacheEntry = struct {
     Text: []u8,
     Texture: ByteTextureID = null,
     DisplaySize: ByteVec2 = .{},
+    ImageSize: ByteVec2 = .{},
+    DrawOffset: ByteVec2 = .{},
     UvMin: ByteVec2 = .{},
     UvMax: ByteVec2 = .{ .x = 1.0, .y = 1.0 },
 
@@ -1088,7 +1092,9 @@ pub const ByteGui = struct {
         color.w *= ctx.Style.Alpha;
         const col_u32 = ColorConvertFloat4ToU32(color);
         const pos = ByteVec2{ .x = @floor(ctx.CursorScreenPos.x + 0.5), .y = @floor(ctx.CursorScreenPos.y + 0.5) };
-        ctx.DrawList.AddImage(texture, pos, .{ .x = pos.x + entry.DisplaySize.x, .y = pos.y + entry.DisplaySize.y }, entry.UvMin, entry.UvMax, col_u32);
+        const image_pos = ByteVec2{ .x = pos.x + entry.DrawOffset.x, .y = pos.y + entry.DrawOffset.y };
+        const image_size = if (entry.ImageSize.x > 0.0 and entry.ImageSize.y > 0.0) entry.ImageSize else entry.DisplaySize;
+        ctx.DrawList.AddImage(texture, image_pos, .{ .x = image_pos.x + image_size.x, .y = image_pos.y + image_size.y }, entry.UvMin, entry.UvMax, col_u32);
         ctx.CursorScreenPos.y += entry.DisplaySize.y;
     }
 
@@ -1485,6 +1491,8 @@ pub const Ui = struct {
     pub const TextTexture = struct {
         texture: ByteTextureID = null,
         display_size_px: ByteVec2 = .{},
+        image_size_px: ByteVec2 = .{},
+        draw_offset_px: ByteVec2 = .{},
         uv_min: ByteVec2 = .{},
         uv_max: ByteVec2 = .{ .x = 1.0, .y = 1.0 },
     };
@@ -1494,6 +1502,8 @@ pub const Ui = struct {
         pixel_w: u32 = 0,
         pixel_h: u32 = 0,
         display_size_px: ByteVec2 = .{},
+        image_size_px: ByteVec2 = .{},
+        draw_offset_px: ByteVec2 = .{},
         uv_min: ByteVec2 = .{},
         uv_max: ByteVec2 = .{ .x = 1.0, .y = 1.0 },
     };
@@ -1506,6 +1516,8 @@ pub const Ui = struct {
     pub fn CleanupTextTexture(texture: *TextTexture) void {
         CleanupTexture(&texture.texture);
         texture.display_size_px = .{};
+        texture.image_size_px = .{};
+        texture.draw_offset_px = .{};
         texture.uv_min = .{};
         texture.uv_max = .{ .x = 1.0, .y = 1.0 };
     }
@@ -1800,13 +1812,22 @@ pub const Ui = struct {
         const max_h = size.y - fit_padding.y;
         const fit_scale = @min(1.0, @min(max_w / texture.display_size_px.x, max_h / texture.display_size_px.y));
         const final_scale = fit_scale * (base_factor + (peak_factor - base_factor) * Clamp01(anim));
-        const image_size = ByteVec2{
+        const content_size = ByteVec2{
             .x = texture.display_size_px.x * final_scale,
             .y = texture.display_size_px.y * final_scale,
         };
+        const texture_size = if (texture.image_size_px.x > 0.0 and texture.image_size_px.y > 0.0) texture.image_size_px else texture.display_size_px;
+        const image_size = ByteVec2{
+            .x = texture_size.x * final_scale,
+            .y = texture_size.y * final_scale,
+        };
+        const content_pos = ByteVec2{
+            .x = pos.x + (size.x - content_size.x) * 0.5,
+            .y = pos.y + (size.y - content_size.y) * 0.5,
+        };
         const image_pos = ByteVec2{
-            .x = pos.x + (size.x - image_size.x) * 0.5,
-            .y = pos.y + (size.y - image_size.y) * 0.5,
+            .x = content_pos.x + texture.draw_offset_px.x * final_scale,
+            .y = content_pos.y + texture.draw_offset_px.y * final_scale,
         };
 
         active_draw.AddImage(
@@ -1828,6 +1849,8 @@ pub const Ui = struct {
             .pixel_w = raster.pixel_w,
             .pixel_h = raster.pixel_h,
             .display_size_px = raster.content_size_px,
+            .image_size_px = raster.display_size_px,
+            .draw_offset_px = raster.draw_offset_px,
             .uv_min = raster.uv_min,
             .uv_max = raster.uv_max,
         };
@@ -1960,6 +1983,8 @@ pub const Ui = struct {
 
         out_texture.texture = createTextureFromRGBA(raster.rgba, raster.pixel_w, raster.pixel_h, .linear) orelse return false;
         out_texture.display_size_px = raster.display_size_px;
+        out_texture.image_size_px = if (raster.image_size_px.x > 0.0 and raster.image_size_px.y > 0.0) raster.image_size_px else raster.display_size_px;
+        out_texture.draw_offset_px = raster.draw_offset_px;
         out_texture.uv_min = raster.uv_min;
         out_texture.uv_max = raster.uv_max;
         return true;
@@ -1975,6 +2000,8 @@ pub const Ui = struct {
 
         out_texture.texture = createTextureFromAlpha(alpha, pixel_w, pixel_h, .linear) orelse return false;
         out_texture.display_size_px = display_size_px;
+        out_texture.image_size_px = display_size_px;
+        out_texture.draw_offset_px = .{};
         out_texture.uv_min = .{};
         out_texture.uv_max = .{ .x = 1.0, .y = 1.0 };
         return true;
@@ -4437,6 +4464,7 @@ const BuiltTextTexture = struct {
     texture: ByteTextureID,
     display_size_px: ByteVec2,
     content_size_px: ByteVec2,
+    draw_offset_px: ByteVec2,
     uv_min: ByteVec2,
     uv_max: ByteVec2,
 };
@@ -4453,6 +4481,7 @@ const RasterizedTextImage = struct {
     display_size_px: ByteVec2,
     content_size_px: ByteVec2,
     content_origin_px: ByteVec2,
+    draw_offset_px: ByteVec2,
     uv_min: ByteVec2,
     uv_max: ByteVec2,
 
@@ -4767,6 +4796,67 @@ fn textRenderInsetPx(font: *const ByteFont, size_pixels: f32) f32 {
     return 0.0;
 }
 
+const TextRasterRegion = struct {
+    draw_offset_px: ByteVec2,
+    draw_size_px: ByteVec2,
+    uv_min: ByteVec2,
+    uv_max: ByteVec2,
+};
+
+fn textRasterGuardPixels(display_scale: f32) i32 {
+    return @max(1, @as(i32, @intFromFloat(@ceil(2.0 / @max(display_scale, 0.001)))));
+}
+
+fn computeTextRasterRegion(rgba: []const u8, pixel_w: u32, pixel_h: u32, content_origin_px: ByteVec2, content_size_tex_px: ByteVec2, display_scale: f32) TextRasterRegion {
+    const pixel_w_i: i32 = @intCast(pixel_w);
+    const pixel_h_i: i32 = @intCast(pixel_h);
+    const pixel_w_f = @as(f32, @floatFromInt(pixel_w));
+    const pixel_h_f = @as(f32, @floatFromInt(pixel_h));
+
+    var min_x = std.math.clamp(@as(i32, @intFromFloat(@floor(content_origin_px.x))), 0, pixel_w_i);
+    var min_y = std.math.clamp(@as(i32, @intFromFloat(@floor(content_origin_px.y))), 0, pixel_h_i);
+    var max_x = std.math.clamp(@as(i32, @intFromFloat(@ceil(content_origin_px.x + content_size_tex_px.x))), min_x, pixel_w_i);
+    var max_y = std.math.clamp(@as(i32, @intFromFloat(@ceil(content_origin_px.y + content_size_tex_px.y))), min_y, pixel_h_i);
+
+    if (computeRgbaAlphaBounds(rgba, pixel_w, pixel_h)) |bounds| {
+        min_x = @min(min_x, @as(i32, @intCast(bounds.min_x)));
+        min_y = @min(min_y, @as(i32, @intCast(bounds.min_y)));
+        max_x = @max(max_x, @as(i32, @intCast(bounds.max_x)));
+        max_y = @max(max_y, @as(i32, @intCast(bounds.max_y)));
+    }
+
+    const guard = textRasterGuardPixels(display_scale);
+    min_x = std.math.clamp(min_x - guard, 0, pixel_w_i);
+    min_y = std.math.clamp(min_y - guard, 0, pixel_h_i);
+    max_x = std.math.clamp(max_x + guard, min_x, pixel_w_i);
+    max_y = std.math.clamp(max_y + guard, min_y, pixel_h_i);
+    if (max_x <= min_x) max_x = @min(pixel_w_i, min_x + 1);
+    if (max_y <= min_y) max_y = @min(pixel_h_i, min_y + 1);
+
+    const min_x_f = @as(f32, @floatFromInt(min_x));
+    const min_y_f = @as(f32, @floatFromInt(min_y));
+    const max_x_f = @as(f32, @floatFromInt(max_x));
+    const max_y_f = @as(f32, @floatFromInt(max_y));
+    return .{
+        .draw_offset_px = .{
+            .x = (min_x_f - content_origin_px.x) * display_scale,
+            .y = (min_y_f - content_origin_px.y) * display_scale,
+        },
+        .draw_size_px = .{
+            .x = (max_x_f - min_x_f) * display_scale,
+            .y = (max_y_f - min_y_f) * display_scale,
+        },
+        .uv_min = .{
+            .x = std.math.clamp(min_x_f / pixel_w_f, 0.0, 1.0),
+            .y = std.math.clamp(min_y_f / pixel_h_f, 0.0, 1.0),
+        },
+        .uv_max = .{
+            .x = std.math.clamp(max_x_f / pixel_w_f, 0.0, 1.0),
+            .y = std.math.clamp(max_y_f / pixel_h_f, 0.0, 1.0),
+        },
+    };
+}
+
 fn blendGlyphCoverageIntoRgba(rgba: []u8, buffer_width: u32, buffer_height: u32, glyph: []const u8, glyph_w: usize, glyph_h: usize, dst_x: i32, dst_y: i32, rgb_value: u8) void {
     for (0..glyph_h) |row| {
         const y = dst_y + @as(i32, @intCast(row));
@@ -4909,59 +4999,55 @@ fn rasterizeTextImageFromFont(font: *const ByteFont, size_pixels: f32, text: []c
         const ds_content_origin = ByteVec2{ .x = ds_pad_f, .y = ds_pad_f };
         const ds_layout_w = layout.width / supersample;
         const ds_tight_h = tight_h / supersample;
-        const ds_pixel_w_f = @as(f32, @floatFromInt(ds_w));
-        const ds_pixel_h_f = @as(f32, @floatFromInt(ds_h));
+        const ds_region = computeTextRasterRegion(
+            ds_rgba,
+            ds_w,
+            ds_h,
+            ds_content_origin,
+            .{ .x = ds_layout_w, .y = ds_tight_h },
+            layout_scale,
+        );
 
         return .{
             .rgba = ds_rgba,
             .pixel_w = ds_w,
             .pixel_h = ds_h,
-            .display_size_px = .{
-                .x = ds_pixel_w_f * layout_scale,
-                .y = ds_pixel_h_f * layout_scale,
-            },
+            .display_size_px = ds_region.draw_size_px,
             .content_size_px = .{
                 .x = ds_layout_w * layout_scale,
                 .y = ds_tight_h * layout_scale,
             },
             .content_origin_px = ds_content_origin,
-            .uv_min = .{
-                .x = std.math.clamp(ds_content_origin.x / ds_pixel_w_f, 0.0, 1.0),
-                .y = std.math.clamp(ds_content_origin.y / ds_pixel_h_f, 0.0, 1.0),
-            },
-            .uv_max = .{
-                .x = std.math.clamp((ds_content_origin.x + ds_layout_w) / ds_pixel_w_f, 0.0, 1.0),
-                .y = std.math.clamp((ds_content_origin.y + ds_tight_h) / ds_pixel_h_f, 0.0, 1.0),
-            },
+            .draw_offset_px = ds_region.draw_offset_px,
+            .uv_min = ds_region.uv_min,
+            .uv_max = ds_region.uv_max,
         };
     }
 
     const content_origin_px = ByteVec2{ .x = pad_f, .y = pad_f };
+    const region = computeTextRasterRegion(
+        rgba,
+        pixel_w,
+        pixel_h,
+        content_origin_px,
+        .{ .x = layout.width, .y = tight_h },
+        layout_scale / supersample,
+    );
     const content_size_px: ByteVec2 = .{
         .x = layout.width / supersample * layout_scale,
         .y = tight_h / supersample * layout_scale,
-    };
-    const uv_min: ByteVec2 = .{
-        .x = std.math.clamp(content_origin_px.x / @as(f32, @floatFromInt(pixel_w)), 0.0, 1.0),
-        .y = std.math.clamp(content_origin_px.y / @as(f32, @floatFromInt(pixel_h)), 0.0, 1.0),
-    };
-    const uv_max: ByteVec2 = .{
-        .x = std.math.clamp((content_origin_px.x + layout.width) / @as(f32, @floatFromInt(pixel_w)), 0.0, 1.0),
-        .y = std.math.clamp((content_origin_px.y + tight_h) / @as(f32, @floatFromInt(pixel_h)), 0.0, 1.0),
     };
 
     return .{
         .rgba = rgba,
         .pixel_w = pixel_w,
         .pixel_h = pixel_h,
-        .display_size_px = .{
-            .x = (@as(f32, @floatFromInt(pixel_w)) / supersample) * layout_scale,
-            .y = (@as(f32, @floatFromInt(pixel_h)) / supersample) * layout_scale,
-        },
+        .display_size_px = region.draw_size_px,
         .content_size_px = content_size_px,
         .content_origin_px = content_origin_px,
-        .uv_min = uv_min,
-        .uv_max = uv_max,
+        .draw_offset_px = region.draw_offset_px,
+        .uv_min = region.uv_min,
+        .uv_max = region.uv_max,
     };
 }
 
@@ -4976,6 +5062,7 @@ fn buildTextTextureFromFont(font: *const ByteFont, size_pixels: f32, text: []con
         .texture = texture,
         .display_size_px = raster.display_size_px,
         .content_size_px = raster.content_size_px,
+        .draw_offset_px = raster.draw_offset_px,
         .uv_min = raster.uv_min,
         .uv_max = raster.uv_max,
     };
@@ -4987,6 +5074,8 @@ fn uploadRasterizedMaskTextureWithFilter(out_texture: *Ui.TextTexture, raster: *
 
     out_texture.texture = createTextureFromRgbaAlphaMask(raster.rgba, raster.pixel_w, raster.pixel_h, filter) orelse return false;
     out_texture.display_size_px = raster.display_size_px;
+    out_texture.image_size_px = if (raster.image_size_px.x > 0.0 and raster.image_size_px.y > 0.0) raster.image_size_px else raster.display_size_px;
+    out_texture.draw_offset_px = raster.draw_offset_px;
     out_texture.uv_min = raster.uv_min;
     out_texture.uv_max = raster.uv_max;
     return true;
@@ -5102,6 +5191,8 @@ fn getOrCreateTextTexture(font_opt: ?*ByteFont, size_pixels: f32, wrap_width: f3
         .Text = text_copy,
         .Texture = texture,
         .DisplaySize = built.content_size_px,
+        .ImageSize = built.display_size_px,
+        .DrawOffset = built.draw_offset_px,
         .UvMin = built.uv_min,
         .UvMax = built.uv_max,
     }) catch {
