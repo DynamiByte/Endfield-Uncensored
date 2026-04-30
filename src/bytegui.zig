@@ -5587,6 +5587,53 @@ pub fn ByteGui_ImplWin32_SnapPixel(value: anytype) @TypeOf(value) {
     };
 }
 
+pub fn ByteGui_ImplWin32_CornerRadiusPx(logical_radius: f32, enabled: bool) f32 {
+    if (!enabled) return 0.0;
+    return ByteGui_ImplWin32_SnapPixel(ByteGui_ImplWin32_ScaleF(logical_radius));
+}
+
+fn ByteGui_ImplWin32_GetWindowSizeVec2() ByteVec2 {
+    return .{
+        .x = @floatFromInt(GHostWindow.WindowWidthPx),
+        .y = @floatFromInt(GHostWindow.WindowHeightPx),
+    };
+}
+
+pub fn ByteGui_ImplWin32_PointInCornerOnlyRoundedClientArea(pt: anytype, radius: f32) bool {
+    return Ui.PointInCornerOnlyRoundedRect(
+        .{ .x = pt.x, .y = pt.y },
+        .{},
+        ByteGui_ImplWin32_GetWindowSizeVec2(),
+        radius,
+    );
+}
+
+pub fn ByteGui_ImplWin32_ApplyCornerOnlyRoundedWindowShape(radius: f32, use_layered_frame: bool) void {
+    const host_hwnd = GHostWindow.Hwnd orelse return;
+    const hwnd: w32.HWND = @ptrFromInt(@intFromPtr(host_hwnd));
+    const size = ByteGui_ImplWin32_GetWindowSizeVec2();
+    const width: w32.INT = @intFromFloat(@ceil(@max(1.0, size.x)));
+    const height: w32.INT = @intFromFloat(@ceil(@max(1.0, size.y)));
+
+    if (radius <= 0.0) {
+        _ = w32.SetWindowRgn(hwnd, null, w32.TRUE);
+    } else {
+        const pad: w32.INT = @intFromFloat(@ceil(@max(1.0, ByteGui_ImplWin32_GetDpiScale())));
+        const radius_pad: f32 = @floatFromInt(pad);
+        const diameter: w32.INT = @intFromFloat(@round(@max(1.0, (radius + radius_pad) * 2.0)));
+        if (w32.CreateRoundRectRgn(-pad, -pad, width + pad + 1, height + pad + 1, diameter, diameter)) |region| {
+            if (w32.SetWindowRgn(hwnd, region, w32.TRUE) == 0) {
+                _ = w32.DeleteObject(region);
+            }
+        }
+    }
+
+    if (use_layered_frame) {
+        const margins = w32.MARGINS{ .cxLeftWidth = -1, .cxRightWidth = -1, .cyTopHeight = -1, .cyBottomHeight = -1 };
+        _ = w32.DwmExtendFrameIntoClientArea(hwnd, &margins);
+    }
+}
+
 pub fn ByteGui_ImplWin32_GetWindowWidth() i32 {
     return GHostWindow.WindowWidthPx;
 }

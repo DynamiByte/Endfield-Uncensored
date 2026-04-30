@@ -1103,14 +1103,11 @@ fn windowUsesLayeredOpacity() bool {
 }
 
 fn windowCornerRadiusPx() f32 {
-    return if (g_wine_mode) 0.0 else snapPixel(scaleF(CORNER_RADIUS));
+    return bytegui.ByteGui_ImplWin32_CornerRadiusPx(CORNER_RADIUS, !g_wine_mode);
 }
 
 fn applyWindowShape() void {
-    const hwnd = g_hwnd orelse return;
-    if (!windowUsesLayeredOpacity()) return;
-    const margins = c.MARGINS{ .cxLeftWidth = -1, .cxRightWidth = -1, .cyTopHeight = -1, .cyBottomHeight = -1 };
-    _ = c.DwmExtendFrameIntoClientArea(hwnd, &margins);
+    bytegui.ByteGui_ImplWin32_ApplyCornerOnlyRoundedWindowShape(windowCornerRadiusPx(), windowUsesLayeredOpacity());
 }
 
 fn applyBaseStyle() void {
@@ -1450,12 +1447,7 @@ fn updateAnimations(dt: f32) void {
 
 // Hit testing and hover state
 fn pointInRoundedRectClient(pt: c.POINT) bool {
-    return Ui.PointInCornerOnlyRoundedRect(
-        .{ .x = pt.x, .y = pt.y },
-        .{},
-        platformWindowSize(),
-        windowCornerRadiusPx(),
-    );
+    return bytegui.ByteGui_ImplWin32_PointInCornerOnlyRoundedClientArea(pt, windowCornerRadiusPx());
 }
 
 fn getVersionRect() bgc.RECT {
@@ -1571,6 +1563,8 @@ fn getWindowControlHitRects(min_hit: *bgc.RECT, close_hit: *bgc.RECT) void {
 }
 
 fn hitTestButton(pt: c.POINT) i32 {
+    if (!pointInRoundedRectClient(pt)) return 0;
+
     var close_hit = std.mem.zeroes(bgc.RECT);
     var min_hit = std.mem.zeroes(bgc.RECT);
     getWindowControlHitRects(&min_hit, &close_hit);
@@ -2712,7 +2706,7 @@ fn handleLButtonUp(l_param: c.LPARAM) c.LRESULT {
     if (g_press_captured) {
         _ = c.ReleaseCapture();
         const pt = c.POINT{ .x = lowWordSigned(l_param), .y = highWordSigned(l_param) };
-        if (!g_press_canceled and c.PtInRect(&g_press_rect, pt) != c.FALSE) onButtonActivated(g_pressed_button);
+        if (!g_press_canceled and pointInRoundedRectClient(pt) and c.PtInRect(&g_press_rect, pt) != c.FALSE) onButtonActivated(g_pressed_button);
         g_pressed_button = 0;
         g_press_captured = false;
         g_press_canceled = false;
@@ -2757,7 +2751,14 @@ fn wndProc(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) call
     if (msg == c.WM_NCHITTEST) {
         var pt = c.POINT{ .x = lowWordSigned(l_param), .y = highWordSigned(l_param) };
         _ = c.ScreenToClient(active_hwnd, &pt);
-        if (!pointInRoundedRectClient(pt)) return c.HTTRANSPARENT;
+        if (!pointInRoundedRectClient(pt)) {
+            if (!g_dragging and !g_press_captured) {
+                clearWindowHoverState();
+            } else {
+                applyDefaultCursor();
+            }
+            return c.HTTRANSPARENT;
+        }
         return c.HTCLIENT;
     }
 

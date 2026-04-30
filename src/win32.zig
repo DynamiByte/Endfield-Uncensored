@@ -15,6 +15,7 @@ pub const HICON = windows.HICON;
 pub const HGLRC = windows.HGLRC;
 pub const HINSTANCE = windows.HINSTANCE;
 pub const HMENU = windows.HMENU;
+pub const HRGN = HANDLE;
 pub const HMODULE = windows.HMODULE;
 pub const HWND = windows.HWND;
 pub const INT = windows.INT;
@@ -354,6 +355,7 @@ pub extern "user32" fn TrackMouseEvent(lp_event_track: *TRACKMOUSEEVENT) callcon
 pub extern "user32" fn GetDC(hwnd: ?HWND) callconv(.winapi) ?HDC;
 pub extern "user32" fn LoadCursorW(h_instance: ?HINSTANCE, cursor_name: ?*anyopaque) callconv(.winapi) ?HCURSOR;
 pub extern "user32" fn ReleaseDC(hwnd: ?HWND, hdc: HDC) callconv(.winapi) INT;
+pub extern "user32" fn SetWindowRgn(hwnd: HWND, region: ?HRGN, redraw: BOOL) callconv(.winapi) INT;
 pub extern "user32" fn SetWindowPos(hwnd: HWND, hwnd_insert_after: ?HWND, x: INT, y: INT, cx: INT, cy: INT, flags: UINT) callconv(.winapi) BOOL;
 pub extern "user32" fn DestroyWindow(hwnd: HWND) callconv(.winapi) BOOL;
 pub extern "user32" fn ShowWindow(hwnd: HWND, n_cmd_show: INT) callconv(.winapi) BOOL;
@@ -392,6 +394,8 @@ pub extern "user32" fn MessageBoxW(hwnd: ?HWND, text: LPCWSTR, caption: LPCWSTR,
 
 pub extern "gdi32" fn ChoosePixelFormat(hdc: HDC, ppfd: *const PIXELFORMATDESCRIPTOR) callconv(.winapi) INT;
 pub extern "gdi32" fn SetPixelFormat(hdc: HDC, format: INT, ppfd: *const PIXELFORMATDESCRIPTOR) callconv(.winapi) BOOL;
+pub extern "gdi32" fn CreateRoundRectRgn(left: INT, top: INT, right: INT, bottom: INT, width: INT, height: INT) callconv(.winapi) ?HRGN;
+pub extern "gdi32" fn DeleteObject(object: HANDLE) callconv(.winapi) BOOL;
 pub extern "gdi32" fn SwapBuffers(hdc: HDC) callconv(.winapi) BOOL;
 
 pub extern "shell32" fn ShellExecuteW(hwnd: ?HWND, operation: LPCWSTR, file: LPCWSTR, parameters: ?LPCWSTR, directory: ?LPCWSTR, show_cmd: INT) callconv(.winapi) HINSTANCE;
