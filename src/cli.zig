@@ -14,6 +14,7 @@ const EFMI_DEFAULT_SUBPATH = "XXMI Launcher\\Resources\\Bin\\XXMI Launcher.exe";
 const EFMI_MISSING_PATH_MESSAGE = strings.cli.efmi_missing_path_message;
 const EFMI_COMMAND_LINE_FMT = "\"{s}\" --nogui --xxmi EFMI";
 const CLI_BLANK_LINE = "\n";
+const DEBUG_VALUE_BOXES = "boxes";
 
 pub const BoolOverride = enum {
     auto,
@@ -24,6 +25,14 @@ pub const BoolOverride = enum {
 pub const Mode = enum {
     visible,
     silent,
+};
+
+pub const DebugOptions = struct {
+    boxes: bool = false,
+
+    pub fn any(self: DebugOptions) bool {
+        return self.boxes;
+    }
 };
 
 pub const LaunchConfig = struct {
@@ -37,6 +46,7 @@ pub const LaunchConfig = struct {
     game_exe_override_path: ?[]u8 = null,
     wine_mode_override: BoolOverride = .auto,
     allow_minimize_override: BoolOverride = .auto,
+    debug: DebugOptions = .{},
 };
 
 pub const ParseArgsError = error{
@@ -46,6 +56,8 @@ pub const ParseArgsError = error{
     InvalidAllowMinimizeValue,
     MissingGamePathValue,
     InvalidGamePathValue,
+    MissingDebugValue,
+    InvalidDebugValue,
     MutuallyExclusiveDx11AndEfmi,
     MutuallyExclusiveGamePathAndEfmi,
     MutuallyExclusiveAutoYesAndGui,
@@ -67,6 +79,7 @@ const ArgKind = enum {
     allow_minimize,
     efmi,
     game_path,
+    debug,
 };
 
 fn showErrorMessage(message: []const u8) void {
@@ -101,6 +114,7 @@ fn classifyArg(arg: []const u8) ArgKind {
     if (std.ascii.eqlIgnoreCase(body, "am") or std.ascii.eqlIgnoreCase(body, "allow-minimize")) return .allow_minimize;
     if (std.ascii.eqlIgnoreCase(body, "efmi")) return .efmi;
     if (std.ascii.eqlIgnoreCase(body, "gp") or std.ascii.eqlIgnoreCase(body, "game-path")) return .game_path;
+    if (std.ascii.eqlIgnoreCase(body, "debug")) return .debug;
     return .unknown;
 }
 
@@ -126,6 +140,22 @@ fn parseBoolOverrideValue(arg: []const u8) ?BoolOverride {
         return .off;
     }
     return null;
+}
+
+fn parseDebugValueInto(options: *DebugOptions, value: []const u8) bool {
+    var parsed_any = false;
+    var parts = std.mem.splitScalar(u8, value, ',');
+    while (parts.next()) |raw_part| {
+        const part = std.mem.trim(u8, raw_part, " \t\r\n");
+        if (part.len == 0) return false;
+        if (std.ascii.eqlIgnoreCase(part, DEBUG_VALUE_BOXES)) {
+            options.boxes = true;
+            parsed_any = true;
+            continue;
+        }
+        return false;
+    }
+    return parsed_any;
 }
 
 fn pathExistsWtf8(wtf8_path: []const u8) bool {
@@ -235,6 +265,19 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
                 } else {
                     config.efmi_launcher_path = try resolveDefaultEfmiLauncherPath(allocator, environ);
                 }
+            },
+            .debug => {
+                var parsed_any = false;
+                while (args_it.next()) |value| {
+                    if (isKnownArg(value)) {
+                        pending_arg = value;
+                        break;
+                    }
+                    if (!parseDebugValueInto(&config.debug, value)) return error.InvalidDebugValue;
+                    parsed_any = true;
+                }
+                if (!parsed_any) return error.MissingDebugValue;
+                continue;
             },
             .unknown => {},
         }

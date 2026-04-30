@@ -335,6 +335,7 @@ var g_drag_offset: c.POINT = std.mem.zeroes(c.POINT);
 var g_was_minimized = false;
 var g_launch_right_click_count: u8 = 0;
 var g_launch_right_click_last_tick: u64 = 0;
+var g_debug_options: cli.DebugOptions = .{};
 
 var g_window_anim: WindowAnim = .{};
 var g_close_countdown: CloseCountdown = .{};
@@ -352,6 +353,18 @@ const kControlIdleColor = ByteVec4{ .x = 51.0 / 255.0, .y = 51.0 / 255.0, .z = 5
 const kControlHoverBlue = ByteVec4{ .x = 100.0 / 255.0, .y = 149.0 / 255.0, .z = 237.0 / 255.0, .w = 1.0 };
 const kLaunchEnabledColor = ByteVec4{ .x = 1.0, .y = 250.0 / 255.0, .z = 0.0, .w = 1.0 };
 const kLaunchDisabledColor = ByteVec4{ .x = 180.0 / 255.0, .y = 180.0 / 255.0, .z = 180.0 / 255.0, .w = 1.0 };
+const kDebugWindowBoundsColor = ByteVec4{ .x = 0.65, .y = 0.20, .z = 1.00, .w = 1.0 };
+const kDebugVisualBoundsColor = ByteVec4{ .x = 0.00, .y = 0.35, .z = 1.00, .w = 1.0 };
+const kDebugHitboxColor = ByteVec4{ .x = 1.00, .y = 0.05, .z = 0.05, .w = 1.0 };
+const kDebugTextBoundsColor = ByteVec4{ .x = 0.00, .y = 0.72, .z = 0.15, .w = 1.0 };
+const kDebugLogoBoundsColor = ByteVec4{ .x = 1.00, .y = 0.48, .z = 0.00, .w = 1.0 };
+const kDebugScrollbarBoundsColor = ByteVec4{ .x = 0.00, .y = 0.75, .z = 0.90, .w = 1.0 };
+const kDebugConstraintBoundsColor = ByteVec4{ .x = 1.00, .y = 0.85, .z = 0.00, .w = 1.0 };
+const kDebugGuideLineColor = ByteVec4{ .x = 1.00, .y = 1.00, .z = 1.00, .w = 1.0 };
+const kDebugCenterLineColor = ByteVec4{ .x = 0.0, .y = 0.0, .z = 0.0, .w = 1.0 };
+const DEBUG_BOX_OVERLAY_OPACITY = 0.64;
+const DEBUG_BOX_CONSTRAINT_OPACITY = 0.70;
+const DEBUG_BOX_GUIDE_OPACITY = 0.52;
 const clamp01 = Ui.Clamp01;
 const easeOutQuad = Ui.EaseOutQuad;
 const easeInOutCubic = Ui.EaseInOutCubic;
@@ -2163,6 +2176,225 @@ fn drawOutputScrollbar(draw: *ByteDrawList, laid_out: *const OutputTextLayout, o
     });
 }
 
+fn drawDebugOutlineBounds(draw: *ByteDrawList, p_min: ByteVec2, p_max: ByteVec2, color: ByteVec4, opacity: f32) void {
+    const left = @floor(@min(p_min.x, p_max.x));
+    const top = @floor(@min(p_min.y, p_max.y));
+    const right = @ceil(@max(p_min.x, p_max.x));
+    const bottom = @ceil(@max(p_min.y, p_max.y));
+    if (right <= left or bottom <= top) return;
+
+    const thickness = @max(1.0, scaleF(1.0));
+    const col = toU32(applyOpacity(color, opacity));
+    draw.AddRectFilled(.{ .x = left, .y = top }, .{ .x = right, .y = @min(bottom, top + thickness) }, col, 0.0);
+    draw.AddRectFilled(.{ .x = left, .y = @max(top, bottom - thickness) }, .{ .x = right, .y = bottom }, col, 0.0);
+    draw.AddRectFilled(.{ .x = left, .y = top }, .{ .x = @min(right, left + thickness), .y = bottom }, col, 0.0);
+    draw.AddRectFilled(.{ .x = @max(left, right - thickness), .y = top }, .{ .x = right, .y = bottom }, col, 0.0);
+}
+
+fn drawDebugRectOutline(draw: *ByteDrawList, rect: anytype, color: ByteVec4, opacity: f32) void {
+    drawDebugOutlineBounds(
+        draw,
+        .{ .x = @as(f32, @floatFromInt(rect.left)), .y = @as(f32, @floatFromInt(rect.top)) },
+        .{ .x = @as(f32, @floatFromInt(rect.right)), .y = @as(f32, @floatFromInt(rect.bottom)) },
+        color,
+        opacity,
+    );
+}
+
+fn drawDebugBoxOutline(draw: *ByteDrawList, pos: ByteVec2, size: ByteVec2, color: ByteVec4, opacity: f32) void {
+    drawDebugOutlineBounds(draw, pos, .{ .x = pos.x + size.x, .y = pos.y + size.y }, color, opacity);
+}
+
+fn drawDebugGuideVertical(draw: *ByteDrawList, x: f32, y_min: f32, y_max: f32, color: ByteVec4, opacity: f32) void {
+    const top = @floor(@min(y_min, y_max));
+    const bottom = @ceil(@max(y_min, y_max));
+    if (bottom <= top) return;
+    const thickness = @max(1.0, scaleF(1.0));
+    const left = @floor(x - thickness * 0.5);
+    const col = toU32(applyOpacity(color, opacity));
+    draw.AddRectFilled(.{ .x = left, .y = top }, .{ .x = left + thickness, .y = bottom }, col, 0.0);
+}
+
+fn drawDebugGuideHorizontal(draw: *ByteDrawList, y: f32, x_min: f32, x_max: f32, color: ByteVec4, opacity: f32) void {
+    const left = @floor(@min(x_min, x_max));
+    const right = @ceil(@max(x_min, x_max));
+    if (right <= left) return;
+    const thickness = @max(1.0, scaleF(1.0));
+    const top = @floor(y - thickness * 0.5);
+    const col = toU32(applyOpacity(color, opacity));
+    draw.AddRectFilled(.{ .x = left, .y = top }, .{ .x = right, .y = top + thickness }, col, 0.0);
+}
+
+fn drawDebugCrosshair(draw: *ByteDrawList, center: ByteVec2, radius: f32, color: ByteVec4, opacity: f32) void {
+    drawDebugGuideHorizontal(draw, center.y, center.x - radius, center.x + radius, color, opacity);
+    drawDebugGuideVertical(draw, center.x, center.y - radius, center.y + radius, color, opacity);
+}
+
+fn drawDebugLineSegment(draw: *ByteDrawList, center: ByteVec2, axis: ByteVec2, length: f32, thickness: f32, color: ByteVec4, opacity: f32) void {
+    const axis_len = @sqrt(axis.x * axis.x + axis.y * axis.y);
+    if (axis_len <= 0.0 or length <= 0.0 or thickness <= 0.0) return;
+
+    const dir = ByteVec2{ .x = axis.x / axis_len, .y = axis.y / axis_len };
+    const normal = ByteVec2{ .x = -dir.y, .y = dir.x };
+    const half_len = length * 0.5;
+    const half_thick = thickness * 0.5;
+    const p0 = ByteVec2{ .x = center.x - dir.x * half_len, .y = center.y - dir.y * half_len };
+    const p1 = ByteVec2{ .x = center.x + dir.x * half_len, .y = center.y + dir.y * half_len };
+    const points = [_]ByteVec2{
+        .{ .x = p0.x + normal.x * half_thick, .y = p0.y + normal.y * half_thick },
+        .{ .x = p1.x + normal.x * half_thick, .y = p1.y + normal.y * half_thick },
+        .{ .x = p1.x - normal.x * half_thick, .y = p1.y - normal.y * half_thick },
+        .{ .x = p0.x - normal.x * half_thick, .y = p0.y - normal.y * half_thick },
+    };
+    draw.AddConvexPolyFilled(&points, toU32(applyOpacity(color, opacity)));
+}
+
+fn drawDebugLogoDContactMarker(draw: *ByteDrawList, opacity: f32) void {
+    const contact = yellowBandContactPointPx();
+    const edge_axis = ByteVec2{ .x = 0.70710677, .y = -0.70710677 };
+    const perp_axis = ByteVec2{ .x = 0.70710677, .y = 0.70710677 };
+    const main_len = scaleF(24.0);
+    const tick_len = main_len / 3.0;
+    const thickness = @max(1.0, scaleF(1.0));
+
+    drawDebugLineSegment(draw, contact, edge_axis, main_len, thickness, kDebugHitboxColor, opacity);
+    drawDebugLineSegment(draw, contact, perp_axis, tick_len, thickness, kDebugHitboxColor, opacity);
+}
+
+fn drawDebugLayoutConstraintBounds(draw: *ByteDrawList, opacity: f32) void {
+    const constraint_opacity = opacity * DEBUG_BOX_CONSTRAINT_OPACITY;
+    const guide_opacity = opacity * DEBUG_BOX_GUIDE_OPACITY;
+    const window_size = platformWindowSize();
+
+    const content_top = scaleF((WINDOW_HEIGHT - MAIN_CONTENT_SIZE) * 0.5);
+    const content_height = scaleF(MAIN_CONTENT_SIZE);
+    const content_bottom = content_top + content_height;
+    const center_x = scaleF(WINDOW_WIDTH * 0.5);
+    const center_y = scaleF(WINDOW_HEIGHT * 0.5);
+    const logo_right = scaleF(WINDOW_WIDTH * 0.5 - MAIN_CONTENT_CENTER_EDGE_OFFSET);
+    const text_left = scaleF(WINDOW_WIDTH * 0.5 + MAIN_CONTENT_CENTER_EDGE_OFFSET);
+    const logo_slot_left = logo_right - scaleF(MAIN_CONTENT_SIZE);
+    const text_slot_w = @max(1.0, scaleF(OUTPUT_W));
+
+    // Main horizontal layout lane and center split/edge constraints.
+    drawDebugBoxOutline(draw, .{ .x = logo_slot_left, .y = content_top }, .{ .x = logo_right - logo_slot_left, .y = content_height }, kDebugConstraintBoundsColor, constraint_opacity);
+    drawDebugBoxOutline(draw, .{ .x = text_left, .y = content_top }, .{ .x = text_slot_w, .y = content_height }, kDebugConstraintBoundsColor, constraint_opacity);
+    drawDebugOutlineBounds(draw, .{ .x = logo_slot_left, .y = content_top }, .{ .x = text_left + text_slot_w, .y = content_bottom }, kDebugGuideLineColor, guide_opacity);
+    drawDebugGuideVertical(draw, center_x, 0.0, window_size.y, kDebugGuideLineColor, guide_opacity);
+    drawDebugGuideHorizontal(draw, center_y, 0.0, window_size.x, kDebugGuideLineColor, guide_opacity);
+    drawDebugGuideVertical(draw, logo_right, content_top, content_bottom, kDebugConstraintBoundsColor, guide_opacity);
+    drawDebugGuideVertical(draw, text_left, content_top, content_bottom, kDebugConstraintBoundsColor, guide_opacity);
+    drawDebugGuideHorizontal(draw, content_top, logo_slot_left, text_left + text_slot_w, kDebugConstraintBoundsColor, guide_opacity);
+    drawDebugGuideHorizontal(draw, content_bottom, logo_slot_left, text_left + text_slot_w, kDebugConstraintBoundsColor, guide_opacity);
+
+    // Button/control base constraint boxes before hover animation expansion.
+    drawDebugBoxOutline(draw, scaleVec2(TOGGLE_X, TOGGLE_Y + TOGGLE_Y_OFFSET), scaleVec2(TOGGLE_W, TOGGLE_H), kDebugConstraintBoundsColor, constraint_opacity);
+    drawDebugBoxOutline(draw, scaleVec2(LAUNCH_X, LAUNCH_Y), scaleVec2(LAUNCH_W, LAUNCH_H), kDebugConstraintBoundsColor, constraint_opacity);
+    drawDebugBoxOutline(draw, scaleVec2(EFMI_X, EFMI_Y), scaleVec2(EFMI_W, EFMI_H), kDebugConstraintBoundsColor, constraint_opacity);
+    drawDebugBoxOutline(draw, scaleVec2(INFO_X, INFO_Y), scaleVec2(INFO_W, INFO_H), kDebugConstraintBoundsColor, constraint_opacity);
+    drawDebugBoxOutline(draw, scaleVec2(MIN_X, MIN_Y + MIN_Y_OFFSET), scaleVec2(MIN_W, MIN_H), kDebugConstraintBoundsColor, constraint_opacity);
+    drawDebugBoxOutline(draw, scaleVec2(CLOSE_X, CLOSE_Y + CLOSE_Y_OFFSET), scaleVec2(CLOSE_W, CLOSE_H), kDebugConstraintBoundsColor, constraint_opacity);
+
+    drawDebugCrosshair(draw, snapPixelVec2(scaleVec2(VERSION_X, VERSION_Y)), scaleF(4.0), kDebugConstraintBoundsColor, guide_opacity);
+    drawDebugCrosshair(draw, .{ .x = center_x, .y = center_y }, scaleF(5.0), kDebugGuideLineColor, guide_opacity);
+}
+
+fn drawDebugWindowCenterGuides(draw: *ByteDrawList, opacity: f32) void {
+    const platform_size = platformWindowSize();
+    const design_size = scaleVec2(WINDOW_WIDTH, WINDOW_HEIGHT);
+    const width = if (platform_size.x > 0.0) platform_size.x else design_size.x;
+    const height = if (platform_size.y > 0.0) platform_size.y else design_size.y;
+    if (width <= 0.0 or height <= 0.0) return;
+
+    const center_x = @floor(width * 0.5);
+    const center_y = @floor(height * 0.5);
+    const center_opacity = @max(opacity, 0.85);
+
+    drawDebugGuideVertical(draw, center_x, 0.0, height, kDebugCenterLineColor, center_opacity);
+    drawDebugGuideHorizontal(draw, center_y, 0.0, width, kDebugCenterLineColor, center_opacity);
+}
+
+fn drawDebugLogoBounds(draw: *ByteDrawList, bounds: LogoBounds, color: ByteVec4, opacity: f32) void {
+    if (!bounds.valid) return;
+    drawDebugOutlineBounds(
+        draw,
+        .{ .x = scaleF(bounds.min.x), .y = scaleF(bounds.min.y) },
+        .{ .x = scaleF(bounds.max.x), .y = scaleF(bounds.max.y) },
+        color,
+        opacity,
+    );
+}
+
+fn drawDebugScrollbarBounds(draw: *ByteDrawList, opacity: f32) void {
+    const metrics = currentOutputScrollbarMetrics() orelse return;
+    const hit_pad = scaleF(3.0);
+
+    drawDebugBoxOutline(draw, metrics.track_pos, metrics.track_size, kDebugScrollbarBoundsColor, opacity);
+    drawDebugBoxOutline(draw, metrics.thumb_pos, metrics.thumb_size, kDebugScrollbarBoundsColor, opacity);
+    drawDebugOutlineBounds(
+        draw,
+        .{ .x = metrics.thumb_pos.x - hit_pad, .y = metrics.thumb_pos.y - hit_pad },
+        .{ .x = metrics.thumb_pos.x + metrics.thumb_size.x + hit_pad, .y = metrics.thumb_pos.y + metrics.thumb_size.y + hit_pad },
+        kDebugHitboxColor,
+        opacity,
+    );
+}
+
+fn drawDebugBoxOverlay(draw: *ByteDrawList, opacity: f32) void {
+    if (!g_debug_options.boxes) return;
+
+    const debug_opacity = @min(opacity, DEBUG_BOX_OVERLAY_OPACITY);
+    const window_size = platformWindowSize();
+    drawDebugLayoutConstraintBounds(draw, debug_opacity);
+    drawDebugBoxOutline(draw, .{}, window_size, kDebugWindowBoundsColor, debug_opacity);
+
+    drawDebugLogoBounds(draw, g_logo_bounds, kDebugLogoBoundsColor, debug_opacity);
+    drawDebugLogoBounds(draw, g_logo_end_d_bounds, kDebugLogoBoundsColor, debug_opacity * 0.75);
+    drawDebugLogoDContactMarker(draw, debug_opacity);
+
+    drawDebugRectOutline(draw, outputTextRect(), kDebugTextBoundsColor, debug_opacity);
+    drawDebugScrollbarBounds(draw, debug_opacity);
+
+    var close_hit = std.mem.zeroes(bgc.RECT);
+    var min_hit = std.mem.zeroes(bgc.RECT);
+    getWindowControlHitRects(&min_hit, &close_hit);
+
+    drawDebugRectOutline(draw, close_hit, kDebugHitboxColor, debug_opacity);
+    drawDebugBoxOutline(draw, scaleVec2(CLOSE_X, CLOSE_Y + CLOSE_Y_OFFSET), scaleVec2(CLOSE_W, CLOSE_H), kDebugVisualBoundsColor, debug_opacity);
+
+    if (g_allow_minimize) {
+        drawDebugRectOutline(draw, min_hit, kDebugHitboxColor, debug_opacity);
+        drawDebugBoxOutline(draw, scaleVec2(MIN_X, MIN_Y + MIN_Y_OFFSET), scaleVec2(MIN_W, MIN_H), kDebugVisualBoundsColor, debug_opacity);
+    }
+
+    drawDebugRectOutline(draw, getInfoRect(), kDebugHitboxColor, debug_opacity);
+    drawDebugBoxOutline(draw, scaleVec2(INFO_X, INFO_Y), scaleVec2(INFO_W, INFO_H), kDebugVisualBoundsColor, debug_opacity);
+
+    drawDebugRectOutline(draw, getVersionRect(), kDebugTextBoundsColor, debug_opacity);
+
+    drawDebugRectOutline(draw, getToggleRect(true), kDebugHitboxColor, debug_opacity);
+    drawDebugRectOutline(draw, getToggleRect(false), kDebugVisualBoundsColor, debug_opacity);
+
+    if (g_launch_btn_enabled) drawDebugRectOutline(draw, getLaunchRect(false), kDebugHitboxColor, debug_opacity);
+    drawDebugBoxOutline(draw, launchVisualPos(), launchVisualSize(), kDebugVisualBoundsColor, debug_opacity);
+
+    if (g_efmi_button_visible) {
+        if (g_launch_btn_enabled) drawDebugRectOutline(draw, getEfmiRect(true), kDebugHitboxColor, debug_opacity);
+        const h = scaleF(EFMI_H) + scaleF(4.0) * g_efmi_anim.value;
+        const cy = scaleF(EFMI_Y + EFMI_H * 0.5);
+        drawDebugBoxOutline(
+            draw,
+            .{ .x = efmiVisualLeft(), .y = cy - h * 0.5 },
+            .{ .x = efmiVisibleWidth() + efmiUnderlapWidth(), .y = h },
+            kDebugVisualBoundsColor,
+            debug_opacity,
+        );
+    }
+
+    // Draw these last so the full-window center guides sit above every debug rectangle.
+    drawDebugWindowCenterGuides(draw, debug_opacity);
+}
+
 fn drawOutputTextbox(draw: ?*ByteDrawList, opacity: f32, dt: f32) void {
     const active_draw = draw orelse return;
     const font = g_font_textbox orelse return;
@@ -2251,6 +2483,7 @@ fn drawUI(dt: f32) void {
     drawAnimatedBoxButtonVisual("toggle_btn", toggleButtonLabel(), scaleVec2(TOGGLE_X, TOGGLE_Y + TOGGLE_Y_OFFSET), scaleVec2(TOGGLE_W, TOGGLE_H), g_toggle_anim.value, true, g_toggle_current_color, render_opacity);
     if (g_efmi_button_visible) drawAnimatedBoxButtonVisual("efmi_btn", LABEL_EFMI, scaleVec2(EFMI_X, EFMI_Y), scaleVec2(EFMI_W, EFMI_H), g_efmi_anim.value, true, g_efmi_current_color, render_opacity);
     drawAnimatedBoxButtonVisual("launch_btn", LABEL_LAUNCH, scaleVec2(LAUNCH_X, LAUNCH_Y), scaleVec2(LAUNCH_W, LAUNCH_H), g_launch_anim.value, g_launch_btn_enabled, g_launch_current_color, render_opacity);
+    drawDebugBoxOverlay(draw, render_opacity);
 }
 
 fn refreshGamePathStatus() void {
@@ -2793,6 +3026,8 @@ pub fn main(init: std.process.Init.Minimal) void {
             error.InvalidAllowMinimizeValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidAllowMinimizeValue)),
             error.MissingGamePathValue => cli.showArgumentError(cli.describeParseArgsError(error.MissingGamePathValue)),
             error.InvalidGamePathValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidGamePathValue)),
+            error.MissingDebugValue => cli.showArgumentError(cli.describeParseArgsError(error.MissingDebugValue)),
+            error.InvalidDebugValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidDebugValue)),
             error.MutuallyExclusiveDx11AndEfmi => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveDx11AndEfmi)),
             error.MutuallyExclusiveGamePathAndEfmi => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveGamePathAndEfmi)),
             error.MutuallyExclusiveAutoYesAndGui => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveAutoYesAndGui)),
@@ -2811,6 +3046,7 @@ pub fn main(init: std.process.Init.Minimal) void {
     g_force_dx11 = config.dx11;
     g_wine_mode = if (config.cli) false else resolveWineMode(config);
     g_allow_minimize = if (config.cli) true else resolveAllowMinimize(config, g_wine_mode);
+    g_debug_options = config.debug;
 
     const code = if (config.cli)
         cli.run(allocator, init.environ, if (config.silent) .silent else .visible, embedded_dll, config) catch 1
