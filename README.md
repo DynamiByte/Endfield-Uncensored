@@ -152,8 +152,7 @@ Normally, Endfield Uncensored versions use three parts:
 - `patch`: bug fixes and smaller updates
 
 However, four-part version numbers are used for preview builds.
-The `patch` number will always be `0` in a preview build.
-
+The `patch` number will always be `0` in a preview build.<br>
 <sub>Why would you preview a patch?</sub>
 
 For example, `v1.2.0.3` means the third preview build leading up to `v1.2.0`'s release.
