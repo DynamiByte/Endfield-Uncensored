@@ -5,10 +5,6 @@ Endfield Uncensored is a standalone Windows loader and runtime patch for *Arknig
 ![Version](https://img.shields.io/badge/version-5.0.0.3-orange)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-green)
 
-The bundled font files are not covered by the project license. They remain under their own licenses shipped alongside them in [Inter OFL](https://github.com/DynamiByte/Endfield-Uncensored/blob/master/fonts/Inter/OFL.txt), [JetBrains Mono OFL](https://github.com/DynamiByte/Endfield-Uncensored/blob/master/fonts/JetBrainsMono/OFL.txt), and [DejaVuSansMono LICENSE](https://github.com/DynamiByte/Endfield-Uncensored/blob/master/fonts/DejaVuSansMono/LICENSE).
-
----
-
 ## Highlights
 
 - Single-binary release: `EFU.exe` embeds the patch DLL and extracts it only when needed for injection
@@ -159,9 +155,9 @@ For example, `v1.2.0.3` means the third preview build leading up to `v1.2.0`'s r
 
 ## License
 
-Endfield Uncensored is licensed under the AGPL-3.0-only license.
+Endfield Uncensored is licensed under the AGPL-3.0 license.
 
-Bundled fonts are distributed under their own licenses and are not covered by the project license.
+The bundled fonts are not covered by the project license. They remain under their own licenses, which are included alongside them. See [Inter OFL](https://github.com/DynamiByte/Endfield-Uncensored/blob/master/fonts/Inter/OFL.txt), [JetBrains Mono OFL](https://github.com/DynamiByte/Endfield-Uncensored/blob/master/fonts/JetBrainsMono/OFL.txt), and [DejaVuSansMono LICENSE](https://github.com/DynamiByte/Endfield-Uncensored/blob/master/fonts/DejaVuSansMono/LICENSE).
 
 ---
 
