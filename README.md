@@ -3,7 +3,6 @@
 Endfield Uncensored is a standalone Windows loader and runtime patch for *Arknights: Endfield* that removes the transparency-based censorship filter.
 
 ![Version](https://img.shields.io/badge/version-5.0.0.3-orange)
-![Build](https://img.shields.io/badge/preview-orange)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-green)
 
 The bundled font files are not covered by the project license. They remain under their own licenses shipped alongside them in [Inter OFL](https://github.com/DynamiByte/Endfield-Uncensored/blob/master/fonts/Inter/OFL.txt), [JetBrains Mono OFL](https://github.com/DynamiByte/Endfield-Uncensored/blob/master/fonts/JetBrainsMono/OFL.txt), and [DejaVuSansMono LICENSE](https://github.com/DynamiByte/Endfield-Uncensored/blob/master/fonts/DejaVuSansMono/LICENSE).
@@ -143,6 +142,21 @@ This generates:
 Build metadata such as the app version, output names, manifest execution level, and Windows version-info strings are generated from `build.efu.zon`.
 
 ---
+
+## Versioning
+
+Normally, Endfield Uncensored versions use three parts:
+
+- `major`: large releases with major changes
+- `minor`: feature updates and notable improvements
+- `patch`: bug fixes and smaller updates
+
+However, four-part version numbers are used for preview builds.
+The `patch` number will always be `0` in a preview build.
+
+<sub>Why would you preview a patch?</sub>
+
+For example, `v1.2.0.3` means the third preview build leading up to `v1.2.0`'s release.
 
 ## License
 
