@@ -1608,24 +1608,37 @@ pub const Ui = struct {
     }
 
     pub fn PointInCornerOnlyRoundedRect(pt: c.POINT, pos: ByteVec2, size: ByteVec2, radius: f32) bool {
-        const left = pos.x;
-        const top = pos.y;
-        const right = pos.x + size.x;
-        const bottom = pos.y + size.y;
+        const left = SnapPixel(pos.x);
+        const top = SnapPixel(pos.y);
+        const right = SnapPixel(pos.x + size.x);
+        const bottom = SnapPixel(pos.y + size.y);
+        const width = @max(0.0, right - left);
+        const height = @max(0.0, bottom - top);
         const px: f32 = @floatFromInt(pt.x);
         const py: f32 = @floatFromInt(pt.y);
         if (px < left or px >= right or py < top or py >= bottom) return false;
 
-        const r = SnapPixel(radius);
+        const r = @min(SnapPixel(radius), @min(width, height) * 0.5);
         if (r <= 0.0) return true;
+
         if (px >= left + r and px < right - r) return true;
         if (py >= top + r and py < bottom - r) return true;
 
-        const cx = if (px < left + r) left + r else right - r;
-        const cy = if (py < top + r) top + r else bottom - r;
-        const dx = px - cx;
-        const dy = py - cy;
-        return dx * dx + dy * dy <= r * r;
+        const ss: i32 = 4;
+        const sample_scale = 1.0 / @as(f32, @floatFromInt(ss));
+        var sy: i32 = 0;
+        while (sy < ss) : (sy += 1) {
+            var sx: i32 = 0;
+            while (sx < ss) : (sx += 1) {
+                const sample = ByteVec2{
+                    .x = px + (@as(f32, @floatFromInt(sx)) + 0.5) * sample_scale,
+                    .y = py + (@as(f32, @floatFromInt(sy)) + 0.5) * sample_scale,
+                };
+                if (roundedRectSignedDistance(.{ .x = left, .y = top }, .{ .x = width, .y = height }, r, sample) <= 0.0) return true;
+            }
+        }
+
+        return false;
     }
 
     pub fn DrawRotatedRectClippedToCornerOnlyRoundedRect(
@@ -5618,10 +5631,11 @@ pub fn ByteGui_ImplWin32_ApplyCornerOnlyRoundedWindowShape(radius: f32, use_laye
     if (radius <= 0.0) {
         _ = w32.SetWindowRgn(hwnd, null, w32.TRUE);
     } else {
-        const pad: w32.INT = @intFromFloat(@ceil(@max(1.0, ByteGui_ImplWin32_GetDpiScale())));
-        const radius_pad: f32 = @floatFromInt(pad);
-        const diameter: w32.INT = @intFromFloat(@round(@max(1.0, (radius + radius_pad) * 2.0)));
-        if (w32.CreateRoundRectRgn(-pad, -pad, width + pad + 1, height + pad + 1, diameter, diameter)) |region| {
+        const aa_pad: w32.INT = 2;
+        const radius_pad: f32 = @floatFromInt(aa_pad);
+        const clamped_radius = @min(ByteGui_ImplWin32_SnapPixel(radius), @min(size.x, size.y) * 0.5);
+        const diameter: w32.INT = @intFromFloat(@ceil(@max(1.0, (clamped_radius + radius_pad) * 2.0)));
+        if (w32.CreateRoundRectRgn(-aa_pad, -aa_pad, width + aa_pad + 1, height + aa_pad + 1, diameter, diameter)) |region| {
             if (w32.SetWindowRgn(hwnd, region, w32.TRUE) == 0) {
                 _ = w32.DeleteObject(region);
             }
