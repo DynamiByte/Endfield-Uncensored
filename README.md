@@ -151,7 +151,7 @@ Normally, Endfield Uncensored versions use three parts:
 - `minor`: feature updates and notable improvements
 - `patch`: bug fixes and smaller updates
 
-However, four-part version numbers are used for preview builds.
+However, four-part version numbers are used for preview builds.<br>
 The `patch` number will always be `0` in a preview build.<br>
 <sub>Why would you preview a patch?</sub>
 
