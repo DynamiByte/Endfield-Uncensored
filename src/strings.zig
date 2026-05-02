@@ -1,7 +1,8 @@
 // User-facing text and GUI font subset inputs.
-// I intent on potentially supporting multiple languages in the future,
-// likely by shipping seperate binaries for each language.
-// If I did that, I'd make a build argument to define which locale to use, with an ALL option or something.
+// I may support multiple languages in the future,
+// likely by shipping separate binaries for each language.
+// If I do that, I'll add a build argument to define which locale to use,
+// with an ALL option or something similar.
 const std = @import("std");
 
 // Application/window text
@@ -15,7 +16,7 @@ pub const label_efmi = "EF\nMI";
 
 // GUI version display text
 pub const version_release_fmt = "v{s}.{s}.{s}";
-pub const version_preview_fmt = "v{s}.{s}.{s} PREVIEW {s}";
+pub const version_preview_fmt = "v{s}.{s}.{s} Preview {s}";
 
 // GUI textbox/status text
 pub const status_waiting_for_target_fmt = "Waiting for {s}...";
