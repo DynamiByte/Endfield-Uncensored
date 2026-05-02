@@ -2,7 +2,7 @@
 
 Endfield Uncensored is a standalone Windows loader and runtime patch for *Arknights: Endfield* that removes the transparency-based censorship filter.
 
-![Version](https://img.shields.io/badge/version-5.0.0.2-orange)
+![Version](https://img.shields.io/badge/version-5.0.0.3-orange)
 ![Build](https://img.shields.io/badge/preview-orange)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-green)
 
@@ -14,6 +14,7 @@ The bundled font files are not covered by the project license. They remain under
 
 - Single-binary release: `EFU.exe` embeds the patch DLL and extracts it only when needed for injection
 - Full custom Zig GUI stack with an OpenGL renderer, embedded font subsets, and no external GUI framework
+- Scrollable GUI output log with mouse-wheel scrolling, scrollbar dragging, text selection, `Ctrl+A`, and `Ctrl+C`
 - Interactive CLI mode and silent one-shot mode
 - Launch support for the normal game path, DX11 mode, and optional EFMI / XXMI handoff
 - GUI EFMI support when EFMI / XXMI is detected, with an attached EFMI launch toggle
@@ -52,15 +53,18 @@ If you keep EFU open, it returns to a ready state after the game closes so you c
 ### GUI Notes
 
 - The launch button is only enabled when EFU knows the game path and the game is not already running
+- The output log can be scrolled, dragged by its scrollbar, selected with the mouse, copied with `Ctrl+C`, and fully selected with `Ctrl+A`
+- The info button opens this README, and the version text opens the matching GitHub release page
 - Triple right click the `Launch Game` button to use the alternate launch mode for that launch
 - Starting EFU with `-DX11` makes the normal launch path use `-force-d3d11`
 - If EFMI / XXMI is detected, the GUI can show an EFMI toggle attached to the launch button
 - Starting EFU with `-EFMI` enables EFMI launch mode by default when the GUI opens
+- Starting EFU with `--EFMI false` prevents EFU from auto-detecting XXMI and showing the EFMI button in the GUI
 - If EFU is left waiting, it can still inject when the game is launched externally
 
 ### Runtime Toggle
 
-v5.0.0.2 replaces the old RET dither patch behavior with an Alt+F12 toggle.
+EFU includes an Alt+F12 in-game toggle for the replacement dither patch.
 
 - Press `Alt+F12` while the game window is active to toggle the replacement dither patch
 - The hotkey is limited to the active game window so it should not fire globally while using other apps
@@ -84,6 +88,7 @@ Arguments are case-insensitive. Prefixes `-`, `--`, and `/` are accepted. Boolea
 - `--EFMI false`: prevent EFU from auto-detecting XXMI and showing the EFMI button in the GUI
 - `--wm` / `--fwm` / `--force-wine-mode true|false`: GUI-only override for Wine detection
 - `--am` / `--allow-minimize true|false`: GUI-only override for minimize behavior
+- `--debug boxes`: show GUI development overlays for layout, hitbox, logo, text, and scrollbar bounds
 
 ### EFMI / XXMI integration
 
