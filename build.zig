@@ -41,6 +41,20 @@ const FontSubsetSpec = struct {
     output_name: []const u8,
 };
 
+const WindowsAbi = enum {
+    native,
+    msvc,
+    gnu,
+};
+
+const TargetDefaults = struct {
+    target: std.Target.Query,
+    dll_abi: WindowsAbi,
+    exe_abi: WindowsAbi,
+};
+
+const default_windows_arch: std.Target.Cpu.Arch = .x86_64;
+
 fn asciiLower(ch: u8) u8 {
     return if (ch >= 'A' and ch <= 'Z') ch + ('a' - 'A') else ch;
 }
@@ -147,6 +161,53 @@ fn addEmbeddedAsset(module: *std.Build.Module, name: []const u8, path: std.Build
 fn wantsDllOnly(b: *std.Build) bool {
     return (b.option(bool, "LL", "Build only EFU.dll") orelse false) or
         (b.option(bool, "ll", "Build only EFU.dll") orelse false);
+}
+
+fn defaultTargets() TargetDefaults {
+    var defaults = TargetDefaults{
+        .target = .{
+            .cpu_arch = default_windows_arch,
+            .os_tag = .windows,
+            .abi = .gnu,
+        },
+        .dll_abi = .gnu,
+        .exe_abi = .gnu,
+    };
+
+    if (builtin.os.tag == .windows) {
+        defaults.target = .{};
+        defaults.dll_abi = .native;
+    }
+
+    return defaults;
+}
+
+fn windowsAbiTarget(abi: WindowsAbi) ?std.Target.Abi {
+    return switch (abi) {
+        .native => null,
+        .msvc => .msvc,
+        .gnu => .gnu,
+    };
+}
+
+fn resolveWindowsArtifactTarget(
+    b: *std.Build,
+    base_target: std.Build.ResolvedTarget,
+    abi: WindowsAbi,
+) std.Build.ResolvedTarget {
+    const target_abi = windowsAbiTarget(abi) orelse return base_target;
+    const os_tag = base_target.query.os_tag orelse base_target.result.os.tag;
+    if (os_tag != .windows) return base_target;
+
+    var query = base_target.query;
+    if (query.cpu_arch == null and query.os_tag == null) {
+        query.cpu_arch = default_windows_arch;
+    }
+    query.os_tag = query.os_tag orelse os_tag;
+    query.abi = target_abi;
+    query.glibc_version = null;
+    query.android_api_level = null;
+    return b.resolveTargetQuery(query);
 }
 
 fn addGeneratedVersionModule(
@@ -297,8 +358,13 @@ fn addGeneratedVersionResource(
 }
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
+    const defaults = defaultTargets();
+    const base_target = b.standardTargetOptions(.{ .default_target = defaults.target });
     const optimize = b.option(std.builtin.OptimizeMode, "optimize", "Build optimization mode") orelse .ReleaseSmall;
+    const dll_windows_abi = b.option(WindowsAbi, "dll-abi", "Windows ABI for EFU.dll") orelse defaults.dll_abi;
+    const exe_windows_abi = b.option(WindowsAbi, "exe-abi", "Windows ABI for EFU.exe") orelse defaults.exe_abi;
+    const dll_target = resolveWindowsArtifactTarget(b, base_target, dll_windows_abi);
+    const exe_target = resolveWindowsArtifactTarget(b, base_target, exe_windows_abi);
     const dll_only = wantsDllOnly(b);
 
     const generated_files = b.addWriteFiles();
@@ -309,7 +375,7 @@ pub fn build(b: *std.Build) void {
         .name = "EFUHook",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/dll.zig"),
-            .target = target,
+            .target = dll_target,
             .optimize = optimize,
         }),
     });
@@ -337,7 +403,7 @@ pub fn build(b: *std.Build) void {
         return;
     }
 
-    const version_module = addGeneratedVersionModule(b, generated_files, target, optimize);
+    const version_module = addGeneratedVersionModule(b, generated_files, exe_target, optimize);
 
     const toggle_label_subset_text = strings.buildToggleLabelSubsetText(b.allocator) catch @panic("OOM");
     const version_info_subset_text = strings.buildVersionInfoSubsetText(b.allocator, version_str) catch @panic("OOM");
@@ -401,7 +467,7 @@ pub fn build(b: *std.Build) void {
 
     const bytegui_c = b.addTranslateC(.{
         .root_source_file = bytegui_c_header,
-        .target = target,
+        .target = exe_target,
         .optimize = optimize,
         .link_libc = true,
     });
@@ -424,7 +490,7 @@ pub fn build(b: *std.Build) void {
         .name = exe_artifact_name,
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/window.zig"),
-            .target = target,
+            .target = exe_target,
             .optimize = optimize,
         }),
     });
