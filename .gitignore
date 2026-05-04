@@ -1,8 +1,3 @@
-# Zig build outputs
-zig-out/
-.zig-cache/
-.zig-global-cache/
-
-# Other
-reference-and-scripts/
-.git/
+/*/
+!/fonts/
+!/src/
