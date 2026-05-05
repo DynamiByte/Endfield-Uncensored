@@ -15,6 +15,11 @@ const EFMI_MISSING_PATH_MESSAGE = strings.cli.efmi_missing_path_message;
 const EFMI_COMMAND_LINE_FMT = "\"{s}\" --nogui --xxmi EFMI";
 const CLI_BLANK_LINE = "\n";
 const DEBUG_VALUE_BOXES = "boxes";
+const DEBUG_VALUE_BOXES_SHORT = "b";
+const DEBUG_VALUE_AUTOSCROLL = "autoscroll";
+const DEBUG_VALUE_AUTOSCROLL_SHORT = "as";
+const DEBUG_MISSING_VALUE_MESSAGE = "Missing value for --debug. Use one or more values, like: --debug boxes or --debug autoscroll";
+const DEBUG_INVALID_VALUE_MESSAGE = "Invalid value for --debug. Supported values: boxes, b, autoscroll, as";
 
 pub const BoolOverride = enum {
     auto,
@@ -29,9 +34,10 @@ pub const Mode = enum {
 
 pub const DebugOptions = struct {
     boxes: bool = false,
+    autoscroll: bool = false,
 
     pub fn any(self: DebugOptions) bool {
-        return self.boxes;
+        return self.boxes or self.autoscroll;
     }
 };
 
@@ -148,8 +154,13 @@ fn parseDebugValueInto(options: *DebugOptions, value: []const u8) bool {
     while (parts.next()) |raw_part| {
         const part = std.mem.trim(u8, raw_part, " \t\r\n");
         if (part.len == 0) return false;
-        if (std.ascii.eqlIgnoreCase(part, DEBUG_VALUE_BOXES)) {
+        if (std.ascii.eqlIgnoreCase(part, DEBUG_VALUE_BOXES) or std.ascii.eqlIgnoreCase(part, DEBUG_VALUE_BOXES_SHORT)) {
             options.boxes = true;
+            parsed_any = true;
+            continue;
+        }
+        if (std.ascii.eqlIgnoreCase(part, DEBUG_VALUE_AUTOSCROLL) or std.ascii.eqlIgnoreCase(part, DEBUG_VALUE_AUTOSCROLL_SHORT)) {
+            options.autoscroll = true;
             parsed_any = true;
             continue;
         }
@@ -303,7 +314,11 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
 }
 
 pub fn describeParseArgsError(err: ParseArgsError) []const u8 {
-    return strings.cli.describeParseArgsError(err);
+    return switch (err) {
+        error.MissingDebugValue => DEBUG_MISSING_VALUE_MESSAGE,
+        error.InvalidDebugValue => DEBUG_INVALID_VALUE_MESSAGE,
+        else => strings.cli.describeParseArgsError(err),
+    };
 }
 
 fn ensureCliConsole() void {

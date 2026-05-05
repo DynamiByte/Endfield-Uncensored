@@ -85,6 +85,9 @@ const OUTPUT_SCROLL_FAST_SETTLE_EVENT_LINES = 0.35;
 const OUTPUT_SELECTION_AUTOSCROLL_RAMP_LINES = 8.0;
 const OUTPUT_SELECTION_AUTOSCROLL_MIN_LINES_PER_SECOND = 4.0;
 const OUTPUT_SELECTION_AUTOSCROLL_MAX_LINES_PER_SECOND = 72.0;
+const DEBUG_AUTOSCROLL_WAIT_SECONDS: f32 = 1.0;
+const DEBUG_AUTOSCROLL_GROUPS: usize = 5;
+const DEBUG_AUTOSCROLL_RUNS: usize = 5;
 
 const VERSION_X = 10.0;
 const VERSION_Y = 175.0;
@@ -179,6 +182,12 @@ const CloseCountdown = struct {
     action: Action = .close,
     remaining_seconds: i32 = 0,
     elapsed: f32 = 0.0,
+};
+
+const DebugAutoscrollState = struct {
+    group: usize = 1,
+    run: usize = 1,
+    wait_seconds: f32 = 0.0,
 };
 
 const LoaderUiEvent = union(enum) {
@@ -352,6 +361,7 @@ var g_was_minimized = false;
 var g_launch_right_click_count: u8 = 0;
 var g_launch_right_click_last_tick: u64 = 0;
 var g_debug_options: cli.DebugOptions = .{};
+var g_debug_autoscroll_state: DebugAutoscrollState = .{};
 
 var g_window_anim: WindowAnim = .{};
 var g_close_countdown: CloseCountdown = .{};
@@ -557,6 +567,10 @@ fn launchCooldownActive() bool {
     return false;
 }
 
+fn debugAutoscrollMode() bool {
+    return g_debug_options.autoscroll;
+}
+
 fn startLaunchCooldown(mode: GameLaunchMode) void {
     const cooldown_ms: u64 = switch (mode) {
         .efmi => EFMI_LAUNCH_COOLDOWN_MS,
@@ -567,6 +581,7 @@ fn startLaunchCooldown(mode: GameLaunchMode) void {
 }
 
 fn computeLaunchButtonEnabled() bool {
+    if (debugAutoscrollMode()) return false;
     if (launchCooldownActive()) return false;
     if (loaderTargetRunning()) return false;
     if (efmiLaunchSelected()) return true;
@@ -640,6 +655,57 @@ fn clearStatusLines() void {
     g_output_content_height = 0.0;
     clearOutputSelection();
     scheduleOutputAutoscroll();
+}
+
+fn appendDebugAutoscrollBatch() void {
+    var line_index: usize = 1;
+    while (line_index <= g_debug_autoscroll_state.group) : (line_index += 1) {
+        appendStatus("{d}-{d}-{d}", .{ g_debug_autoscroll_state.run, g_debug_autoscroll_state.group, line_index });
+    }
+    g_debug_autoscroll_state.wait_seconds = DEBUG_AUTOSCROLL_WAIT_SECONDS;
+}
+
+fn startDebugAutoscrollScript() void {
+    g_debug_autoscroll_state = .{};
+    clearStatusLines();
+    appendDebugAutoscrollBatch();
+}
+
+fn advanceDebugAutoscrollScript() void {
+    if (g_debug_autoscroll_state.group < DEBUG_AUTOSCROLL_GROUPS) {
+        g_debug_autoscroll_state.group += 1;
+    } else {
+        g_debug_autoscroll_state.group = 1;
+        if (g_debug_autoscroll_state.run < DEBUG_AUTOSCROLL_RUNS) {
+            g_debug_autoscroll_state.run += 1;
+        } else {
+            g_debug_autoscroll_state.run = 1;
+            clearStatusLines();
+        }
+    }
+    appendDebugAutoscrollBatch();
+}
+
+fn updateDebugAutoscrollScript(dt: f32) void {
+    if (!debugAutoscrollMode()) return;
+    if (g_debug_autoscroll_state.wait_seconds > 0.0) {
+        g_debug_autoscroll_state.wait_seconds -= dt;
+        if (g_debug_autoscroll_state.wait_seconds > 0.0) return;
+    }
+    advanceDebugAutoscrollScript();
+}
+
+fn enterDebugAutoscrollMode() void {
+    if (g_game_exe_path) |path| {
+        allocator.free(path);
+        g_game_exe_path = null;
+    }
+    g_startup_target_pid = 0;
+    setLoaderTargetRunning(false);
+    setLoaderPendingLaunchMode(null);
+    g_launch_cooldown_until_tick = 0;
+    syncLaunchButtonStateImmediate();
+    startDebugAutoscrollScript();
 }
 
 fn cancelCloseCountdown() void {
@@ -873,6 +939,8 @@ fn loaderWorkerMain(startup_target_pid: u32) void {
 }
 
 fn startLoaderWorker() bool {
+    if (debugAutoscrollMode()) return true;
+
     g_loader_control_mutex.lock();
     g_loader_should_stop = false;
     g_loader_minimize_on_launch = g_minimize_on_launch;
@@ -2808,12 +2876,16 @@ fn drawUI(dt: f32) void {
 
     draw.AddText(g_font_version, scaleF(12.0), snapPixelVec2(scaleVec2(VERSION_X, VERSION_Y)), toU32(applyOpacity(g_button_colors[4].current, render_opacity)), g_version_display, null);
     drawAnimatedBoxButtonVisual("toggle_btn", toggleButtonLabel(), scaleVec2(TOGGLE_X, TOGGLE_Y + TOGGLE_Y_OFFSET), scaleVec2(TOGGLE_W, TOGGLE_H), g_toggle_anim.value, true, g_toggle_current_color, render_opacity);
-    if (g_efmi_button_visible) drawAnimatedBoxButtonVisual("efmi_btn", LABEL_EFMI, scaleVec2(EFMI_X, EFMI_Y), scaleVec2(EFMI_W, EFMI_H), g_efmi_anim.value, true, g_efmi_current_color, render_opacity);
+    if (g_efmi_button_visible) drawAnimatedBoxButtonVisual("efmi_btn", LABEL_EFMI, scaleVec2(EFMI_X, EFMI_Y), scaleVec2(EFMI_W, EFMI_H), g_efmi_anim.value, g_launch_btn_enabled and !debugAutoscrollMode(), g_efmi_current_color, render_opacity);
     drawAnimatedBoxButtonVisual("launch_btn", LABEL_LAUNCH, scaleVec2(LAUNCH_X, LAUNCH_Y), scaleVec2(LAUNCH_W, LAUNCH_H), g_launch_anim.value, g_launch_btn_enabled, g_launch_current_color, render_opacity);
     drawDebugBoxOverlay(draw, render_opacity);
 }
 
 fn refreshGamePathStatus() void {
+    if (debugAutoscrollMode()) {
+        enterDebugAutoscrollMode();
+        return;
+    }
     if (g_game_exe_path) |path| allocator.free(path);
     g_game_exe_path = loader.resolveGameExe(g_game_exe_override_path, g_environ, allocator) catch null;
     g_startup_target_pid = loader.findTargetProcess();
@@ -2858,6 +2930,10 @@ fn registerLaunchRightClick() bool {
 fn launchGameAction(requested_mode: GameLaunchMode) void {
     resetLaunchRightClickSequence();
     cancelCloseCountdown();
+    if (debugAutoscrollMode()) {
+        setLoaderPendingLaunchMode(null);
+        return;
+    }
     const mode = selectedLaunchMode(requested_mode);
     if (!g_launch_btn_enabled) {
         setLoaderPendingLaunchMode(null);
@@ -3192,6 +3268,7 @@ fn wndProcBridge(hwnd: bgc.HWND, msg: bgc.UINT, w_param: bgc.WPARAM, l_param: bg
 
 // Startup and shutdown
 fn appendInitialStatusLines() void {
+    if (debugAutoscrollMode()) return;
     if (g_startup_target_pid != 0) {
         if (g_game_exe_path != null) appendStatus(strings.status_game_found, .{});
         appendStatus(strings.status_game_already_running_startup, .{});
@@ -3227,6 +3304,12 @@ fn initGuiResources(platform_hwnd: ?bgc.HWND) void {
 
 fn initializeGuiState() void {
     refreshEfmiAvailability();
+    if (debugAutoscrollMode()) {
+        enterDebugAutoscrollMode();
+        resetButtonColorAnimations();
+        clearWindowHoverState();
+        return;
+    }
     refreshGamePathStatus();
     appendInitialStatusLines();
     if (!startLoaderWorker()) appendStatus(strings.status_monitor_failed, .{});
@@ -3332,6 +3415,7 @@ fn runGui() !u8 {
         updateLaunchButtonState();
         updateHoverStates(dt);
         updateAnimations(dt);
+        updateDebugAutoscrollScript(dt);
         updateOutputSmoothScroll(dt);
         updateOutputDragFromCursor(dt);
         if (!g_running or g_hwnd == null) break;
