@@ -77,7 +77,14 @@ const OUTPUT_W = MAIN_CONTENT_SIZE * 2.48;
 const OUTPUT_SCROLLBAR_W = 4.0;
 const OUTPUT_SCROLLBAR_PAD = 2.0;
 const OUTPUT_SCROLLBAR_MIN_H = 18.0;
-const OUTPUT_WHEEL_LINES = 3.0;
+const OUTPUT_WHEEL_LINES = 2.0;
+const OUTPUT_SCROLL_SMOOTH_RATE = 28.0;
+const OUTPUT_SCROLL_EPSILON = 0.05;
+const OUTPUT_SCROLL_LINE_SNAP_IDLE_SECONDS = 0.50;
+const OUTPUT_SCROLL_FAST_SETTLE_EVENT_LINES = 0.35;
+const OUTPUT_SELECTION_AUTOSCROLL_RAMP_LINES = 8.0;
+const OUTPUT_SELECTION_AUTOSCROLL_MIN_LINES_PER_SECOND = 4.0;
+const OUTPUT_SELECTION_AUTOSCROLL_MAX_LINES_PER_SECOND = 72.0;
 
 const VERSION_X = 10.0;
 const VERSION_Y = 175.0;
@@ -283,6 +290,15 @@ var g_efmi_bottom_label_texture: TextTexture = .{};
 
 var g_output_lines: std.ArrayListUnmanaged([]u8) = .empty;
 var g_output_scroll_y: f32 = 0.0;
+var g_output_scroll_target_y: f32 = 0.0;
+var g_output_scroll_raw_target_y: f32 = 0.0;
+var g_output_scroll_animating = false;
+var g_output_scroll_line_height: f32 = 0.0;
+var g_output_scroll_snap_pending = false;
+var g_output_scroll_snap_idle_seconds: f32 = 0.0;
+var g_output_scroll_input_idle_seconds: f32 = 0.0;
+var g_output_scroll_fast_settle_active = false;
+var g_output_scroll_fast_settle_direction: f32 = 0.0;
 var g_output_content_height: f32 = 0.0;
 var g_output_pending_autoscroll = true;
 var g_output_selection_anchor: ?usize = null;
@@ -612,6 +628,15 @@ fn clearStatusLines() void {
     g_output_lines.deinit(allocator);
     g_output_lines = .empty;
     g_output_scroll_y = 0.0;
+    g_output_scroll_target_y = 0.0;
+    g_output_scroll_raw_target_y = 0.0;
+    g_output_scroll_animating = false;
+    g_output_scroll_line_height = 0.0;
+    g_output_scroll_snap_pending = false;
+    g_output_scroll_snap_idle_seconds = 0.0;
+    g_output_scroll_input_idle_seconds = 0.0;
+    g_output_scroll_fast_settle_active = false;
+    g_output_scroll_fast_settle_direction = 0.0;
     g_output_content_height = 0.0;
     clearOutputSelection();
     scheduleOutputAutoscroll();
@@ -1610,6 +1635,95 @@ fn outputMaxScrollFor(content_height: f32, viewport_height: f32) f32 {
 
 fn clampOutputScrollTo(max_scroll: f32) void {
     g_output_scroll_y = std.math.clamp(g_output_scroll_y, 0.0, max_scroll);
+    g_output_scroll_target_y = std.math.clamp(g_output_scroll_target_y, 0.0, max_scroll);
+    g_output_scroll_raw_target_y = std.math.clamp(g_output_scroll_raw_target_y, 0.0, max_scroll);
+    if (@abs(g_output_scroll_y - g_output_scroll_target_y) <= OUTPUT_SCROLL_EPSILON) {
+        g_output_scroll_y = g_output_scroll_target_y;
+        g_output_scroll_animating = false;
+        if (!g_output_scroll_snap_pending and g_output_scroll_input_idle_seconds >= OUTPUT_SCROLL_LINE_SNAP_IDLE_SECONDS) resetOutputFastScrollSettle();
+    }
+}
+
+fn outputScrollLineHeight() f32 {
+    if (g_output_scroll_line_height > 0.0) return g_output_scroll_line_height;
+    return if (g_font_textbox) |font| font.LegacySize else scaleF(13.0);
+}
+
+fn outputLineVisualMid(layout: *const bytegui.TextLayoutResult, line_index: usize) f32 {
+    const line_height = @max(1.0, layout.line_height);
+    const line_top = @as(f32, @floatFromInt(line_index)) * line_height;
+    if (line_index >= layout.lines.items.len) return line_top + line_height * 0.5;
+
+    const line = layout.lines.items[line_index];
+    if (line.bounds.Height <= 0.5) return line_top + line_height * 0.5;
+
+    const glyph_top = line_top + layout.ascender + line.bounds.Y;
+    const glyph_bottom = glyph_top + line.bounds.Height;
+    return (std.math.clamp(glyph_top, line_top, line_top + line_height) +
+        std.math.clamp(glyph_bottom, line_top, line_top + line_height)) * 0.5;
+}
+
+fn snappedOutputScrollYWithLayout(value: f32, max_scroll: f32, layout: *const bytegui.TextLayoutResult) f32 {
+    const line_height = @max(1.0, layout.line_height);
+    if (line_height <= 0.0) return std.math.clamp(value, 0.0, max_scroll);
+    if (value >= max_scroll - OUTPUT_SCROLL_EPSILON) return max_scroll;
+    if (layout.lines.items.len == 0) return std.math.clamp(value, 0.0, max_scroll);
+
+    const clamped = std.math.clamp(value, 0.0, max_scroll);
+    var snap_index: usize = 0;
+    for (layout.lines.items, 0..) |_, line_index| {
+        if (clamped < outputLineVisualMid(layout, line_index)) break;
+        snap_index = @min(line_index + 1, layout.lines.items.len - 1);
+    }
+
+    return std.math.clamp(@as(f32, @floatFromInt(snap_index)) * line_height, 0.0, max_scroll);
+}
+
+fn snappedOutputScrollYFallback(value: f32, max_scroll: f32) f32 {
+    const line_height = outputScrollLineHeight();
+    if (line_height <= 0.0) return std.math.clamp(value, 0.0, max_scroll);
+    if (value >= max_scroll - OUTPUT_SCROLL_EPSILON) return max_scroll;
+    return std.math.clamp(@round(value / line_height) * line_height, 0.0, max_scroll);
+}
+
+fn snappedOutputScrollY(value: f32, max_scroll: f32) f32 {
+    var text: std.ArrayListUnmanaged(u8) = .empty;
+    defer text.deinit(allocator);
+    if (!buildOutputText(&text)) return snappedOutputScrollYFallback(value, max_scroll);
+
+    var laid_out = layoutOutputText(text.items) orelse return snappedOutputScrollYFallback(value, max_scroll);
+    defer laid_out.deinit();
+    return snappedOutputScrollYWithLayout(value, max_scroll, &laid_out.layout);
+}
+
+fn outputScrollBaseY() f32 {
+    return if (g_output_scroll_animating) g_output_scroll_target_y else g_output_scroll_y;
+}
+
+fn outputScrollInputBaseY() f32 {
+    return if (g_output_scroll_animating or g_output_scroll_snap_pending or g_output_scroll_fast_settle_active)
+        g_output_scroll_raw_target_y
+    else
+        g_output_scroll_y;
+}
+
+fn resetOutputFastScrollSettle() void {
+    g_output_scroll_fast_settle_active = false;
+    g_output_scroll_fast_settle_direction = 0.0;
+}
+
+fn scheduleOutputScrollLineSnap() void {
+    g_output_scroll_snap_pending = true;
+    g_output_scroll_snap_idle_seconds = 0.0;
+}
+
+fn cancelOutputScrollLineSnap() void {
+    g_output_scroll_snap_pending = false;
+    g_output_scroll_snap_idle_seconds = 0.0;
+}
+
+fn markOutputScrollInput() void {
+    g_output_scroll_input_idle_seconds = 0.0;
 }
 
 fn buildOutputText(out: *std.ArrayListUnmanaged(u8)) bool {
@@ -1654,6 +1768,7 @@ fn refreshOutputLayoutState() void {
     var laid_out = layoutOutputText(text.items) orelse return;
     defer laid_out.deinit();
     g_output_content_height = laid_out.layout.height;
+    g_output_scroll_line_height = @max(1.0, laid_out.layout.line_height);
     clampOutputScrollTo(outputMaxScrollFor(g_output_content_height, laid_out.viewport.y));
 }
 
@@ -1698,8 +1813,18 @@ fn cursorInOutputScrollbarThumb(metrics: bytegui.ScrollbarMetrics) bool {
 fn setOutputScrollY(value: f32) void {
     const rect = outputTextRect();
     const viewport = outputViewportSizeFromRect(rect);
+    markOutputScrollInput();
     g_output_pending_autoscroll = false;
     g_output_scroll_y = std.math.clamp(value, 0.0, outputMaxScrollFor(g_output_content_height, viewport.y));
+    g_output_scroll_target_y = g_output_scroll_y;
+    g_output_scroll_raw_target_y = g_output_scroll_y;
+    g_output_scroll_animating = false;
+    cancelOutputScrollLineSnap();
+    resetOutputFastScrollSettle();
+}
+
+fn outputLineStep() f32 {
+    return outputScrollLineHeight();
 }
 
 fn scrollOutputBy(delta_y: f32) bool {
@@ -1711,6 +1836,139 @@ fn scrollOutputBy(delta_y: f32) bool {
 
     setOutputScrollY(g_output_scroll_y + delta_y);
     return true;
+}
+
+fn scrollOutputSmoothTo(target_y: f32, max_scroll: f32, snap_after_idle: bool) bool {
+    return scrollOutputSmoothToRaw(target_y, target_y, max_scroll, snap_after_idle);
+}
+
+fn scrollOutputSmoothToRaw(raw_target_y: f32, target_y: f32, max_scroll: f32, snap_after_idle: bool) bool {
+    markOutputScrollInput();
+    g_output_pending_autoscroll = false;
+    g_output_scroll_raw_target_y = std.math.clamp(raw_target_y, 0.0, max_scroll);
+    g_output_scroll_target_y = std.math.clamp(target_y, 0.0, max_scroll);
+    if (snap_after_idle) {
+        scheduleOutputScrollLineSnap();
+    } else {
+        cancelOutputScrollLineSnap();
+    }
+    if (@abs(g_output_scroll_y - g_output_scroll_target_y) <= OUTPUT_SCROLL_EPSILON) {
+        g_output_scroll_y = g_output_scroll_target_y;
+        g_output_scroll_animating = false;
+    } else {
+        g_output_scroll_animating = true;
+    }
+    return true;
+}
+
+fn scrollOutputSmoothHdBy(delta_y: f32) bool {
+    refreshOutputLayoutState();
+    const rect = outputTextRect();
+    const viewport = outputViewportSizeFromRect(rect);
+    const max_scroll = outputMaxScrollFor(g_output_content_height, viewport.y);
+    if (max_scroll <= 0.5) return false;
+
+    const line_height = outputScrollLineHeight();
+    const direction: f32 = if (delta_y > 0.0) 1.0 else if (delta_y < 0.0) -1.0 else 0.0;
+    if (direction == 0.0 or line_height <= 0.0) return false;
+
+    if (g_output_scroll_fast_settle_active and direction != g_output_scroll_fast_settle_direction) {
+        resetOutputFastScrollSettle();
+    }
+    if (@abs(delta_y) >= line_height * OUTPUT_SCROLL_FAST_SETTLE_EVENT_LINES) {
+        g_output_scroll_fast_settle_active = true;
+        g_output_scroll_fast_settle_direction = direction;
+    }
+
+    const raw_target_y = outputScrollInputBaseY() + delta_y;
+    if (g_output_scroll_fast_settle_active) {
+        const target_y = snappedOutputScrollY(raw_target_y, max_scroll);
+        return scrollOutputSmoothToRaw(raw_target_y, target_y, max_scroll, false);
+    }
+    return scrollOutputSmoothToRaw(raw_target_y, raw_target_y, max_scroll, true);
+}
+
+fn scrollOutputSmoothBy(delta_y: f32, snap_after_idle: bool) bool {
+    refreshOutputLayoutState();
+    const rect = outputTextRect();
+    const viewport = outputViewportSizeFromRect(rect);
+    const max_scroll = outputMaxScrollFor(g_output_content_height, viewport.y);
+    if (max_scroll <= 0.5) return false;
+
+    const raw_target_y = outputScrollInputBaseY() + delta_y;
+    return scrollOutputSmoothToRaw(raw_target_y, raw_target_y, max_scroll, snap_after_idle);
+}
+
+fn scrollOutputSmoothByLines(line_delta: f32) bool {
+    refreshOutputLayoutState();
+    const rect = outputTextRect();
+    const viewport = outputViewportSizeFromRect(rect);
+    const max_scroll = outputMaxScrollFor(g_output_content_height, viewport.y);
+    if (max_scroll <= 0.5) return false;
+
+    const line_height = outputScrollLineHeight();
+    if (line_height <= 0.0) return scrollOutputSmoothBy(line_delta, true);
+
+    const base_scroll = outputScrollBaseY();
+    const base_line = if (base_scroll >= max_scroll - OUTPUT_SCROLL_EPSILON)
+        @ceil(max_scroll / line_height)
+    else
+        @round(base_scroll / line_height);
+    const target_y = (base_line + line_delta) * line_height;
+    return scrollOutputSmoothTo(target_y, max_scroll, false);
+}
+
+fn snapOutputScrollTargetToCurrentLine() void {
+    refreshOutputLayoutState();
+    const rect = outputTextRect();
+    const viewport = outputViewportSizeFromRect(rect);
+    const max_scroll = outputMaxScrollFor(g_output_content_height, viewport.y);
+    g_output_scroll_target_y = snappedOutputScrollY(g_output_scroll_y, max_scroll);
+    g_output_scroll_raw_target_y = g_output_scroll_target_y;
+    cancelOutputScrollLineSnap();
+    resetOutputFastScrollSettle();
+    g_output_scroll_animating = @abs(g_output_scroll_y - g_output_scroll_target_y) > OUTPUT_SCROLL_EPSILON;
+}
+
+fn updateOutputSmoothScroll(dt: f32) void {
+    const rect = outputTextRect();
+    const viewport = outputViewportSizeFromRect(rect);
+    const max_scroll = outputMaxScrollFor(g_output_content_height, viewport.y);
+    g_output_scroll_target_y = std.math.clamp(g_output_scroll_target_y, 0.0, max_scroll);
+    g_output_scroll_raw_target_y = std.math.clamp(g_output_scroll_raw_target_y, 0.0, max_scroll);
+    g_output_scroll_input_idle_seconds += @max(0.0, dt);
+
+    if (g_output_scroll_snap_pending) {
+        if (g_output_scroll_animating) {
+            g_output_scroll_snap_idle_seconds = 0.0;
+        } else {
+            g_output_scroll_snap_idle_seconds += @max(0.0, dt);
+        }
+        if (g_output_scroll_snap_idle_seconds >= OUTPUT_SCROLL_LINE_SNAP_IDLE_SECONDS) {
+            const snapped = snappedOutputScrollY(g_output_scroll_raw_target_y, max_scroll);
+            g_output_scroll_raw_target_y = snapped;
+            g_output_scroll_target_y = snapped;
+            cancelOutputScrollLineSnap();
+            resetOutputFastScrollSettle();
+            if (@abs(g_output_scroll_y - g_output_scroll_target_y) > OUTPUT_SCROLL_EPSILON) {
+                g_output_scroll_animating = true;
+            }
+        }
+    }
+
+    if (g_output_scroll_fast_settle_active and !g_output_scroll_animating and g_output_scroll_input_idle_seconds >= OUTPUT_SCROLL_LINE_SNAP_IDLE_SECONDS) {
+        resetOutputFastScrollSettle();
+    }
+
+    if (!g_output_scroll_animating) return;
+
+    const t = std.math.clamp(1.0 - @exp(-@max(0.0, dt) * OUTPUT_SCROLL_SMOOTH_RATE), 0.0, 1.0);
+    g_output_scroll_y += (g_output_scroll_target_y - g_output_scroll_y) * t;
+    if (@abs(g_output_scroll_y - g_output_scroll_target_y) <= OUTPUT_SCROLL_EPSILON) {
+        g_output_scroll_y = g_output_scroll_target_y;
+        g_output_scroll_animating = false;
+        if (!g_output_scroll_snap_pending and g_output_scroll_input_idle_seconds >= OUTPUT_SCROLL_LINE_SNAP_IDLE_SECONDS) resetOutputFastScrollSettle();
+    }
 }
 
 fn nextTextIndex(text: []const u8, index: usize, end: usize) usize {
@@ -1756,6 +2014,33 @@ fn outputIndexFromPointWithLayout(text: []const u8, layout: *const bytegui.TextL
     return outputLineIndexAtX(text, layout.lines.items[line_index], x);
 }
 
+fn outputIndexFromDragPointWithLayout(text: []const u8, layout: *const bytegui.TextLayoutResult, pt: c.POINT) usize {
+    if (text.len == 0 or layout.lines.items.len == 0) return 0;
+
+    const rect = outputTextRect();
+    if (pt.y >= rect.top and pt.y < rect.bottom) return outputIndexFromPointWithLayout(text, layout, pt);
+
+    const x = @as(f32, @floatFromInt(pt.x - rect.left));
+    const viewport_top = g_output_scroll_y;
+    const viewport_bottom = viewport_top + @max(1.0, @as(f32, @floatFromInt(rect.bottom - rect.top)));
+
+    if (pt.y < rect.top) {
+        for (layout.lines.items, 0..) |line, line_index| {
+            if (outputLineVisualMid(layout, line_index) >= viewport_top) {
+                return outputLineIndexAtX(text, line, x);
+            }
+        }
+        return outputLineIndexAtX(text, layout.lines.items[layout.lines.items.len - 1], x);
+    }
+
+    var best_index: usize = 0;
+    for (layout.lines.items, 0..) |_, line_index| {
+        if (outputLineVisualMid(layout, line_index) > viewport_bottom) break;
+        best_index = line_index;
+    }
+    return outputLineIndexAtX(text, layout.lines.items[best_index], x);
+}
+
 fn outputIndexFromPoint(pt: c.POINT) usize {
     var text: std.ArrayListUnmanaged(u8) = .empty;
     defer text.deinit(allocator);
@@ -1764,6 +2049,16 @@ fn outputIndexFromPoint(pt: c.POINT) usize {
     var laid_out = layoutOutputText(text.items) orelse return text.items.len;
     defer laid_out.deinit();
     return outputIndexFromPointWithLayout(text.items, &laid_out.layout, pt);
+}
+
+fn outputIndexFromDragPoint(pt: c.POINT) usize {
+    var text: std.ArrayListUnmanaged(u8) = .empty;
+    defer text.deinit(allocator);
+    if (!buildOutputText(&text)) return 0;
+
+    var laid_out = layoutOutputText(text.items) orelse return text.items.len;
+    defer laid_out.deinit();
+    return outputIndexFromDragPointWithLayout(text.items, &laid_out.layout, pt);
 }
 
 fn clampOutputSelection(text_len: usize) void {
@@ -1851,6 +2146,27 @@ fn updateOutputSelectionAtPoint(pt: c.POINT) void {
     g_output_selection_cursor = outputIndexFromPoint(pt);
 }
 
+fn outputSelectionAutoscrollDelta(pt: c.POINT, dt: f32) f32 {
+    if (dt <= 0.0) return 0.0;
+
+    const rect = outputTextRect();
+    const line_step = outputLineStep();
+    const ramp = @max(1.0, line_step * OUTPUT_SELECTION_AUTOSCROLL_RAMP_LINES);
+    const distance = if (pt.y < rect.top)
+        @as(f32, @floatFromInt(rect.top - pt.y))
+    else if (pt.y >= rect.bottom)
+        @as(f32, @floatFromInt(pt.y - rect.bottom + 1))
+    else
+        0.0;
+    if (distance <= 0.0) return 0.0;
+
+    const direction: f32 = if (pt.y < rect.top) -1.0 else 1.0;
+    const t = std.math.clamp(distance / ramp, 0.0, 1.0);
+    const lines_per_second = OUTPUT_SELECTION_AUTOSCROLL_MIN_LINES_PER_SECOND +
+        (OUTPUT_SELECTION_AUTOSCROLL_MAX_LINES_PER_SECOND - OUTPUT_SELECTION_AUTOSCROLL_MIN_LINES_PER_SECOND) * t * t;
+    return direction * line_step * lines_per_second * dt;
+}
+
 fn beginOutputMouseDown(hwnd: c.HWND, pt: c.POINT) bool {
     if (!pointInOutputTextRect(pt)) return false;
 
@@ -1875,18 +2191,15 @@ fn updateOutputScrollbarDrag(pt: c.POINT) void {
     setOutputScrollY(ByteGui.ScrollbarDragScroll(metrics, g_output_scroll_drag_start_scroll, dy));
 }
 
-fn updateOutputDrag(pt: c.POINT) bool {
+fn updateOutputDrag(pt: c.POINT, dt: f32) bool {
     switch (g_output_drag_mode) {
         .none => return false,
         .select => {
-            const rect = outputTextRect();
-            const line_step = if (g_font_textbox) |font| font.LegacySize else scaleF(13.0);
-            if (pt.y < rect.top) {
-                _ = scrollOutputBy(-line_step);
-            } else if (pt.y >= rect.bottom) {
-                _ = scrollOutputBy(line_step);
+            const scroll_delta = outputSelectionAutoscrollDelta(pt, dt);
+            if (scroll_delta != 0.0) {
+                _ = scrollOutputBy(scroll_delta);
             }
-            updateOutputSelectionAtPoint(pt);
+            g_output_selection_cursor = outputIndexFromDragPoint(pt);
             return true;
         },
         .scrollbar => {
@@ -1898,21 +2211,40 @@ fn updateOutputDrag(pt: c.POINT) bool {
 
 fn finishOutputDrag() bool {
     if (g_output_drag_mode == .none) return false;
+    const finished_mode = g_output_drag_mode;
     g_output_drag_mode = .none;
     _ = c.ReleaseCapture();
+    if (finished_mode == .select) snapOutputScrollTargetToCurrentLine();
     return true;
+}
+
+fn updateOutputDragFromCursor(dt: f32) void {
+    if (g_output_drag_mode == .none) return;
+    const hwnd = g_hwnd orelse return;
+
+    var pt = std.mem.zeroes(c.POINT);
+    if (c.GetCursorPos(&pt) == c.FALSE) return;
+    _ = c.ScreenToClient(hwnd, &pt);
+    _ = updateOutputDrag(pt, dt);
 }
 
 fn handleOutputMouseWheel(hwnd: c.HWND, w_param: c.WPARAM, l_param: c.LPARAM) c.LRESULT {
     var pt = c.POINT{ .x = lowWordSigned(l_param), .y = highWordSigned(l_param) };
     _ = c.ScreenToClient(hwnd, &pt);
-    if (!pointInRoundedRectClient(pt) or !pointInOutputTextRect(pt)) return -1;
+    const selecting_output = g_output_drag_mode == .select;
+    if (!selecting_output and (!pointInRoundedRectClient(pt) or !pointInOutputTextRect(pt))) return -1;
 
     const delta = highWordSignedWParam(w_param);
     if (delta == 0) return 0;
-    const line_step = if (g_font_textbox) |font| font.LegacySize * OUTPUT_WHEEL_LINES else scaleF(13.0) * OUTPUT_WHEEL_LINES;
+    const whole_steps = @divTrunc(delta, WHEEL_DELTA);
+    if (whole_steps * WHEEL_DELTA == delta) {
+        resetOutputFastScrollSettle();
+        _ = scrollOutputSmoothByLines(-@as(f32, @floatFromInt(whole_steps)) * OUTPUT_WHEEL_LINES);
+        return 0;
+    }
+
     const steps = @as(f32, @floatFromInt(delta)) / @as(f32, @floatFromInt(WHEEL_DELTA));
-    _ = scrollOutputBy(-steps * line_step);
+    _ = scrollOutputSmoothHdBy(-steps * outputLineStep() * OUTPUT_WHEEL_LINES);
     return 0;
 }
 
@@ -2396,9 +2728,15 @@ fn drawOutputTextbox(draw: ?*ByteDrawList, opacity: f32, dt: f32) void {
     defer laid_out.deinit();
 
     g_output_content_height = laid_out.layout.height;
+    g_output_scroll_line_height = @max(1.0, laid_out.layout.line_height);
     const max_scroll = outputMaxScrollFor(g_output_content_height, laid_out.viewport.y);
     if (g_output_pending_autoscroll) {
         g_output_scroll_y = max_scroll;
+        g_output_scroll_target_y = max_scroll;
+        g_output_scroll_raw_target_y = max_scroll;
+        g_output_scroll_animating = false;
+        cancelOutputScrollLineSnap();
+        resetOutputFastScrollSettle();
         g_output_pending_autoscroll = false;
     } else {
         clampOutputScrollTo(max_scroll);
@@ -2408,7 +2746,7 @@ fn drawOutputTextbox(draw: ?*ByteDrawList, opacity: f32, dt: f32) void {
     const base_x = @as(f32, @floatFromInt(rect.left));
     const base_y = @as(f32, @floatFromInt(rect.top));
     const bottom = @as(f32, @floatFromInt(rect.bottom));
-    const line_height = @max(1.0, laid_out.layout.line_height);
+    const line_height = g_output_scroll_line_height;
     const saved_clip = active_draw.CurrentClipRect;
     active_draw.SetClipRect(.{
         .x = @as(f32, @floatFromInt(rect.left)),
@@ -2440,7 +2778,7 @@ fn drawOutputTextbox(draw: ?*ByteDrawList, opacity: f32, dt: f32) void {
     for (laid_out.layout.lines.items, 0..) |line, line_index| {
         const y = base_y + @as(f32, @floatFromInt(line_index)) * line_height - g_output_scroll_y;
         if (y + line_height < base_y or y > bottom) continue;
-        active_draw.AddText(font, font.LegacySize, .{ .x = base_x, .y = y }, text_col, text.items[line.start..line.end], null);
+        active_draw.AddTextSubpixel(font, font.LegacySize, .{ .x = base_x, .y = y }, text_col, text.items[line.start..line.end], null);
     }
 
     active_draw.SetClipRect(saved_clip);
@@ -2659,7 +2997,7 @@ fn handleMouseMove(hwnd: c.HWND, l_param: c.LPARAM) c.LRESULT {
         g_last_cursor_screen_valid = false;
     }
     if (cursor_moved) g_hover_requires_cursor_motion = false;
-    if (updateOutputDrag(pt)) return 0;
+    if (updateOutputDrag(pt, 0.0)) return 0;
     if (g_hover_requires_cursor_motion and !g_dragging and !g_press_captured) return 0;
 
     if (pointInRoundedRectClient(pt)) {
@@ -2994,6 +3332,8 @@ fn runGui() !u8 {
         updateLaunchButtonState();
         updateHoverStates(dt);
         updateAnimations(dt);
+        updateOutputSmoothScroll(dt);
+        updateOutputDragFromCursor(dt);
         if (!g_running or g_hwnd == null) break;
 
         bytegui.ByteGui_ImplOpenGL_NewFrame();

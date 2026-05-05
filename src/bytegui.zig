@@ -726,17 +726,25 @@ pub const ByteDrawList = struct {
         self.AddConvexPolyFilled(points.items, col);
     }
 
-    pub fn AddText(self: *ByteDrawList, font: ?*ByteFont, font_size: f32, pos: ByteVec2, col: ByteU32, text_begin: []const u8, text_end: ?usize) void {
+    fn AddTextInternal(self: *ByteDrawList, font: ?*ByteFont, font_size: f32, pos: ByteVec2, col: ByteU32, text_begin: []const u8, text_end: ?usize, filter: TextureFilter, snap_to_pixel: bool) void {
         if ((col & BYTEGUI_COL32_A_MASK) == 0) return;
 
         const slice = sliceFromOptionalEnd(text_begin, text_end);
-        const entry = getOrCreateTextTexture(font, font_size, 0.0, slice) orelse return;
+        const entry = getOrCreateTextTextureWithFilter(font, font_size, 0.0, slice, filter) orelse return;
         const texture = entry.Texture;
         if (texture == null) return;
-        const snapped_pos = ByteVec2{ .x = @floor(pos.x + 0.5), .y = @floor(pos.y + 0.5) };
-        const image_pos = ByteVec2{ .x = snapped_pos.x + entry.DrawOffset.x, .y = snapped_pos.y + entry.DrawOffset.y };
+        const draw_pos = if (snap_to_pixel) ByteVec2{ .x = @floor(pos.x + 0.5), .y = @floor(pos.y + 0.5) } else pos;
+        const image_pos = ByteVec2{ .x = draw_pos.x + entry.DrawOffset.x, .y = draw_pos.y + entry.DrawOffset.y };
         const image_size = if (entry.ImageSize.x > 0.0 and entry.ImageSize.y > 0.0) entry.ImageSize else entry.DisplaySize;
         self.AddImage(texture, image_pos, .{ .x = image_pos.x + image_size.x, .y = image_pos.y + image_size.y }, entry.UvMin, entry.UvMax, col);
+    }
+
+    pub fn AddText(self: *ByteDrawList, font: ?*ByteFont, font_size: f32, pos: ByteVec2, col: ByteU32, text_begin: []const u8, text_end: ?usize) void {
+        self.AddTextInternal(font, font_size, pos, col, text_begin, text_end, .nearest, true);
+    }
+
+    pub fn AddTextSubpixel(self: *ByteDrawList, font: ?*ByteFont, font_size: f32, pos: ByteVec2, col: ByteU32, text_begin: []const u8, text_end: ?usize) void {
+        self.AddTextInternal(font, font_size, pos, col, text_begin, text_end, .linear, false);
     }
 
     pub fn AddImage(self: *ByteDrawList, user_texture_id: ByteTextureID, p_min: ByteVec2, p_max: ByteVec2, uv_min: ByteVec2, uv_max: ByteVec2, col: ByteU32) void {
@@ -809,6 +817,7 @@ const TextCacheEntry = struct {
     Font: *ByteFont,
     PixelSize100: i32,
     WrapWidth100: i32,
+    Filter: TextureFilter,
     Text: []u8,
     Texture: ByteTextureID = null,
     DisplaySize: ByteVec2 = .{},
@@ -3666,6 +3675,7 @@ pub const TextLayoutResult = struct {
     width: f32 = 0.0,
     height: f32 = 0.0,
     line_height: f32 = 0.0,
+    ascender: f32 = 0.0,
 
     pub fn deinit(self: *TextLayoutResult) void {
         self.lines.deinit(allocator);
@@ -3751,6 +3761,9 @@ const TextSelectionHighlightTarget = struct {
 
 pub const TextSelectionHighlightState = struct {
     rects: std.ArrayListUnmanaged(TextSelectionHighlightRect) = .empty,
+    last_selection_start: usize = 0,
+    last_selection_end: usize = 0,
+    last_selection_valid: bool = false,
 
     pub fn deinit(self: *TextSelectionHighlightState) void {
         self.rects.deinit(allocator);
@@ -3809,6 +3822,23 @@ fn textSelectionSmoothFactor(dt: f32, rate: f32) f32 {
 
 fn textSelectionApproach(current: f32, target: f32, t: f32) f32 {
     return current + (target - current) * t;
+}
+
+fn textSelectionStateHasSameRange(state: *const TextSelectionHighlightState, selection: ?TextSelectionRange) bool {
+    const range = selection orelse return !state.last_selection_valid;
+    return state.last_selection_valid and state.last_selection_start == range.start and state.last_selection_end == range.end;
+}
+
+fn storeTextSelectionStateRange(state: *TextSelectionHighlightState, selection: ?TextSelectionRange) void {
+    if (selection) |range| {
+        state.last_selection_start = range.start;
+        state.last_selection_end = range.end;
+        state.last_selection_valid = true;
+    } else {
+        state.last_selection_start = 0;
+        state.last_selection_end = 0;
+        state.last_selection_valid = false;
+    }
 }
 
 fn textSelectionCornerRoundTargets(flags: u8) [4]f32 {
@@ -3925,54 +3955,105 @@ fn textSelectionCornerRoundFromCurrentGeometry(rects: []const TextSelectionHighl
     return rounding;
 }
 
-fn syncTextSelectionHighlightState(state: *TextSelectionHighlightState, targets: []const TextSelectionHighlightTarget, dt: f32, corner_radius: f32) void {
+fn syncTextSelectionStableRangeTargets(state: *TextSelectionHighlightState, targets: []const TextSelectionHighlightTarget) void {
     for (state.rects.items) |*rect| rect.matched = false;
 
     for (targets) |target| {
         if (findTextSelectionRect(state.rects.items, target.line_index)) |index| {
             var rect = &state.rects.items[index];
+            const anchor = textSelectionRectCenter(target.min, target.max);
+            rect.current_min.y += target.min.y - rect.target_min.y;
+            rect.current_max.y += target.max.y - rect.target_max.y;
+            rect.grow_anchor_current.y += anchor.y - rect.grow_anchor_target.y;
             rect.target_min = target.min;
             rect.target_max = target.max;
             rect.target_alpha = 1.0;
             rect.target_scale_y = 1.0;
-            rect.grow_anchor_target = textSelectionRectCenter(target.min, target.max);
+            rect.grow_anchor_target = anchor;
             rect.matched = true;
         } else {
-            const anchor = textSelectionGrowthAnchorFromNeighbors(target, state.rects.items);
-            var start_min: ByteVec2 = .{};
-            var start_max: ByteVec2 = .{};
-            textSelectionEdgeRectFromAnchor(target.min, target.max, anchor, &start_min, &start_max);
             state.rects.append(allocator, .{
                 .line_index = target.line_index,
-                .current_min = start_min,
-                .current_max = start_max,
+                .current_min = target.min,
+                .current_max = target.max,
                 .target_min = target.min,
                 .target_max = target.max,
-                .alpha = 0.0,
+                .alpha = 1.0,
                 .target_alpha = 1.0,
                 .scale_y = 1.0,
                 .target_scale_y = 1.0,
                 .corner_round = [_]f32{ 1.0, 1.0, 1.0, 1.0 },
                 .target_corner_round = [_]f32{ 1.0, 1.0, 1.0, 1.0 },
-                .grow_anchor_current = textSelectionRectCenter(start_min, start_max),
-                .grow_anchor_target = textSelectionRectCenter(start_min, start_max),
+                .grow_anchor_current = textSelectionRectCenter(target.min, target.max),
+                .grow_anchor_target = textSelectionRectCenter(target.min, target.max),
                 .matched = true,
             }) catch {};
         }
     }
 
-    for (state.rects.items) |*rect| {
-        if (!rect.matched) {
-            const collapse_point = textSelectionCollapseAnchorFromTargets(rect.*, targets);
-            var collapse_min: ByteVec2 = .{};
-            var collapse_max: ByteVec2 = .{};
-            textSelectionEdgeRectFromAnchor(rect.target_min, rect.target_max, collapse_point, &collapse_min, &collapse_max);
-            rect.target_min = collapse_min;
-            rect.target_max = collapse_max;
-            rect.target_alpha = 0.0;
-            rect.target_scale_y = 1.0;
-            rect.target_corner_round = [_]f32{ 1.0, 1.0, 1.0, 1.0 };
-            rect.grow_anchor_target = textSelectionRectCenter(rect.target_min, rect.target_max);
+    var i: usize = 0;
+    while (i < state.rects.items.len) {
+        if (!state.rects.items[i].matched) {
+            _ = state.rects.orderedRemove(i);
+            continue;
+        }
+        i += 1;
+    }
+}
+
+fn syncTextSelectionHighlightState(state: *TextSelectionHighlightState, selection: ?TextSelectionRange, targets: []const TextSelectionHighlightTarget, dt: f32, corner_radius: f32) void {
+    const same_selection = textSelectionStateHasSameRange(state, selection);
+    if (same_selection) {
+        syncTextSelectionStableRangeTargets(state, targets);
+    } else {
+        for (state.rects.items) |*rect| rect.matched = false;
+
+        for (targets) |target| {
+            if (findTextSelectionRect(state.rects.items, target.line_index)) |index| {
+                var rect = &state.rects.items[index];
+                rect.target_min = target.min;
+                rect.target_max = target.max;
+                rect.target_alpha = 1.0;
+                rect.target_scale_y = 1.0;
+                rect.grow_anchor_target = textSelectionRectCenter(target.min, target.max);
+                rect.matched = true;
+            } else {
+                const anchor = textSelectionGrowthAnchorFromNeighbors(target, state.rects.items);
+                var start_min: ByteVec2 = .{};
+                var start_max: ByteVec2 = .{};
+                textSelectionEdgeRectFromAnchor(target.min, target.max, anchor, &start_min, &start_max);
+                state.rects.append(allocator, .{
+                    .line_index = target.line_index,
+                    .current_min = start_min,
+                    .current_max = start_max,
+                    .target_min = target.min,
+                    .target_max = target.max,
+                    .alpha = 0.0,
+                    .target_alpha = 1.0,
+                    .scale_y = 1.0,
+                    .target_scale_y = 1.0,
+                    .corner_round = [_]f32{ 1.0, 1.0, 1.0, 1.0 },
+                    .target_corner_round = [_]f32{ 1.0, 1.0, 1.0, 1.0 },
+                    .grow_anchor_current = textSelectionRectCenter(start_min, start_max),
+                    .grow_anchor_target = textSelectionRectCenter(start_min, start_max),
+                    .matched = true,
+                }) catch {};
+            }
+        }
+
+        for (state.rects.items) |*rect| {
+            if (!rect.matched) {
+                const collapse_point = textSelectionCollapseAnchorFromTargets(rect.*, targets);
+                var collapse_min: ByteVec2 = .{};
+                var collapse_max: ByteVec2 = .{};
+                textSelectionEdgeRectFromAnchor(rect.target_min, rect.target_max, collapse_point, &collapse_min, &collapse_max);
+                rect.target_min = collapse_min;
+                rect.target_max = collapse_max;
+                rect.target_alpha = 0.0;
+                rect.target_scale_y = 1.0;
+                rect.target_corner_round = [_]f32{ 1.0, 1.0, 1.0, 1.0 };
+                rect.grow_anchor_target = textSelectionRectCenter(rect.target_min, rect.target_max);
+            }
         }
     }
 
@@ -4013,6 +4094,8 @@ fn syncTextSelectionHighlightState(state: *TextSelectionHighlightState, targets:
         }
         i += 1;
     }
+
+    storeTextSelectionStateRange(state, selection);
 }
 
 fn selectionIntervalsTouchOrOverlap(a0: f32, a1: f32, b0: f32, b1: f32, epsilon: f32) bool {
@@ -4338,10 +4421,11 @@ fn drawAnimatedTextSelectionRects(draw: *ByteDrawList, state: *const TextSelecti
 
 fn drawTextSelectionHighlight(draw: ?*ByteDrawList, state: *TextSelectionHighlightState, params: TextSelectionHighlightParams) void {
     const active_draw = draw orelse return;
+    const selection = normalizedTextSelectionRange(params.selection, params.text.len);
     var targets: std.ArrayListUnmanaged(TextSelectionHighlightTarget) = .empty;
     defer targets.deinit(allocator);
     if (!appendTextSelectionTargets(&targets, params)) return;
-    syncTextSelectionHighlightState(state, targets.items, params.dt, textSelectionEffectiveRadius(params.radius));
+    syncTextSelectionHighlightState(state, selection, targets.items, params.dt, textSelectionEffectiveRadius(params.radius));
     drawAnimatedTextSelectionRects(active_draw, state, params);
 }
 
@@ -4708,6 +4792,7 @@ fn layoutText(font: *const ByteFont, size_pixels: f32, text: []const u8, wrap_wi
 
     var result = TextLayoutResult{};
     result.line_height = @max(1.0, session.lineHeight());
+    result.ascender = session.ascender_px;
 
     var line_start: usize = 0;
     var line_end: usize = 0;
@@ -5178,6 +5263,10 @@ fn clearTextCache() void {
 }
 
 fn getOrCreateTextTexture(font_opt: ?*ByteFont, size_pixels: f32, wrap_width: f32, text: []const u8) ?*TextCacheEntry {
+    return getOrCreateTextTextureWithFilter(font_opt, size_pixels, wrap_width, text, .nearest);
+}
+
+fn getOrCreateTextTextureWithFilter(font_opt: ?*ByteFont, size_pixels: f32, wrap_width: f32, text: []const u8, filter: TextureFilter) ?*TextCacheEntry {
     const ctx = GByteGui orelse return null;
     const font = font_opt orelse return null;
     if (!ByteGui_ImplOpenGL_HasContext() or text.len == 0) return null;
@@ -5185,12 +5274,12 @@ fn getOrCreateTextTexture(font_opt: ?*ByteFont, size_pixels: f32, wrap_width: f3
     const pixel_size100: i32 = @intFromFloat(@round(size_pixels * 100.0));
     const wrap_width100: i32 = @intFromFloat(@round(wrap_width * 100.0));
     for (ctx.TextCache.items) |*entry| {
-        if (entry.Font == font and entry.PixelSize100 == pixel_size100 and entry.WrapWidth100 == wrap_width100 and std.mem.eql(u8, entry.Text, text)) {
+        if (entry.Font == font and entry.PixelSize100 == pixel_size100 and entry.WrapWidth100 == wrap_width100 and entry.Filter == filter and std.mem.eql(u8, entry.Text, text)) {
             return entry;
         }
     }
 
-    const built = buildTextTextureFromFont(font, size_pixels, text, textSupersampleForFont(font), 0.12, wrap_width, 1.0, 255, .nearest) orelse return null;
+    const built = buildTextTextureFromFont(font, size_pixels, text, textSupersampleForFont(font), 0.12, wrap_width, 1.0, 255, filter) orelse return null;
     const texture = built.texture;
     const text_copy = allocator.dupe(u8, text) catch {
         releaseTexture(texture);
@@ -5201,6 +5290,7 @@ fn getOrCreateTextTexture(font_opt: ?*ByteFont, size_pixels: f32, wrap_width: f3
         .Font = font,
         .PixelSize100 = pixel_size100,
         .WrapWidth100 = wrap_width100,
+        .Filter = filter,
         .Text = text_copy,
         .Texture = texture,
         .DisplaySize = built.content_size_px,

@@ -26,7 +26,7 @@ pub const countdown_action_minimize = "Minimizing";
 pub const countdown_action_close = "Closing";
 
 pub const status_game_found = "Game found!";
-pub const status_launch_here_or_external = "You can now launch the game here or externally...";
+pub const status_launch_here_or_external = "You can now launch the game here or externally... h0 8uh h0u h08h 087 087 087g 0g 0dyguifdh oiuh oiu hireh herighajhuasdh u9 u giuh sjhgau h  h0 8uh h0u h08h 087 087 087g 0g 0dyguifdh oiuh oiu hireh herighajhuasdh u9 u giuh sjhgau h  h0 8uh h0u h08h 087 087 087g 0g 0dyguifdh oiuh oiu hireh herighajhuasdh u9 u giuh sjhgau h  h0 8uh h0u h08h 087 087 087g 0g 0dyguifdh oiuh oiu hireh herighajhuasdh u9 u giuh sjhgau h  h0 8uh h0u h08h 087 087 087g 0g 0dyguifdh oiuh oiu hireh herighajhuasdh u9 u giuh sjhgau h  h0 8uh h0u h08h 087 087 087g 0g 0dyguifdh oiuh oiu hireh herighajhuasdh u9 u giuh sjhgau h "; // This extra text is here to test scrolling
 pub const status_game_not_found = "Game not found.";
 pub const status_launch_externally = "Please launch the game externally...";
 pub const status_monitor_failed = "Background game monitor failed to start.";
