@@ -1128,12 +1128,81 @@ pub const ByteGui = struct {
         return layoutText(active_font, font_size, text, wrap_width);
     }
 
+    pub fn LayoutScrollableText(params: ScrollableTextLayoutParams) ?ScrollableTextLayoutResult {
+        return layoutScrollableText(params);
+    }
+
+    pub fn CalcTextScrollMax(content_height: f32, viewport_height: f32) f32 {
+        return calcTextScrollMax(content_height, viewport_height);
+    }
+
+    pub fn CalcTextLineVisualMid(layout: *const TextLayoutResult, line_index: usize) f32 {
+        return calcTextLineVisualMid(layout, line_index);
+    }
+
+    pub fn SnapTextScrollYToLine(value: f32, max_scroll: f32, layout: *const TextLayoutResult) f32 {
+        return snapTextScrollYToLine(value, max_scroll, layout);
+    }
+
+    pub fn SnapTextScrollYToLineHeight(value: f32, max_scroll: f32, line_height: f32) f32 {
+        return snapTextScrollYToLineHeight(value, max_scroll, line_height);
+    }
+
+    pub fn TextIndexFromPoint(params: TextIndexFromPointParams) usize {
+        return textIndexFromPoint(params);
+    }
+
+    pub fn TextIndexFromDragPoint(params: TextIndexFromPointParams) usize {
+        return textIndexFromDragPoint(params);
+    }
+
+    pub fn DrawTextLayoutClipped(draw: ?*ByteDrawList, params: TextLayoutDrawParams) void {
+        drawTextLayoutClipped(draw, params);
+    }
+
     pub fn DrawTextSelectionHighlight(draw: ?*ByteDrawList, state: *TextSelectionHighlightState, params: TextSelectionHighlightParams) void {
         drawTextSelectionHighlight(draw, state, params);
     }
 
+    pub fn DrawTextSelectionHighlightClipped(draw: ?*ByteDrawList, state: *TextSelectionHighlightState, params: TextSelectionHighlightParams, clip_rect: w32.RECT) void {
+        drawTextSelectionHighlightClipped(draw, state, params, clip_rect);
+    }
+
     pub fn CalcVerticalScrollbarMetrics(params: VerticalScrollbarParams) ?ScrollbarMetrics {
         return calcVerticalScrollbarMetrics(params);
+    }
+
+    pub fn CalcVerticalScrollbarTrack(params: VerticalScrollbarTrackParams) VerticalScrollbarTrack {
+        return calcVerticalScrollbarTrack(params);
+    }
+
+    pub fn CalcVerticalScrollbarMetricsForTrack(track: VerticalScrollbarTrack, content_height: f32, viewport_height: f32, scroll_y: f32, min_thumb_height: f32) ?ScrollbarMetrics {
+        return calcVerticalScrollbarMetrics(.{
+            .track_pos = track.pos,
+            .track_size = track.size,
+            .content_height = content_height,
+            .viewport_height = viewport_height,
+            .scroll_y = scroll_y,
+            .min_thumb_height = min_thumb_height,
+        });
+    }
+
+    pub fn VerticalScrollbarInactiveMetrics(track: VerticalScrollbarTrack) ScrollbarMetrics {
+        return .{
+            .track_pos = track.pos,
+            .track_size = track.size,
+            .thumb_pos = track.pos,
+            .thumb_size = track.size,
+            .max_scroll = 0.0,
+        };
+    }
+
+    pub fn ScrollbarScrollForThumbTop(metrics: ScrollbarMetrics, thumb_top: f32) f32 {
+        return scrollbarScrollForThumbTop(metrics, thumb_top);
+    }
+
+    pub fn ScrollbarDragScrollFromThumbOffset(metrics: ScrollbarMetrics, point_y: f32, thumb_offset_y: f32) f32 {
+        return scrollbarScrollForThumbTop(metrics, point_y - thumb_offset_y);
     }
 
     pub fn PointInScrollbarThumb(metrics: ScrollbarMetrics, point: ByteVec2, hit_pad: f32) bool {
@@ -1672,6 +1741,167 @@ pub const Ui = struct {
             RotatePoint(rect_pos.x, rect_pos.y + rect_size.y, pivot.x, pivot.y, ccos, ssin),
         };
         ByteGui.DrawConvexPolyFilledClippedToCornerOnlyRoundedRect(active_draw, &subject, clip_pos, clip_size, clip_radius, col, arc_segments);
+    }
+
+    pub fn DrawDiagonalBandClippedToCornerOnlyRoundedRect(
+        draw: ?*ByteDrawList,
+        window_size: ByteVec2,
+        contact: ByteVec2,
+        corner_radius: f32,
+        color: ByteVec4,
+        opacity: f32,
+        arc_segments: i32,
+    ) void {
+        const active_draw = draw orelse return;
+        const edge_axis = ByteVec2{ .x = 0.70710677, .y = -0.70710677 };
+        const fill_axis = ByteVec2{ .x = 0.70710677, .y = 0.70710677 };
+        const span = @sqrt(window_size.x * window_size.x + window_size.y * window_size.y);
+        const thickness = @max(1.0, window_size.y - corner_radius * 0.4);
+        const contact_start = ByteVec2{ .x = contact.x - edge_axis.x * span, .y = contact.y - edge_axis.y * span };
+        const contact_end = ByteVec2{ .x = contact.x + edge_axis.x * span, .y = contact.y + edge_axis.y * span };
+        const edge_start = ByteVec2{ .x = contact_start.x - fill_axis.x * thickness, .y = contact_start.y - fill_axis.y * thickness };
+        const edge_end = ByteVec2{ .x = contact_end.x - fill_axis.x * thickness, .y = contact_end.y - fill_axis.y * thickness };
+        const subject = [_]ByteVec2{
+            edge_start,
+            edge_end,
+            contact_end,
+            contact_start,
+        };
+        ByteGui.DrawConvexPolyFilledClippedToCornerOnlyRoundedRect(
+            active_draw,
+            subject[0..],
+            .{ .x = 0.0, .y = 0.0 },
+            window_size,
+            corner_radius,
+            ColorToU32(ApplyOpacity(color, opacity)),
+            arc_segments,
+        );
+    }
+
+    pub fn DrawTextTextureCentered(draw: ?*ByteDrawList, texture: *const TextTexture, center: ByteVec2, scale: f32, color: ByteVec4, opacity: f32) bool {
+        const active_draw = draw orelse return false;
+        if (texture.texture == null or texture.display_size_px.x <= 0.0 or texture.display_size_px.y <= 0.0) return false;
+
+        const texture_size = if (texture.image_size_px.x > 0.0 and texture.image_size_px.y > 0.0) texture.image_size_px else texture.display_size_px;
+        const content_size = ByteVec2{
+            .x = texture.display_size_px.x * scale,
+            .y = texture.display_size_px.y * scale,
+        };
+        const image_size = ByteVec2{
+            .x = texture_size.x * scale,
+            .y = texture_size.y * scale,
+        };
+        const content_pos = ByteVec2{
+            .x = center.x - content_size.x * 0.5,
+            .y = center.y - content_size.y * 0.5,
+        };
+        const image_pos = ByteVec2{
+            .x = content_pos.x + texture.draw_offset_px.x * scale,
+            .y = content_pos.y + texture.draw_offset_px.y * scale,
+        };
+
+        active_draw.AddImage(
+            @ptrCast(texture.texture),
+            image_pos,
+            .{ .x = image_pos.x + image_size.x, .y = image_pos.y + image_size.y },
+            texture.uv_min,
+            texture.uv_max,
+            ColorToU32(ApplyOpacity(color, opacity)),
+        );
+        return true;
+    }
+
+    pub fn DrawStackedTextTexturesCentered(
+        draw: ?*ByteDrawList,
+        top_texture: *const TextTexture,
+        bottom_texture: *const TextTexture,
+        center: ByteVec2,
+        scale: f32,
+        center_gap: f32,
+        color: ByteVec4,
+        opacity: f32,
+    ) bool {
+        const top_ok = DrawTextTextureCentered(draw, top_texture, .{ .x = center.x, .y = center.y - center_gap * 0.5 }, scale, color, opacity);
+        const bottom_ok = DrawTextTextureCentered(draw, bottom_texture, .{ .x = center.x, .y = center.y + center_gap * 0.5 }, scale, color, opacity);
+        return top_ok and bottom_ok;
+    }
+
+    pub fn DrawDebugOutlineBounds(draw: ?*ByteDrawList, p_min: ByteVec2, p_max: ByteVec2, color: ByteVec4, opacity: f32, thickness: f32) void {
+        const active_draw = draw orelse return;
+        const left = @floor(@min(p_min.x, p_max.x));
+        const top = @floor(@min(p_min.y, p_max.y));
+        const right = @ceil(@max(p_min.x, p_max.x));
+        const bottom = @ceil(@max(p_min.y, p_max.y));
+        if (right <= left or bottom <= top) return;
+
+        const line_thickness = @max(1.0, thickness);
+        const col = ColorToU32(ApplyOpacity(color, opacity));
+        active_draw.AddRectFilled(.{ .x = left, .y = top }, .{ .x = right, .y = @min(bottom, top + line_thickness) }, col, 0.0);
+        active_draw.AddRectFilled(.{ .x = left, .y = @max(top, bottom - line_thickness) }, .{ .x = right, .y = bottom }, col, 0.0);
+        active_draw.AddRectFilled(.{ .x = left, .y = top }, .{ .x = @min(right, left + line_thickness), .y = bottom }, col, 0.0);
+        active_draw.AddRectFilled(.{ .x = @max(left, right - line_thickness), .y = top }, .{ .x = right, .y = bottom }, col, 0.0);
+    }
+
+    pub fn DrawDebugRectOutline(draw: ?*ByteDrawList, rect: anytype, color: ByteVec4, opacity: f32, thickness: f32) void {
+        DrawDebugOutlineBounds(
+            draw,
+            .{ .x = @as(f32, @floatFromInt(rect.left)), .y = @as(f32, @floatFromInt(rect.top)) },
+            .{ .x = @as(f32, @floatFromInt(rect.right)), .y = @as(f32, @floatFromInt(rect.bottom)) },
+            color,
+            opacity,
+            thickness,
+        );
+    }
+
+    pub fn DrawDebugBoxOutline(draw: ?*ByteDrawList, pos: ByteVec2, size: ByteVec2, color: ByteVec4, opacity: f32, thickness: f32) void {
+        DrawDebugOutlineBounds(draw, pos, .{ .x = pos.x + size.x, .y = pos.y + size.y }, color, opacity, thickness);
+    }
+
+    pub fn DrawDebugGuideVertical(draw: ?*ByteDrawList, x: f32, y_min: f32, y_max: f32, color: ByteVec4, opacity: f32, thickness: f32) void {
+        const active_draw = draw orelse return;
+        const top = @floor(@min(y_min, y_max));
+        const bottom = @ceil(@max(y_min, y_max));
+        if (bottom <= top) return;
+        const line_thickness = @max(1.0, thickness);
+        const left = @floor(x - line_thickness * 0.5);
+        const col = ColorToU32(ApplyOpacity(color, opacity));
+        active_draw.AddRectFilled(.{ .x = left, .y = top }, .{ .x = left + line_thickness, .y = bottom }, col, 0.0);
+    }
+
+    pub fn DrawDebugGuideHorizontal(draw: ?*ByteDrawList, y: f32, x_min: f32, x_max: f32, color: ByteVec4, opacity: f32, thickness: f32) void {
+        const active_draw = draw orelse return;
+        const left = @floor(@min(x_min, x_max));
+        const right = @ceil(@max(x_min, x_max));
+        if (right <= left) return;
+        const line_thickness = @max(1.0, thickness);
+        const top = @floor(y - line_thickness * 0.5);
+        const col = ColorToU32(ApplyOpacity(color, opacity));
+        active_draw.AddRectFilled(.{ .x = left, .y = top }, .{ .x = right, .y = top + line_thickness }, col, 0.0);
+    }
+
+    pub fn DrawDebugCrosshair(draw: ?*ByteDrawList, center: ByteVec2, radius: f32, color: ByteVec4, opacity: f32, thickness: f32) void {
+        DrawDebugGuideHorizontal(draw, center.y, center.x - radius, center.x + radius, color, opacity, thickness);
+        DrawDebugGuideVertical(draw, center.x, center.y - radius, center.y + radius, color, opacity, thickness);
+    }
+
+    pub fn DrawDebugLineSegment(draw: ?*ByteDrawList, center: ByteVec2, axis: ByteVec2, length: f32, thickness: f32, color: ByteVec4, opacity: f32) void {
+        const active_draw = draw orelse return;
+        const axis_len = @sqrt(axis.x * axis.x + axis.y * axis.y);
+        if (axis_len <= 0.0 or length <= 0.0 or thickness <= 0.0) return;
+
+        const dir = ByteVec2{ .x = axis.x / axis_len, .y = axis.y / axis_len };
+        const normal = ByteVec2{ .x = -dir.y, .y = dir.x };
+        const half_len = length * 0.5;
+        const half_thick = thickness * 0.5;
+        const p0 = ByteVec2{ .x = center.x - dir.x * half_len, .y = center.y - dir.y * half_len };
+        const p1 = ByteVec2{ .x = center.x + dir.x * half_len, .y = center.y + dir.y * half_len };
+        const points = [_]ByteVec2{
+            .{ .x = p0.x + normal.x * half_thick, .y = p0.y + normal.y * half_thick },
+            .{ .x = p1.x + normal.x * half_thick, .y = p1.y + normal.y * half_thick },
+            .{ .x = p1.x - normal.x * half_thick, .y = p1.y - normal.y * half_thick },
+            .{ .x = p0.x - normal.x * half_thick, .y = p0.y - normal.y * half_thick },
+        };
+        active_draw.AddConvexPolyFilled(&points, ColorToU32(ApplyOpacity(color, opacity)));
     }
 
     pub fn DrawHorizontalGradientRectFilled(draw: ?*ByteDrawList, pos: ByteVec2, size: ByteVec2, radius: f32, left_color: ByteVec4, right_color: ByteVec4, opacity: f32) void {
@@ -3618,6 +3848,188 @@ fn detectFontStyleFromPath(path: []const u8) i32 {
     return FontStyleRegular;
 }
 
+fn calcTextScrollMax(content_height: f32, viewport_height: f32) f32 {
+    return @max(0.0, content_height - viewport_height);
+}
+
+fn layoutScrollableText(params: ScrollableTextLayoutParams) ?ScrollableTextLayoutResult {
+    const font = params.font orelse return null;
+    var wrap_width = @max(1.0, params.viewport.x);
+    var layout = layoutText(font, params.font_size, params.text, wrap_width) orelse return null;
+    var overflow = layout.height > params.viewport.y + 0.5;
+
+    if (overflow and params.scrollbar_reserved_width > 0.0) {
+        const reduced_wrap_width = @max(1.0, params.viewport.x - params.scrollbar_reserved_width);
+        if (reduced_wrap_width < wrap_width) {
+            layout.deinit();
+            wrap_width = reduced_wrap_width;
+            layout = layoutText(font, params.font_size, params.text, wrap_width) orelse return null;
+            overflow = layout.height > params.viewport.y + 0.5;
+        }
+    }
+
+    return .{
+        .layout = layout,
+        .viewport = params.viewport,
+        .overflow = overflow,
+    };
+}
+
+fn calcTextLineVisualMid(layout: *const TextLayoutResult, line_index: usize) f32 {
+    const line_height = @max(1.0, layout.line_height);
+    const line_top = @as(f32, @floatFromInt(line_index)) * line_height;
+    if (line_index >= layout.lines.items.len) return line_top + line_height * 0.5;
+
+    const line = layout.lines.items[line_index];
+    if (line.bounds.Height <= 0.5) return line_top + line_height * 0.5;
+
+    const glyph_top = line_top + layout.ascender + line.bounds.Y;
+    const glyph_bottom = glyph_top + line.bounds.Height;
+    return (std.math.clamp(glyph_top, line_top, line_top + line_height) +
+        std.math.clamp(glyph_bottom, line_top, line_top + line_height)) * 0.5;
+}
+
+fn snapTextScrollYToLine(value: f32, max_scroll: f32, layout: *const TextLayoutResult) f32 {
+    const line_height = @max(1.0, layout.line_height);
+    if (line_height <= 0.0) return std.math.clamp(value, 0.0, max_scroll);
+    if (value >= max_scroll - 0.05) return max_scroll;
+    if (layout.lines.items.len == 0) return std.math.clamp(value, 0.0, max_scroll);
+
+    const clamped = std.math.clamp(value, 0.0, max_scroll);
+    var snap_index: usize = 0;
+    for (layout.lines.items, 0..) |_, line_index| {
+        if (clamped < calcTextLineVisualMid(layout, line_index)) break;
+        snap_index = @min(line_index + 1, layout.lines.items.len - 1);
+    }
+
+    return std.math.clamp(@as(f32, @floatFromInt(snap_index)) * line_height, 0.0, max_scroll);
+}
+
+fn snapTextScrollYToLineHeight(value: f32, max_scroll: f32, line_height_in: f32) f32 {
+    const line_height = @max(1.0, line_height_in);
+    if (line_height <= 0.0) return std.math.clamp(value, 0.0, max_scroll);
+    if (value >= max_scroll - 0.05) return max_scroll;
+    return std.math.clamp(@round(value / line_height) * line_height, 0.0, max_scroll);
+}
+
+fn nextUtf8Index(text: []const u8, index: usize, end: usize) usize {
+    if (index >= end) return end;
+    const cp_len = std.unicode.utf8ByteSequenceLength(text[index]) catch 1;
+    return @min(end, index + cp_len);
+}
+
+fn textWidthRange(font: ?*ByteFont, font_size: f32, text: []const u8, start: usize, end: usize) f32 {
+    if (end <= start) return 0.0;
+    return ByteGui.CalcTextWidth(font, font_size, text[start..end]);
+}
+
+fn textLineIndexAtX(font: ?*ByteFont, font_size: f32, text: []const u8, line: TextLine, x: f32) usize {
+    if (x <= 0.0 or line.end <= line.start) return line.start;
+    if (x >= line.width) return line.end;
+
+    var index = line.start;
+    while (index < line.end) {
+        const next = nextUtf8Index(text, index, line.end);
+        const left_w = textWidthRange(font, font_size, text, line.start, index);
+        const right_w = textWidthRange(font, font_size, text, line.start, next);
+        if (x < (left_w + right_w) * 0.5) return index;
+        index = next;
+    }
+    return line.end;
+}
+
+fn textIndexFromPoint(params: TextIndexFromPointParams) usize {
+    if (params.text.len == 0 or params.layout.lines.items.len == 0) return 0;
+
+    const x = params.point.x - params.base_pos.x;
+    const y = params.point.y - params.base_pos.y + params.scroll_y;
+    if (y <= 0.0) return textLineIndexAtX(params.font, params.font_size, params.text, params.layout.lines.items[0], x);
+
+    const line_height = @max(1.0, params.layout.line_height);
+    const line_index_f = @floor(y / line_height);
+    if (line_index_f >= @as(f32, @floatFromInt(params.layout.lines.items.len))) return params.text.len;
+
+    const line_index: usize = @intFromFloat(@max(0.0, line_index_f));
+    return textLineIndexAtX(params.font, params.font_size, params.text, params.layout.lines.items[line_index], x);
+}
+
+fn textIndexFromDragPoint(params: TextIndexFromPointParams) usize {
+    if (params.text.len == 0 or params.layout.lines.items.len == 0) return 0;
+
+    if (params.point.y >= params.base_pos.y and params.point.y < params.base_pos.y + params.viewport_height) return textIndexFromPoint(params);
+
+    const x = params.point.x - params.base_pos.x;
+    const viewport_top = params.scroll_y;
+    const viewport_bottom = viewport_top + @max(1.0, params.viewport_height);
+
+    if (params.point.y < params.base_pos.y) {
+        for (params.layout.lines.items, 0..) |line, line_index| {
+            if (calcTextLineVisualMid(params.layout, line_index) >= viewport_top) {
+                return textLineIndexAtX(params.font, params.font_size, params.text, line, x);
+            }
+        }
+        return textLineIndexAtX(params.font, params.font_size, params.text, params.layout.lines.items[params.layout.lines.items.len - 1], x);
+    }
+
+    var best_index: usize = 0;
+    for (params.layout.lines.items, 0..) |_, line_index| {
+        if (calcTextLineVisualMid(params.layout, line_index) > viewport_bottom) break;
+        best_index = line_index;
+    }
+    return textLineIndexAtX(params.font, params.font_size, params.text, params.layout.lines.items[best_index], x);
+}
+
+fn setClipRectFromRect(draw: *ByteDrawList, rect: w32.RECT) ByteVec4 {
+    const saved_clip = draw.CurrentClipRect;
+    draw.SetClipRect(.{
+        .x = @as(f32, @floatFromInt(rect.left)),
+        .y = @as(f32, @floatFromInt(rect.top)),
+        .z = @as(f32, @floatFromInt(rect.right)),
+        .w = @as(f32, @floatFromInt(rect.bottom)),
+    });
+    return saved_clip;
+}
+
+fn drawTextSelectionHighlightClipped(draw: ?*ByteDrawList, state: *TextSelectionHighlightState, params: TextSelectionHighlightParams, clip_rect: w32.RECT) void {
+    const active_draw = draw orelse return;
+    const saved_clip = setClipRectFromRect(active_draw, clip_rect);
+    defer active_draw.SetClipRect(saved_clip);
+    drawTextSelectionHighlight(active_draw, state, params);
+}
+
+fn drawTextLayoutClipped(draw: ?*ByteDrawList, params: TextLayoutDrawParams) void {
+    const active_draw = draw orelse return;
+    const font = params.font orelse return;
+    if ((params.color & BYTEGUI_COL32_A_MASK) == 0) return;
+
+    const saved_clip = setClipRectFromRect(active_draw, params.clip_rect);
+    defer active_draw.SetClipRect(saved_clip);
+
+    const line_height = @max(1.0, params.layout.line_height);
+    const bottom = @as(f32, @floatFromInt(params.clip_rect.bottom));
+    for (params.layout.lines.items, 0..) |line, line_index| {
+        const y = params.base_pos.y + @as(f32, @floatFromInt(line_index)) * line_height - params.scroll_y;
+        if (y + line_height < params.base_pos.y or y > bottom) continue;
+        active_draw.AddTextSubpixel(font, params.font_size, .{ .x = params.base_pos.x, .y = y }, params.color, params.text[line.start..line.end], null);
+    }
+}
+
+fn calcVerticalScrollbarTrack(params: VerticalScrollbarTrackParams) VerticalScrollbarTrack {
+    return .{
+        .pos = .{
+            .x = @as(f32, @floatFromInt(params.viewport_rect.right)) - params.pad - params.width,
+            .y = @as(f32, @floatFromInt(params.viewport_rect.top)) + params.pad,
+        },
+        .size = .{ .x = params.width, .y = @max(1.0, params.viewport_height - params.pad * 2.0) },
+    };
+}
+
+fn scrollbarScrollForThumbTop(metrics: ScrollbarMetrics, thumb_top: f32) f32 {
+    const drag_range = @max(1.0, metrics.track_size.y - metrics.thumb_size.y);
+    const t = std.math.clamp((thumb_top - metrics.track_pos.y) / drag_range, 0.0, 1.0);
+    return t * metrics.max_scroll;
+}
+
 // Text layout and cache
 pub const TextBounds = struct {
     X: f32 = 0.0,
@@ -3683,6 +4095,59 @@ pub const TextLayoutResult = struct {
     }
 };
 
+pub const ScrollableTextLayoutParams = struct {
+    font: ?*ByteFont,
+    font_size: f32,
+    text: []const u8,
+    viewport: ByteVec2,
+    scrollbar_reserved_width: f32 = 0.0,
+};
+
+pub const ScrollableTextLayoutResult = struct {
+    layout: TextLayoutResult,
+    viewport: ByteVec2,
+    overflow: bool = false,
+
+    pub fn deinit(self: *ScrollableTextLayoutResult) void {
+        self.layout.deinit();
+        self.* = .{ .layout = .{}, .viewport = .{} };
+    }
+};
+
+pub const TextIndexFromPointParams = struct {
+    font: ?*ByteFont,
+    font_size: f32,
+    text: []const u8,
+    layout: *const TextLayoutResult,
+    base_pos: ByteVec2,
+    viewport_height: f32,
+    scroll_y: f32,
+    point: ByteVec2,
+};
+
+pub const TextLayoutDrawParams = struct {
+    font: ?*ByteFont,
+    font_size: f32,
+    text: []const u8,
+    layout: *const TextLayoutResult,
+    clip_rect: w32.RECT,
+    base_pos: ByteVec2,
+    scroll_y: f32,
+    color: ByteU32,
+};
+
+pub const VerticalScrollbarTrackParams = struct {
+    viewport_rect: w32.RECT,
+    viewport_height: f32,
+    width: f32,
+    pad: f32,
+};
+
+pub const VerticalScrollbarTrack = struct {
+    pos: ByteVec2,
+    size: ByteVec2,
+};
+
 pub const TextSelectionRange = struct {
     start: usize,
     end: usize,
@@ -3707,6 +4172,10 @@ pub const ScrollbarMetrics = struct {
 
 pub const ScrollbarVisualState = struct {
     visual_t: f32 = 0.0,
+    visibility_t: f32 = 0.0,
+    thumb_pos: ByteVec2 = .{},
+    thumb_size: ByteVec2 = .{},
+    has_geometry: bool = false,
 };
 
 pub const ScrollbarDrawParams = struct {
@@ -3716,9 +4185,11 @@ pub const ScrollbarDrawParams = struct {
     active_color: ByteVec4,
     hovered: bool = false,
     active: bool = false,
+    visible: bool = true,
     opacity: f32 = 1.0,
     dt: f32 = 1.0 / 60.0,
     fade_seconds: f32 = 0.16,
+    geometry_rate: f32 = 26.0,
 };
 
 pub const TextSelectionHighlightParams = struct {
@@ -4470,25 +4941,89 @@ fn updateScrollbarVisualState(state: *ScrollbarVisualState, hovered: bool, activ
     }
 }
 
+fn updateScrollbarVisibilityState(state: *ScrollbarVisualState, visible: bool, dt: f32, fade_seconds: f32) void {
+    const target: f32 = if (visible) 1.0 else 0.0;
+    const step = if (fade_seconds > 0.0) @min(1.0, @max(0.0, dt) / fade_seconds) else 1.0;
+    if (state.visibility_t < target) {
+        state.visibility_t = @min(target, state.visibility_t + step);
+    } else {
+        state.visibility_t = @max(target, state.visibility_t - step);
+    }
+}
+
+fn scrollbarSmoothFactor(dt: f32, rate: f32) f32 {
+    return std.math.clamp(1.0 - @exp(-@max(0.0, dt) * rate), 0.0, 1.0);
+}
+
+fn scrollbarApproach(current: f32, target: f32, t: f32) f32 {
+    return current + (target - current) * t;
+}
+
+fn updateScrollbarGeometryState(state: *ScrollbarVisualState, metrics: ScrollbarMetrics, visible: bool, active: bool, dt: f32, rate: f32) void {
+    if (!visible and !state.has_geometry) return;
+
+    if (!state.has_geometry or (visible and state.visibility_t <= 0.001)) {
+        state.thumb_pos = metrics.thumb_pos;
+        state.thumb_size = metrics.thumb_size;
+        state.has_geometry = true;
+        return;
+    }
+
+    if (!visible) return;
+
+    const t = scrollbarSmoothFactor(dt, rate);
+    if (active) {
+        const active_t = scrollbarSmoothFactor(dt, @max(rate, 34.0));
+        state.thumb_pos = .{
+            .x = scrollbarApproach(state.thumb_pos.x, metrics.thumb_pos.x, active_t),
+            .y = scrollbarApproach(state.thumb_pos.y, metrics.thumb_pos.y, active_t),
+        };
+        state.thumb_size = .{
+            .x = scrollbarApproach(state.thumb_size.x, metrics.thumb_size.x, active_t),
+            .y = scrollbarApproach(state.thumb_size.y, metrics.thumb_size.y, active_t),
+        };
+        return;
+    }
+
+    state.thumb_pos = .{
+        .x = scrollbarApproach(state.thumb_pos.x, metrics.thumb_pos.x, t),
+        .y = scrollbarApproach(state.thumb_pos.y, metrics.thumb_pos.y, t),
+    };
+    state.thumb_size = .{
+        .x = scrollbarApproach(state.thumb_size.x, metrics.thumb_size.x, t),
+        .y = scrollbarApproach(state.thumb_size.y, metrics.thumb_size.y, t),
+    };
+}
+
 fn drawVerticalScrollbar(draw: ?*ByteDrawList, state: *ScrollbarVisualState, params: ScrollbarDrawParams) void {
     const active_draw = draw orelse return;
-    updateScrollbarVisualState(state, params.hovered, params.active, params.dt, params.fade_seconds);
+    const visible = params.visible or params.active;
+    updateScrollbarVisualState(state, if (visible) params.hovered else false, params.active, params.dt, params.fade_seconds);
+    updateScrollbarVisibilityState(state, visible, params.dt, params.fade_seconds);
+    updateScrollbarGeometryState(state, params.metrics, visible, params.active, params.dt, params.geometry_rate);
+
+    if (!state.has_geometry) return;
+    if (!visible and state.visibility_t <= 0.001) {
+        state.visibility_t = 0.0;
+        state.has_geometry = false;
+        return;
+    }
 
     const hover_t = 0.55;
     const color = if (state.visual_t <= hover_t)
         Ui.LerpColor(params.idle_color, params.hover_color, state.visual_t / hover_t)
     else
         Ui.LerpColor(params.hover_color, params.active_color, (state.visual_t - hover_t) / (1.0 - hover_t));
-    const col = Ui.ColorToU32(Ui.ApplyOpacity(color, params.opacity));
+    const col = Ui.ColorToU32(Ui.ApplyOpacity(color, params.opacity * state.visibility_t));
     if ((col & BYTEGUI_COL32_A_MASK) == 0) return;
 
     const p_min = ByteVec2{
-        .x = roundToNearestPixel(params.metrics.thumb_pos.x),
-        .y = roundToNearestPixel(params.metrics.thumb_pos.y),
+        .x = roundToNearestPixel(state.thumb_pos.x),
+        .y = roundToNearestPixel(state.thumb_pos.y),
     };
     const p_max = ByteVec2{
-        .x = roundToNearestPixel(params.metrics.thumb_pos.x + params.metrics.thumb_size.x),
-        .y = roundToNearestPixel(params.metrics.thumb_pos.y + params.metrics.thumb_size.y),
+        .x = roundToNearestPixel(state.thumb_pos.x + state.thumb_size.x),
+        .y = roundToNearestPixel(state.thumb_pos.y + state.thumb_size.y),
     };
     const size = ByteVec2{
         .x = @max(1.0, p_max.x - p_min.x),

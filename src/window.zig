@@ -254,15 +254,7 @@ const OutputDragMode = enum {
     scrollbar,
 };
 
-const OutputTextLayout = struct {
-    layout: bytegui.TextLayoutResult,
-    viewport: ByteVec2,
-    overflow: bool,
-
-    fn deinit(self: *OutputTextLayout) void {
-        self.layout.deinit();
-    }
-};
+const OutputTextLayout = bytegui.ScrollableTextLayoutResult;
 
 const OutputSelectionRange = struct {
     start: usize,
@@ -302,6 +294,7 @@ var g_output_scroll_y: f32 = 0.0;
 var g_output_scroll_target_y: f32 = 0.0;
 var g_output_scroll_raw_target_y: f32 = 0.0;
 var g_output_scroll_animating = false;
+var g_output_autoscroll_to_bottom_active = false;
 var g_output_scroll_line_height: f32 = 0.0;
 var g_output_scroll_snap_pending = false;
 var g_output_scroll_snap_idle_seconds: f32 = 0.0;
@@ -316,7 +309,9 @@ var g_output_selection_highlight: bytegui.TextSelectionHighlightState = .{};
 var g_output_scrollbar_visual: bytegui.ScrollbarVisualState = .{};
 var g_output_drag_mode: OutputDragMode = .none;
 var g_output_scroll_drag_start_y: i32 = 0;
+var g_output_scroll_drag_current_y: i32 = 0;
 var g_output_scroll_drag_start_scroll: f32 = 0.0;
+var g_output_scroll_drag_thumb_offset_y: f32 = 0.0;
 var g_minimize_on_launch = false;
 var g_efmi_on_launch = false;
 var g_efmi_requested = false;
@@ -646,6 +641,7 @@ fn clearStatusLines() void {
     g_output_scroll_target_y = 0.0;
     g_output_scroll_raw_target_y = 0.0;
     g_output_scroll_animating = false;
+    g_output_autoscroll_to_bottom_active = false;
     g_output_scroll_line_height = 0.0;
     g_output_scroll_snap_pending = false;
     g_output_scroll_snap_idle_seconds = 0.0;
@@ -1698,7 +1694,7 @@ fn pointInOutputTextRect(pt: c.POINT) bool {
 }
 
 fn outputMaxScrollFor(content_height: f32, viewport_height: f32) f32 {
-    return @max(0.0, content_height - viewport_height);
+    return ByteGui.CalcTextScrollMax(content_height, viewport_height);
 }
 
 fn clampOutputScrollTo(max_scroll: f32) void {
@@ -1708,6 +1704,7 @@ fn clampOutputScrollTo(max_scroll: f32) void {
     if (@abs(g_output_scroll_y - g_output_scroll_target_y) <= OUTPUT_SCROLL_EPSILON) {
         g_output_scroll_y = g_output_scroll_target_y;
         g_output_scroll_animating = false;
+        g_output_autoscroll_to_bottom_active = false;
         if (!g_output_scroll_snap_pending and g_output_scroll_input_idle_seconds >= OUTPUT_SCROLL_LINE_SNAP_IDLE_SECONDS) resetOutputFastScrollSettle();
     }
 }
@@ -1717,41 +1714,12 @@ fn outputScrollLineHeight() f32 {
     return if (g_font_textbox) |font| font.LegacySize else scaleF(13.0);
 }
 
-fn outputLineVisualMid(layout: *const bytegui.TextLayoutResult, line_index: usize) f32 {
-    const line_height = @max(1.0, layout.line_height);
-    const line_top = @as(f32, @floatFromInt(line_index)) * line_height;
-    if (line_index >= layout.lines.items.len) return line_top + line_height * 0.5;
-
-    const line = layout.lines.items[line_index];
-    if (line.bounds.Height <= 0.5) return line_top + line_height * 0.5;
-
-    const glyph_top = line_top + layout.ascender + line.bounds.Y;
-    const glyph_bottom = glyph_top + line.bounds.Height;
-    return (std.math.clamp(glyph_top, line_top, line_top + line_height) +
-        std.math.clamp(glyph_bottom, line_top, line_top + line_height)) * 0.5;
-}
-
 fn snappedOutputScrollYWithLayout(value: f32, max_scroll: f32, layout: *const bytegui.TextLayoutResult) f32 {
-    const line_height = @max(1.0, layout.line_height);
-    if (line_height <= 0.0) return std.math.clamp(value, 0.0, max_scroll);
-    if (value >= max_scroll - OUTPUT_SCROLL_EPSILON) return max_scroll;
-    if (layout.lines.items.len == 0) return std.math.clamp(value, 0.0, max_scroll);
-
-    const clamped = std.math.clamp(value, 0.0, max_scroll);
-    var snap_index: usize = 0;
-    for (layout.lines.items, 0..) |_, line_index| {
-        if (clamped < outputLineVisualMid(layout, line_index)) break;
-        snap_index = @min(line_index + 1, layout.lines.items.len - 1);
-    }
-
-    return std.math.clamp(@as(f32, @floatFromInt(snap_index)) * line_height, 0.0, max_scroll);
+    return ByteGui.SnapTextScrollYToLine(value, max_scroll, layout);
 }
 
 fn snappedOutputScrollYFallback(value: f32, max_scroll: f32) f32 {
-    const line_height = outputScrollLineHeight();
-    if (line_height <= 0.0) return std.math.clamp(value, 0.0, max_scroll);
-    if (value >= max_scroll - OUTPUT_SCROLL_EPSILON) return max_scroll;
-    return std.math.clamp(@round(value / line_height) * line_height, 0.0, max_scroll);
+    return ByteGui.SnapTextScrollYToLineHeight(value, max_scroll, outputScrollLineHeight());
 }
 
 fn snappedOutputScrollY(value: f32, max_scroll: f32) f32 {
@@ -1805,27 +1773,13 @@ fn buildOutputText(out: *std.ArrayListUnmanaged(u8)) bool {
 fn layoutOutputText(text: []const u8) ?OutputTextLayout {
     const font = g_font_textbox orelse return null;
     const rect = outputTextRect();
-    const viewport = outputViewportSizeFromRect(rect);
-    var wrap_width = viewport.x;
-    var layout = ByteGui.LayoutText(font, font.LegacySize, text, wrap_width) orelse return null;
-    var overflow = layout.height > viewport.y + 0.5;
-
-    if (overflow) {
-        const reserved_w = scaleF(OUTPUT_SCROLLBAR_W + OUTPUT_SCROLLBAR_PAD * 2.0);
-        const reduced_wrap_width = @max(1.0, viewport.x - reserved_w);
-        if (reduced_wrap_width < wrap_width) {
-            layout.deinit();
-            wrap_width = reduced_wrap_width;
-            layout = ByteGui.LayoutText(font, font.LegacySize, text, wrap_width) orelse return null;
-            overflow = layout.height > viewport.y + 0.5;
-        }
-    }
-
-    return .{
-        .layout = layout,
-        .viewport = viewport,
-        .overflow = overflow,
-    };
+    return ByteGui.LayoutScrollableText(.{
+        .font = font,
+        .font_size = font.LegacySize,
+        .text = text,
+        .viewport = outputViewportSizeFromRect(rect),
+        .scrollbar_reserved_width = scaleF(OUTPUT_SCROLLBAR_W + OUTPUT_SCROLLBAR_PAD * 2.0),
+    });
 }
 
 fn refreshOutputLayoutState() void {
@@ -1840,27 +1794,57 @@ fn refreshOutputLayoutState() void {
     clampOutputScrollTo(outputMaxScrollFor(g_output_content_height, laid_out.viewport.y));
 }
 
-fn outputScrollbarMetricsFor(content_height: f32, viewport_height: f32) ?bytegui.ScrollbarMetrics {
-    const rect = outputTextRect();
-    const width = scaleF(OUTPUT_SCROLLBAR_W);
-    const pad = scaleF(OUTPUT_SCROLLBAR_PAD);
-    return ByteGui.CalcVerticalScrollbarMetrics(.{
-        .track_pos = .{
-            .x = @as(f32, @floatFromInt(rect.right)) - pad - width,
-            .y = @as(f32, @floatFromInt(rect.top)) + pad,
-        },
-        .track_size = .{ .x = width, .y = @max(1.0, viewport_height - pad * 2.0) },
-        .content_height = content_height,
+fn outputScrollbarTrackFor(viewport_height: f32) bytegui.VerticalScrollbarTrack {
+    return ByteGui.CalcVerticalScrollbarTrack(.{
+        .viewport_rect = outputTextRect(),
         .viewport_height = viewport_height,
-        .scroll_y = g_output_scroll_y,
-        .min_thumb_height = scaleF(OUTPUT_SCROLLBAR_MIN_H),
+        .width = scaleF(OUTPUT_SCROLLBAR_W),
+        .pad = scaleF(OUTPUT_SCROLLBAR_PAD),
     });
+}
+
+fn outputScrollbarMetricsForScrollY(content_height: f32, viewport_height: f32, scroll_y: f32) ?bytegui.ScrollbarMetrics {
+    return ByteGui.CalcVerticalScrollbarMetricsForTrack(
+        outputScrollbarTrackFor(viewport_height),
+        content_height,
+        viewport_height,
+        scroll_y,
+        scaleF(OUTPUT_SCROLLBAR_MIN_H),
+    );
+}
+
+fn outputScrollbarMetricsFor(content_height: f32, viewport_height: f32) ?bytegui.ScrollbarMetrics {
+    return outputScrollbarMetricsForScrollY(content_height, viewport_height, g_output_scroll_y);
+}
+
+fn outputScrollbarDrawMetricsFor(content_height: f32, viewport_height: f32) ?bytegui.ScrollbarMetrics {
+    const max_scroll = outputMaxScrollFor(content_height, viewport_height);
+    const scroll_y = if (g_output_autoscroll_to_bottom_active and g_output_scroll_target_y >= max_scroll - OUTPUT_SCROLL_EPSILON)
+        max_scroll
+    else
+        g_output_scroll_y;
+    return outputScrollbarMetricsForScrollY(content_height, viewport_height, scroll_y);
+}
+
+fn outputScrollbarInactiveMetricsFor(viewport_height: f32) bytegui.ScrollbarMetrics {
+    return ByteGui.VerticalScrollbarInactiveMetrics(outputScrollbarTrackFor(viewport_height));
+}
+
+fn outputScrollbarDragScroll(metrics: bytegui.ScrollbarMetrics, pt_y: i32) f32 {
+    return ByteGui.ScrollbarDragScrollFromThumbOffset(metrics, @floatFromInt(pt_y), g_output_scroll_drag_thumb_offset_y);
 }
 
 fn currentOutputScrollbarMetrics() ?bytegui.ScrollbarMetrics {
     const rect = outputTextRect();
     const viewport = outputViewportSizeFromRect(rect);
     return outputScrollbarMetricsFor(g_output_content_height, viewport.y);
+}
+
+fn syncOutputScrollbarDragAnchor(metrics: bytegui.ScrollbarMetrics) void {
+    const dy = @as(f32, @floatFromInt(g_output_scroll_drag_current_y - g_output_scroll_drag_start_y));
+    const drag_range = @max(1.0, metrics.track_size.y - metrics.thumb_size.y);
+    const drag_scroll = (dy / drag_range) * metrics.max_scroll;
+    g_output_scroll_drag_start_scroll = std.math.clamp(g_output_scroll_y - drag_scroll, 0.0, metrics.max_scroll);
 }
 
 fn pointInOutputScrollbarThumb(pt: c.POINT) bool {
@@ -1883,6 +1867,7 @@ fn setOutputScrollY(value: f32) void {
     const viewport = outputViewportSizeFromRect(rect);
     markOutputScrollInput();
     g_output_pending_autoscroll = false;
+    g_output_autoscroll_to_bottom_active = false;
     g_output_scroll_y = std.math.clamp(value, 0.0, outputMaxScrollFor(g_output_content_height, viewport.y));
     g_output_scroll_target_y = g_output_scroll_y;
     g_output_scroll_raw_target_y = g_output_scroll_y;
@@ -1913,6 +1898,7 @@ fn scrollOutputSmoothTo(target_y: f32, max_scroll: f32, snap_after_idle: bool) b
 fn scrollOutputSmoothToRaw(raw_target_y: f32, target_y: f32, max_scroll: f32, snap_after_idle: bool) bool {
     markOutputScrollInput();
     g_output_pending_autoscroll = false;
+    g_output_autoscroll_to_bottom_active = false;
     g_output_scroll_raw_target_y = std.math.clamp(raw_target_y, 0.0, max_scroll);
     g_output_scroll_target_y = std.math.clamp(target_y, 0.0, max_scroll);
     if (snap_after_idle) {
@@ -1991,6 +1977,7 @@ fn snapOutputScrollTargetToCurrentLine() void {
     const rect = outputTextRect();
     const viewport = outputViewportSizeFromRect(rect);
     const max_scroll = outputMaxScrollFor(g_output_content_height, viewport.y);
+    g_output_autoscroll_to_bottom_active = false;
     g_output_scroll_target_y = snappedOutputScrollY(g_output_scroll_y, max_scroll);
     g_output_scroll_raw_target_y = g_output_scroll_target_y;
     cancelOutputScrollLineSnap();
@@ -2035,78 +2022,24 @@ fn updateOutputSmoothScroll(dt: f32) void {
     if (@abs(g_output_scroll_y - g_output_scroll_target_y) <= OUTPUT_SCROLL_EPSILON) {
         g_output_scroll_y = g_output_scroll_target_y;
         g_output_scroll_animating = false;
+        g_output_autoscroll_to_bottom_active = false;
         if (!g_output_scroll_snap_pending and g_output_scroll_input_idle_seconds >= OUTPUT_SCROLL_LINE_SNAP_IDLE_SECONDS) resetOutputFastScrollSettle();
     }
 }
 
-fn nextTextIndex(text: []const u8, index: usize, end: usize) usize {
-    if (index >= end) return end;
-    const cp_len = std.unicode.utf8ByteSequenceLength(text[index]) catch 1;
-    return @min(end, index + cp_len);
-}
-
-fn outputTextWidth(text: []const u8, start: usize, end: usize) f32 {
-    const font = g_font_textbox orelse return 0.0;
-    if (end <= start) return 0.0;
-    return ByteGui.CalcTextWidth(font, font.LegacySize, text[start..end]);
-}
-
-fn outputLineIndexAtX(text: []const u8, line: bytegui.TextLine, x: f32) usize {
-    if (x <= 0.0 or line.end <= line.start) return line.start;
-    if (x >= line.width) return line.end;
-
-    var index = line.start;
-    while (index < line.end) {
-        const next = nextTextIndex(text, index, line.end);
-        const left_w = outputTextWidth(text, line.start, index);
-        const right_w = outputTextWidth(text, line.start, next);
-        if (x < (left_w + right_w) * 0.5) return index;
-        index = next;
-    }
-    return line.end;
-}
-
-fn outputIndexFromPointWithLayout(text: []const u8, layout: *const bytegui.TextLayoutResult, pt: c.POINT) usize {
-    if (text.len == 0 or layout.lines.items.len == 0) return 0;
-
+fn outputTextIndexParams(text: []const u8, layout: *const bytegui.TextLayoutResult, pt: c.POINT) bytegui.TextIndexFromPointParams {
     const rect = outputTextRect();
-    const x = @as(f32, @floatFromInt(pt.x - rect.left));
-    const y = @as(f32, @floatFromInt(pt.y - rect.top)) + g_output_scroll_y;
-    if (y <= 0.0) return outputLineIndexAtX(text, layout.lines.items[0], x);
-
-    const line_height = @max(1.0, layout.line_height);
-    const line_index_f = @floor(y / line_height);
-    if (line_index_f >= @as(f32, @floatFromInt(layout.lines.items.len))) return text.len;
-
-    const line_index: usize = @intFromFloat(@max(0.0, line_index_f));
-    return outputLineIndexAtX(text, layout.lines.items[line_index], x);
-}
-
-fn outputIndexFromDragPointWithLayout(text: []const u8, layout: *const bytegui.TextLayoutResult, pt: c.POINT) usize {
-    if (text.len == 0 or layout.lines.items.len == 0) return 0;
-
-    const rect = outputTextRect();
-    if (pt.y >= rect.top and pt.y < rect.bottom) return outputIndexFromPointWithLayout(text, layout, pt);
-
-    const x = @as(f32, @floatFromInt(pt.x - rect.left));
-    const viewport_top = g_output_scroll_y;
-    const viewport_bottom = viewport_top + @max(1.0, @as(f32, @floatFromInt(rect.bottom - rect.top)));
-
-    if (pt.y < rect.top) {
-        for (layout.lines.items, 0..) |line, line_index| {
-            if (outputLineVisualMid(layout, line_index) >= viewport_top) {
-                return outputLineIndexAtX(text, line, x);
-            }
-        }
-        return outputLineIndexAtX(text, layout.lines.items[layout.lines.items.len - 1], x);
-    }
-
-    var best_index: usize = 0;
-    for (layout.lines.items, 0..) |_, line_index| {
-        if (outputLineVisualMid(layout, line_index) > viewport_bottom) break;
-        best_index = line_index;
-    }
-    return outputLineIndexAtX(text, layout.lines.items[best_index], x);
+    const font = g_font_textbox;
+    return .{
+        .font = font,
+        .font_size = if (font) |active_font| active_font.LegacySize else scaleF(13.0),
+        .text = text,
+        .layout = layout,
+        .base_pos = .{ .x = @as(f32, @floatFromInt(rect.left)), .y = @as(f32, @floatFromInt(rect.top)) },
+        .viewport_height = @max(1.0, @as(f32, @floatFromInt(rect.bottom - rect.top))),
+        .scroll_y = g_output_scroll_y,
+        .point = .{ .x = @floatFromInt(pt.x), .y = @floatFromInt(pt.y) },
+    };
 }
 
 fn outputIndexFromPoint(pt: c.POINT) usize {
@@ -2116,7 +2049,7 @@ fn outputIndexFromPoint(pt: c.POINT) usize {
 
     var laid_out = layoutOutputText(text.items) orelse return text.items.len;
     defer laid_out.deinit();
-    return outputIndexFromPointWithLayout(text.items, &laid_out.layout, pt);
+    return ByteGui.TextIndexFromPoint(outputTextIndexParams(text.items, &laid_out.layout, pt));
 }
 
 fn outputIndexFromDragPoint(pt: c.POINT) usize {
@@ -2126,7 +2059,7 @@ fn outputIndexFromDragPoint(pt: c.POINT) usize {
 
     var laid_out = layoutOutputText(text.items) orelse return text.items.len;
     defer laid_out.deinit();
-    return outputIndexFromDragPointWithLayout(text.items, &laid_out.layout, pt);
+    return ByteGui.TextIndexFromDragPoint(outputTextIndexParams(text.items, &laid_out.layout, pt));
 }
 
 fn clampOutputSelection(text_len: usize) void {
@@ -2238,25 +2171,42 @@ fn outputSelectionAutoscrollDelta(pt: c.POINT, dt: f32) f32 {
 fn beginOutputMouseDown(hwnd: c.HWND, pt: c.POINT) bool {
     if (!pointInOutputTextRect(pt)) return false;
 
+    g_output_autoscroll_to_bottom_active = false;
     applyHoveredButton(0);
-    if (pointInOutputScrollbarThumb(pt)) {
-        g_output_drag_mode = .scrollbar;
-        g_output_scroll_drag_start_y = pt.y;
-        g_output_scroll_drag_start_scroll = g_output_scroll_y;
-    } else {
-        const index = outputIndexFromPoint(pt);
-        g_output_selection_anchor = index;
-        g_output_selection_cursor = index;
-        g_output_drag_mode = .select;
+    const ptf = ByteVec2{ .x = @floatFromInt(pt.x), .y = @floatFromInt(pt.y) };
+    if (currentOutputScrollbarMetrics()) |metrics| {
+        const hit_pad = scaleF(3.0);
+        if (ByteGui.PointInScrollbarThumb(metrics, ptf, hit_pad)) {
+            g_output_pending_autoscroll = false;
+            g_output_autoscroll_to_bottom_active = false;
+            g_output_scroll_target_y = g_output_scroll_y;
+            g_output_scroll_raw_target_y = g_output_scroll_y;
+            g_output_scroll_animating = false;
+            cancelOutputScrollLineSnap();
+            resetOutputFastScrollSettle();
+            g_output_drag_mode = .scrollbar;
+            g_output_scroll_drag_start_y = pt.y;
+            g_output_scroll_drag_current_y = pt.y;
+            g_output_scroll_drag_start_scroll = g_output_scroll_y;
+            g_output_scroll_drag_thumb_offset_y = std.math.clamp(ptf.y - metrics.thumb_pos.y, 0.0, metrics.thumb_size.y);
+            _ = c.SetCapture(hwnd);
+            return true;
+        }
     }
+
+    const index = outputIndexFromPoint(pt);
+    g_output_selection_anchor = index;
+    g_output_selection_cursor = index;
+    g_output_drag_mode = .select;
     _ = c.SetCapture(hwnd);
     return true;
 }
 
 fn updateOutputScrollbarDrag(pt: c.POINT) void {
+    if (pt.y == g_output_scroll_drag_current_y) return;
+    g_output_scroll_drag_current_y = pt.y;
     const metrics = currentOutputScrollbarMetrics() orelse return;
-    const dy = @as(f32, @floatFromInt(pt.y - g_output_scroll_drag_start_y));
-    setOutputScrollY(ByteGui.ScrollbarDragScroll(metrics, g_output_scroll_drag_start_scroll, dy));
+    setOutputScrollY(outputScrollbarDragScroll(metrics, pt.y));
 }
 
 fn updateOutputDrag(pt: c.POINT, dt: f32) bool {
@@ -2398,31 +2348,13 @@ fn yellowBandContactPointPx() ByteVec2 {
 }
 
 fn drawYellowRotatedRect(draw: ?*ByteDrawList, opacity: f32) void {
-    const active_draw = draw orelse return;
-    const window_size = platformWindowSize();
-    const contact = yellowBandContactPointPx();
-    const edge_axis = ByteVec2{ .x = 0.70710677, .y = -0.70710677 };
-    const fill_axis = ByteVec2{ .x = 0.70710677, .y = 0.70710677 };
-    const span = @sqrt(window_size.x * window_size.x + window_size.y * window_size.y);
-    const thickness = @max(1.0, window_size.y - windowCornerRadiusPx() * 0.4);
-    const contact_start = ByteVec2{ .x = contact.x - edge_axis.x * span, .y = contact.y - edge_axis.y * span };
-    const contact_end = ByteVec2{ .x = contact.x + edge_axis.x * span, .y = contact.y + edge_axis.y * span };
-    const edge_start = ByteVec2{ .x = contact_start.x - fill_axis.x * thickness, .y = contact_start.y - fill_axis.y * thickness };
-    const edge_end = ByteVec2{ .x = contact_end.x - fill_axis.x * thickness, .y = contact_end.y - fill_axis.y * thickness };
-    const subject = [_]ByteVec2{
-        edge_start,
-        edge_end,
-        contact_end,
-        contact_start,
-    };
-    const color = toU32(applyOpacity(.{ .x = 1.0, .y = 250.0 / 255.0, .z = 0.0, .w = 1.0 }, opacity));
-    ByteGui.DrawConvexPolyFilledClippedToCornerOnlyRoundedRect(
-        active_draw,
-        subject[0..],
-        .{ .x = 0.0, .y = 0.0 },
-        window_size,
+    Ui.DrawDiagonalBandClippedToCornerOnlyRoundedRect(
+        draw,
+        platformWindowSize(),
+        yellowBandContactPointPx(),
         windowCornerRadiusPx(),
-        color,
+        .{ .x = 1.0, .y = 250.0 / 255.0, .z = 0.0, .w = 1.0 },
+        opacity,
         std.math.clamp(scaleIF(6.0), 6, 20),
     );
 }
@@ -2456,47 +2388,22 @@ fn drawAnimatedTextureLabel(draw: ?*ByteDrawList, texture: *const TextTexture, i
     );
 }
 
-fn drawTextTextureCentered(draw: *ByteDrawList, texture: *const TextTexture, center: ByteVec2, scale: f32, opacity: f32) bool {
-    if (texture.texture == null or texture.display_size_px.x <= 0.0 or texture.display_size_px.y <= 0.0) return false;
-
-    const texture_size = if (texture.image_size_px.x > 0.0 and texture.image_size_px.y > 0.0) texture.image_size_px else texture.display_size_px;
-    const content_size = ByteVec2{
-        .x = texture.display_size_px.x * scale,
-        .y = texture.display_size_px.y * scale,
-    };
-    const image_size = ByteVec2{
-        .x = texture_size.x * scale,
-        .y = texture_size.y * scale,
-    };
-    const content_pos = ByteVec2{
-        .x = center.x - content_size.x * 0.5,
-        .y = center.y - content_size.y * 0.5,
-    };
-    const image_pos = ByteVec2{
-        .x = content_pos.x + texture.draw_offset_px.x * scale,
-        .y = content_pos.y + texture.draw_offset_px.y * scale,
-    };
-
-    draw.AddImage(
-        texture.texture,
-        image_pos,
-        .{ .x = image_pos.x + image_size.x, .y = image_pos.y + image_size.y },
-        texture.uv_min,
-        texture.uv_max,
-        toU32(applyOpacity(.{ .x = 0.0, .y = 0.0, .z = 0.0, .w = 1.0 }, opacity)),
-    );
-    return true;
-}
-
 fn drawEfmiButtonLabelTexture(draw: ?*ByteDrawList, pos: ByteVec2, size: ByteVec2, anim: f32, opacity: f32) bool {
     const active_draw = draw orelse return false;
     const label_scale = 0.92 + 0.12 * clamp01(anim);
     const base_gap = @max(scaleF(8.0), (g_efmi_top_label_texture.display_size_px.y + g_efmi_bottom_label_texture.display_size_px.y) * 0.38);
     const center_gap = base_gap * label_scale;
     const center = ByteVec2{ .x = pos.x + size.x * 0.5, .y = pos.y + size.y * 0.5 };
-    const top_ok = drawTextTextureCentered(active_draw, &g_efmi_top_label_texture, .{ .x = center.x, .y = center.y - center_gap * 0.5 }, label_scale, opacity);
-    const bottom_ok = drawTextTextureCentered(active_draw, &g_efmi_bottom_label_texture, .{ .x = center.x, .y = center.y + center_gap * 0.5 }, label_scale, opacity);
-    return top_ok and bottom_ok;
+    return Ui.DrawStackedTextTexturesCentered(
+        active_draw,
+        &g_efmi_top_label_texture,
+        &g_efmi_bottom_label_texture,
+        center,
+        label_scale,
+        center_gap,
+        .{ .x = 0.0, .y = 0.0, .z = 0.0, .w = 1.0 },
+        opacity,
+    );
 }
 
 fn drawAnimatedButtonLabelTexture(draw: ?*ByteDrawList, id: []const u8, pos: ByteVec2, size: ByteVec2, anim: f32, opacity: f32) bool {
@@ -2556,33 +2463,24 @@ fn drawLogoVisual(draw: ?*ByteDrawList, opacity: f32) void {
 }
 
 fn drawOutputScrollbar(draw: *ByteDrawList, laid_out: *const OutputTextLayout, opacity: f32, dt: f32) void {
-    if (!laid_out.overflow) return;
-    const metrics = outputScrollbarMetricsFor(laid_out.layout.height, laid_out.viewport.y) orelse return;
+    const maybe_metrics = outputScrollbarDrawMetricsFor(laid_out.layout.height, laid_out.viewport.y);
+    const visible = if (maybe_metrics) |_| laid_out.overflow else false;
+    const metrics = maybe_metrics orelse outputScrollbarInactiveMetricsFor(laid_out.viewport.y);
     ByteGui.DrawVerticalScrollbar(draw, &g_output_scrollbar_visual, .{
         .metrics = metrics,
         .idle_color = .{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.40 },
         .hover_color = .{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.55 },
         .active_color = .{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.75 },
-        .hovered = cursorInOutputScrollbarThumb(metrics),
-        .active = g_output_drag_mode == .scrollbar,
+        .hovered = visible and cursorInOutputScrollbarThumb(metrics),
+        .active = visible and g_output_drag_mode == .scrollbar,
+        .visible = visible,
         .opacity = opacity,
         .dt = dt,
     });
 }
 
 fn drawDebugOutlineBounds(draw: *ByteDrawList, p_min: ByteVec2, p_max: ByteVec2, color: ByteVec4, opacity: f32) void {
-    const left = @floor(@min(p_min.x, p_max.x));
-    const top = @floor(@min(p_min.y, p_max.y));
-    const right = @ceil(@max(p_min.x, p_max.x));
-    const bottom = @ceil(@max(p_min.y, p_max.y));
-    if (right <= left or bottom <= top) return;
-
-    const thickness = @max(1.0, scaleF(1.0));
-    const col = toU32(applyOpacity(color, opacity));
-    draw.AddRectFilled(.{ .x = left, .y = top }, .{ .x = right, .y = @min(bottom, top + thickness) }, col, 0.0);
-    draw.AddRectFilled(.{ .x = left, .y = @max(top, bottom - thickness) }, .{ .x = right, .y = bottom }, col, 0.0);
-    draw.AddRectFilled(.{ .x = left, .y = top }, .{ .x = @min(right, left + thickness), .y = bottom }, col, 0.0);
-    draw.AddRectFilled(.{ .x = @max(left, right - thickness), .y = top }, .{ .x = right, .y = bottom }, col, 0.0);
+    Ui.DrawDebugOutlineBounds(draw, p_min, p_max, color, opacity, scaleF(1.0));
 }
 
 fn drawDebugRectOutline(draw: *ByteDrawList, rect: anytype, color: ByteVec4, opacity: f32) void {
@@ -2600,23 +2498,11 @@ fn drawDebugBoxOutline(draw: *ByteDrawList, pos: ByteVec2, size: ByteVec2, color
 }
 
 fn drawDebugGuideVertical(draw: *ByteDrawList, x: f32, y_min: f32, y_max: f32, color: ByteVec4, opacity: f32) void {
-    const top = @floor(@min(y_min, y_max));
-    const bottom = @ceil(@max(y_min, y_max));
-    if (bottom <= top) return;
-    const thickness = @max(1.0, scaleF(1.0));
-    const left = @floor(x - thickness * 0.5);
-    const col = toU32(applyOpacity(color, opacity));
-    draw.AddRectFilled(.{ .x = left, .y = top }, .{ .x = left + thickness, .y = bottom }, col, 0.0);
+    Ui.DrawDebugGuideVertical(draw, x, y_min, y_max, color, opacity, scaleF(1.0));
 }
 
 fn drawDebugGuideHorizontal(draw: *ByteDrawList, y: f32, x_min: f32, x_max: f32, color: ByteVec4, opacity: f32) void {
-    const left = @floor(@min(x_min, x_max));
-    const right = @ceil(@max(x_min, x_max));
-    if (right <= left) return;
-    const thickness = @max(1.0, scaleF(1.0));
-    const top = @floor(y - thickness * 0.5);
-    const col = toU32(applyOpacity(color, opacity));
-    draw.AddRectFilled(.{ .x = left, .y = top }, .{ .x = right, .y = top + thickness }, col, 0.0);
+    Ui.DrawDebugGuideHorizontal(draw, y, x_min, x_max, color, opacity, scaleF(1.0));
 }
 
 fn drawDebugCrosshair(draw: *ByteDrawList, center: ByteVec2, radius: f32, color: ByteVec4, opacity: f32) void {
@@ -2625,22 +2511,7 @@ fn drawDebugCrosshair(draw: *ByteDrawList, center: ByteVec2, radius: f32, color:
 }
 
 fn drawDebugLineSegment(draw: *ByteDrawList, center: ByteVec2, axis: ByteVec2, length: f32, thickness: f32, color: ByteVec4, opacity: f32) void {
-    const axis_len = @sqrt(axis.x * axis.x + axis.y * axis.y);
-    if (axis_len <= 0.0 or length <= 0.0 or thickness <= 0.0) return;
-
-    const dir = ByteVec2{ .x = axis.x / axis_len, .y = axis.y / axis_len };
-    const normal = ByteVec2{ .x = -dir.y, .y = dir.x };
-    const half_len = length * 0.5;
-    const half_thick = thickness * 0.5;
-    const p0 = ByteVec2{ .x = center.x - dir.x * half_len, .y = center.y - dir.y * half_len };
-    const p1 = ByteVec2{ .x = center.x + dir.x * half_len, .y = center.y + dir.y * half_len };
-    const points = [_]ByteVec2{
-        .{ .x = p0.x + normal.x * half_thick, .y = p0.y + normal.y * half_thick },
-        .{ .x = p1.x + normal.x * half_thick, .y = p1.y + normal.y * half_thick },
-        .{ .x = p1.x - normal.x * half_thick, .y = p1.y - normal.y * half_thick },
-        .{ .x = p0.x - normal.x * half_thick, .y = p0.y - normal.y * half_thick },
-    };
-    draw.AddConvexPolyFilled(&points, toU32(applyOpacity(color, opacity)));
+    Ui.DrawDebugLineSegment(draw, center, axis, length, thickness, color, opacity);
 }
 
 fn drawDebugLogoDContactMarker(draw: *ByteDrawList, opacity: f32) void {
@@ -2798,11 +2669,21 @@ fn drawOutputTextbox(draw: ?*ByteDrawList, opacity: f32, dt: f32) void {
     g_output_content_height = laid_out.layout.height;
     g_output_scroll_line_height = @max(1.0, laid_out.layout.line_height);
     const max_scroll = outputMaxScrollFor(g_output_content_height, laid_out.viewport.y);
-    if (g_output_pending_autoscroll) {
-        g_output_scroll_y = max_scroll;
+    if (g_output_drag_mode == .scrollbar) {
+        g_output_pending_autoscroll = false;
+        g_output_autoscroll_to_bottom_active = false;
+        clampOutputScrollTo(max_scroll);
+        g_output_scroll_target_y = g_output_scroll_y;
+        g_output_scroll_raw_target_y = g_output_scroll_y;
+        g_output_scroll_animating = false;
+        cancelOutputScrollLineSnap();
+        resetOutputFastScrollSettle();
+    } else if (g_output_pending_autoscroll) {
+        if (g_output_scroll_y > max_scroll) g_output_scroll_y = max_scroll;
         g_output_scroll_target_y = max_scroll;
         g_output_scroll_raw_target_y = max_scroll;
-        g_output_scroll_animating = false;
+        g_output_scroll_animating = @abs(g_output_scroll_y - g_output_scroll_target_y) > OUTPUT_SCROLL_EPSILON;
+        g_output_autoscroll_to_bottom_active = g_output_scroll_animating and max_scroll > 0.5;
         cancelOutputScrollLineSnap();
         resetOutputFastScrollSettle();
         g_output_pending_autoscroll = false;
@@ -2813,21 +2694,11 @@ fn drawOutputTextbox(draw: ?*ByteDrawList, opacity: f32, dt: f32) void {
     const rect = outputTextRect();
     const base_x = @as(f32, @floatFromInt(rect.left));
     const base_y = @as(f32, @floatFromInt(rect.top));
-    const bottom = @as(f32, @floatFromInt(rect.bottom));
-    const line_height = g_output_scroll_line_height;
-    const saved_clip = active_draw.CurrentClipRect;
-    active_draw.SetClipRect(.{
-        .x = @as(f32, @floatFromInt(rect.left)),
-        .y = @as(f32, @floatFromInt(rect.top)),
-        .z = @as(f32, @floatFromInt(rect.right)),
-        .w = @as(f32, @floatFromInt(rect.bottom)),
-    });
-
     const selection = if (outputSelectionRange(text.items.len)) |range|
         bytegui.TextSelectionRange{ .start = range.start, .end = range.end }
     else
         null;
-    ByteGui.DrawTextSelectionHighlight(active_draw, &g_output_selection_highlight, .{
+    ByteGui.DrawTextSelectionHighlightClipped(active_draw, &g_output_selection_highlight, .{
         .font = font,
         .font_size = font.LegacySize,
         .text = text.items,
@@ -2840,16 +2711,18 @@ fn drawOutputTextbox(draw: ?*ByteDrawList, opacity: f32, dt: f32) void {
         .opacity = opacity,
         .radius = scaleF(2.0),
         .dt = dt,
+    }, rect);
+
+    ByteGui.DrawTextLayoutClipped(active_draw, .{
+        .font = font,
+        .font_size = font.LegacySize,
+        .text = text.items,
+        .layout = &laid_out.layout,
+        .clip_rect = rect,
+        .base_pos = .{ .x = base_x, .y = base_y },
+        .scroll_y = g_output_scroll_y,
+        .color = toU32(applyOpacity(.{ .x = 0.0, .y = 0.0, .z = 0.0, .w = 1.0 }, opacity)),
     });
-
-    const text_col = toU32(applyOpacity(.{ .x = 0.0, .y = 0.0, .z = 0.0, .w = 1.0 }, opacity));
-    for (laid_out.layout.lines.items, 0..) |line, line_index| {
-        const y = base_y + @as(f32, @floatFromInt(line_index)) * line_height - g_output_scroll_y;
-        if (y + line_height < base_y or y > bottom) continue;
-        active_draw.AddTextSubpixel(font, font.LegacySize, .{ .x = base_x, .y = y }, text_col, text.items[line.start..line.end], null);
-    }
-
-    active_draw.SetClipRect(saved_clip);
     drawOutputScrollbar(active_draw, &laid_out, opacity, dt);
 }
 
