@@ -3852,11 +3852,26 @@ fn calcTextScrollMax(content_height: f32, viewport_height: f32) f32 {
     return @max(0.0, content_height - viewport_height);
 }
 
+fn calcTextLayoutScrollHeight(layout: *const TextLayoutResult) f32 {
+    const line_height = @max(1.0, layout.line_height);
+    var bottom: f32 = 0.0;
+    for (layout.lines.items, 0..) |line, line_index| {
+        const line_top = @as(f32, @floatFromInt(line_index)) * line_height;
+        const line_bottom = if (line.bounds.Height > 0.5)
+            line_top + layout.ascender + line.bounds.Y + line.bounds.Height
+        else
+            line_top + line_height;
+        bottom = @max(bottom, line_bottom);
+    }
+    return @max(0.0, bottom);
+}
+
 fn layoutScrollableText(params: ScrollableTextLayoutParams) ?ScrollableTextLayoutResult {
     const font = params.font orelse return null;
     var wrap_width = @max(1.0, params.viewport.x);
     var layout = layoutText(font, params.font_size, params.text, wrap_width) orelse return null;
-    var overflow = layout.height > params.viewport.y + 0.5;
+    var content_height = calcTextLayoutScrollHeight(&layout);
+    var overflow = content_height > params.viewport.y + 0.5;
 
     if (overflow and params.scrollbar_reserved_width > 0.0) {
         const reduced_wrap_width = @max(1.0, params.viewport.x - params.scrollbar_reserved_width);
@@ -3864,13 +3879,15 @@ fn layoutScrollableText(params: ScrollableTextLayoutParams) ?ScrollableTextLayou
             layout.deinit();
             wrap_width = reduced_wrap_width;
             layout = layoutText(font, params.font_size, params.text, wrap_width) orelse return null;
-            overflow = layout.height > params.viewport.y + 0.5;
+            content_height = calcTextLayoutScrollHeight(&layout);
+            overflow = content_height > params.viewport.y + 0.5;
         }
     }
 
     return .{
         .layout = layout,
         .viewport = params.viewport,
+        .content_height = content_height,
         .overflow = overflow,
     };
 }
@@ -4106,6 +4123,7 @@ pub const ScrollableTextLayoutParams = struct {
 pub const ScrollableTextLayoutResult = struct {
     layout: TextLayoutResult,
     viewport: ByteVec2,
+    content_height: f32 = 0.0,
     overflow: bool = false,
 
     pub fn deinit(self: *ScrollableTextLayoutResult) void {

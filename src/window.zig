@@ -1789,7 +1789,7 @@ fn refreshOutputLayoutState() void {
 
     var laid_out = layoutOutputText(text.items) orelse return;
     defer laid_out.deinit();
-    g_output_content_height = laid_out.layout.height;
+    g_output_content_height = laid_out.content_height;
     g_output_scroll_line_height = @max(1.0, laid_out.layout.line_height);
     clampOutputScrollTo(outputMaxScrollFor(g_output_content_height, laid_out.viewport.y));
 }
@@ -2463,7 +2463,7 @@ fn drawLogoVisual(draw: ?*ByteDrawList, opacity: f32) void {
 }
 
 fn drawOutputScrollbar(draw: *ByteDrawList, laid_out: *const OutputTextLayout, opacity: f32, dt: f32) void {
-    const maybe_metrics = outputScrollbarDrawMetricsFor(laid_out.layout.height, laid_out.viewport.y);
+    const maybe_metrics = outputScrollbarDrawMetricsFor(laid_out.content_height, laid_out.viewport.y);
     const visible = if (maybe_metrics) |_| laid_out.overflow else false;
     const metrics = maybe_metrics orelse outputScrollbarInactiveMetricsFor(laid_out.viewport.y);
     ByteGui.DrawVerticalScrollbar(draw, &g_output_scrollbar_visual, .{
@@ -2666,7 +2666,7 @@ fn drawOutputTextbox(draw: ?*ByteDrawList, opacity: f32, dt: f32) void {
     var laid_out = layoutOutputText(text.items) orelse return;
     defer laid_out.deinit();
 
-    g_output_content_height = laid_out.layout.height;
+    g_output_content_height = laid_out.content_height;
     g_output_scroll_line_height = @max(1.0, laid_out.layout.line_height);
     const max_scroll = outputMaxScrollFor(g_output_content_height, laid_out.viewport.y);
     if (g_output_drag_mode == .scrollbar) {
