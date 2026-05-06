@@ -712,19 +712,20 @@ pub const ByteDrawList = struct {
         self.AddPolylineInternal(points.items, col, true, thickness);
     }
 
-    pub fn AddCircleRing(self: *ByteDrawList, center: ByteVec2, inner_radius: f32, outer_radius: f32, col: ByteU32, num_segments: i32, aa_width: f32) void {
+    pub fn AddCircleRing(self: *ByteDrawList, center: ByteVec2, inner_radius: f32, outer_radius: f32, col: ByteU32, num_segments: i32) void {
         if ((col & BYTEGUI_COL32_A_MASK) == 0 or outer_radius <= 0.0) return;
 
         const inner = @max(0.0, @min(inner_radius, outer_radius));
         const outer = @max(inner, outer_radius);
         if (outer <= inner) return;
 
-        const aa = if ((self.Flags & ByteDrawListFlags_AntiAliasedFill) != 0) @max(0.0, aa_width) else 0.0;
+        const stroke = outer - inner;
+        const aa_radius: f32 = if ((self.Flags & ByteDrawListFlags_AntiAliasedFill) != 0) @min(0.5, stroke * 0.5) else 0.0;
         const radii = [_]f32{
-            @max(0.0, inner - aa),
-            inner,
-            outer,
-            outer + aa,
+            @max(0.0, inner - aa_radius),
+            inner + aa_radius,
+            outer - aa_radius,
+            outer + aa_radius,
         };
         const colors = [_]ByteU32{
             col & ~BYTEGUI_COL32_A_MASK,
@@ -1542,7 +1543,7 @@ pub const ByteGUI = struct {
         if ((ring_col & BYTEGUI_COL32_A_MASK) == 0) return;
 
         const icon_size = @min(size.x, size.y);
-        const padding = @max(1.0, icon_size * style.padding_ratio);
+        const padding = icon_size * style.padding_ratio;
         const circle_size = icon_size - padding * 2.0;
         if (circle_size <= 0.0) return;
 
@@ -1552,12 +1553,12 @@ pub const ByteGUI = struct {
             .x = @floor(circle_left + padding + circle_size * 0.5 + 0.5),
             .y = @floor(circle_top + padding + circle_size * 0.5 + 0.5),
         };
-        const stroke = @max(1.0, circle_size * style.ring_stroke_ratio);
+        const stroke = @max(0.0, @min(style.ring_thickness, circle_size * 0.5));
         const outer_radius = @floor(circle_size * 0.5 + 0.5);
         const inner_radius = @max(0.0, outer_radius - stroke);
         const segments = if (arc_segments > 0) arc_segments else std.math.clamp(calcCircleSegmentCount(outer_radius) * 2, 72, 160);
 
-        active_draw.AddCircleRing(center, inner_radius, outer_radius, ring_col, segments, style.ring_aa_width);
+        active_draw.AddCircleRing(center, inner_radius, outer_radius, ring_col, segments);
 
         const stem_width = circle_size * style.stem_width_ratio;
         const stem_height = circle_size * style.stem_height_ratio;

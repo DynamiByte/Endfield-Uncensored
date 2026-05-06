@@ -72,8 +72,7 @@ const INFO_W = 20.0;
 const INFO_H = 20.0;
 const InfoGlyphStyle = struct {
     padding_ratio: f32,
-    ring_stroke_ratio: f32,
-    ring_aa_width: f32,
+    ring_thickness: f32,
     stem_width_ratio: f32,
     stem_height_ratio: f32,
     stem_y_ratio: f32,
@@ -89,8 +88,7 @@ const WindowControlGlyphStyle = struct {
 };
 const INFO_GLYPH_STYLE = InfoGlyphStyle{
     .padding_ratio = 0.12,
-    .ring_stroke_ratio = 0.04,
-    .ring_aa_width = 1.0,
+    .ring_thickness = 1.1,
     .stem_width_ratio = 0.095,
     .stem_height_ratio = 0.42,
     .stem_y_ratio = 0.40,
@@ -451,6 +449,7 @@ const scaleF = Ui.ScaleF;
 const scaleI = Ui.ScaleI;
 const scaleIF = Ui.ScaleIF;
 const scaleVec2 = Ui.ScaleVec2;
+
 const snapPixel = Ui.SnapPixel;
 const snapPixelVec2 = Ui.SnapPixelVec2;
 const makeRectL = c.makeRectL;
@@ -2815,7 +2814,9 @@ fn drawUI(dt: f32) void {
     ByteGUI.DrawCornerOnlyRoundedRectFilled(draw, .{}, window_size, windowCornerRadiusPx(), toU32(applyOpacity(.{ .x = 1.0, .y = 1.0, .z = 1.0, .w = 1.0 }, render_opacity)), std.math.clamp(scaleIF(6.0), 6, 20));
     drawYellowRotatedRect(draw, render_opacity);
 
-    ByteGUI.DrawInfoGlyph(draw, scaleVec2(INFO_X, INFO_Y), scaleVec2(INFO_W, INFO_H), toU32(applyOpacity(g_button_colors[3].current, render_opacity)), INFO_GLYPH_STYLE, std.math.clamp(scaleIF(72.0), 72, 160));
+    var info_glyph_style = INFO_GLYPH_STYLE;
+    info_glyph_style.ring_thickness = scaleF(info_glyph_style.ring_thickness);
+    ByteGUI.DrawInfoGlyph(draw, scaleVec2(INFO_X, INFO_Y), scaleVec2(INFO_W, INFO_H), toU32(applyOpacity(g_button_colors[3].current, render_opacity)), info_glyph_style, std.math.clamp(scaleIF(72.0), 72, 160));
     if (g_allow_minimize) ByteGUI.DrawWindowControlGlyph(draw, scaleVec2(MIN_X, MIN_Y + MIN_Y_OFFSET), scaleVec2(MIN_W, MIN_H), toU32(applyOpacity(g_button_colors[2].current, render_opacity)), false, WINDOW_CONTROL_GLYPH_STYLE);
     ByteGUI.DrawWindowControlGlyph(draw, scaleVec2(CLOSE_X, CLOSE_Y + CLOSE_Y_OFFSET), scaleVec2(CLOSE_W, CLOSE_H), toU32(applyOpacity(g_button_colors[1].current, render_opacity)), true, WINDOW_CONTROL_GLYPH_STYLE);
     drawLogoVisual(draw, render_opacity);
