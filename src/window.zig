@@ -70,6 +70,40 @@ const INFO_X = 7.0;
 const INFO_Y = 7.0;
 const INFO_W = 20.0;
 const INFO_H = 20.0;
+const InfoGlyphStyle = struct {
+    padding_ratio: f32,
+    ring_stroke_ratio: f32,
+    ring_aa_width: f32,
+    stem_width_ratio: f32,
+    stem_height_ratio: f32,
+    stem_y_ratio: f32,
+    dot_diameter_ratio: f32,
+    dot_y_ratio: f32,
+};
+const WindowControlGlyphStyle = struct {
+    close_padding_ratio: f32,
+    close_stroke_ratio: f32,
+    minimize_stroke_ratio: f32,
+    minimize_bar_width_ratio: f32,
+    minimize_y_ratio: f32,
+};
+const INFO_GLYPH_STYLE = InfoGlyphStyle{
+    .padding_ratio = 0.12,
+    .ring_stroke_ratio = 0.04,
+    .ring_aa_width = 1.0,
+    .stem_width_ratio = 0.095,
+    .stem_height_ratio = 0.42,
+    .stem_y_ratio = 0.40,
+    .dot_diameter_ratio = 0.115,
+    .dot_y_ratio = 0.20,
+};
+const WINDOW_CONTROL_GLYPH_STYLE = WindowControlGlyphStyle{
+    .close_padding_ratio = 0.24,
+    .close_stroke_ratio = 0.07,
+    .minimize_stroke_ratio = 0.08,
+    .minimize_bar_width_ratio = 0.95,
+    .minimize_y_ratio = 0.57,
+};
 
 const MAIN_CONTENT_SIZE = 90.0;
 const MAIN_CONTENT_CENTER_EDGE_OFFSET = MAIN_CONTENT_SIZE * 0.10;
@@ -85,6 +119,10 @@ const OUTPUT_SCROLL_FAST_SETTLE_EVENT_LINES = 0.35;
 const OUTPUT_SELECTION_AUTOSCROLL_RAMP_LINES = 8.0;
 const OUTPUT_SELECTION_AUTOSCROLL_MIN_LINES_PER_SECOND = 4.0;
 const OUTPUT_SELECTION_AUTOSCROLL_MAX_LINES_PER_SECOND = 72.0;
+const OUTPUT_SCROLLBAR_HOVER_T = 0.55;
+const OUTPUT_SCROLLBAR_FADE_SECONDS = 0.16;
+const OUTPUT_SCROLLBAR_GEOMETRY_RATE = 26.0;
+const OUTPUT_SCROLLBAR_ACTIVE_GEOMETRY_RATE = 34.0;
 const DEBUG_AUTOSCROLL_WAIT_SECONDS: f32 = 1.0;
 const DEBUG_AUTOSCROLL_GROUPS: usize = 5;
 const DEBUG_AUTOSCROLL_RUNS: usize = 5;
@@ -2504,6 +2542,10 @@ fn drawOutputScrollbar(draw: *ByteDrawList, laid_out: *const OutputTextLayout, o
         .idle_color = .{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.40 },
         .hover_color = .{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.55 },
         .active_color = .{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.75 },
+        .hover_t = OUTPUT_SCROLLBAR_HOVER_T,
+        .fade_seconds = OUTPUT_SCROLLBAR_FADE_SECONDS,
+        .geometry_rate = OUTPUT_SCROLLBAR_GEOMETRY_RATE,
+        .active_geometry_rate = OUTPUT_SCROLLBAR_ACTIVE_GEOMETRY_RATE,
         .hovered = visible and cursorInOutputScrollbarThumb(metrics),
         .active = visible and g_output_drag_mode == .scrollbar,
         .visible = visible,
@@ -2773,9 +2815,9 @@ fn drawUI(dt: f32) void {
     ByteGui.DrawCornerOnlyRoundedRectFilled(draw, .{}, window_size, windowCornerRadiusPx(), toU32(applyOpacity(.{ .x = 1.0, .y = 1.0, .z = 1.0, .w = 1.0 }, render_opacity)), std.math.clamp(scaleIF(6.0), 6, 20));
     drawYellowRotatedRect(draw, render_opacity);
 
-    ByteGui.DrawInfoGlyph(draw, scaleVec2(INFO_X, INFO_Y), scaleVec2(INFO_W, INFO_H), toU32(applyOpacity(g_button_colors[3].current, render_opacity)), toU32(applyOpacity(.{ .x = 1.0, .y = 250.0 / 255.0, .z = 0.0, .w = 1.0 }, render_opacity)), std.math.clamp(scaleIF(72.0), 72, 160));
-    if (g_allow_minimize) ByteGui.DrawWindowControlGlyph(draw, scaleVec2(MIN_X, MIN_Y + MIN_Y_OFFSET), scaleVec2(MIN_W, MIN_H), toU32(applyOpacity(g_button_colors[2].current, render_opacity)), false);
-    ByteGui.DrawWindowControlGlyph(draw, scaleVec2(CLOSE_X, CLOSE_Y + CLOSE_Y_OFFSET), scaleVec2(CLOSE_W, CLOSE_H), toU32(applyOpacity(g_button_colors[1].current, render_opacity)), true);
+    ByteGui.DrawInfoGlyph(draw, scaleVec2(INFO_X, INFO_Y), scaleVec2(INFO_W, INFO_H), toU32(applyOpacity(g_button_colors[3].current, render_opacity)), INFO_GLYPH_STYLE, std.math.clamp(scaleIF(72.0), 72, 160));
+    if (g_allow_minimize) ByteGui.DrawWindowControlGlyph(draw, scaleVec2(MIN_X, MIN_Y + MIN_Y_OFFSET), scaleVec2(MIN_W, MIN_H), toU32(applyOpacity(g_button_colors[2].current, render_opacity)), false, WINDOW_CONTROL_GLYPH_STYLE);
+    ByteGui.DrawWindowControlGlyph(draw, scaleVec2(CLOSE_X, CLOSE_Y + CLOSE_Y_OFFSET), scaleVec2(CLOSE_W, CLOSE_H), toU32(applyOpacity(g_button_colors[1].current, render_opacity)), true, WINDOW_CONTROL_GLYPH_STYLE);
     drawLogoVisual(draw, render_opacity);
 
     drawOutputTextbox(draw, render_opacity, dt);

@@ -712,6 +712,60 @@ pub const ByteDrawList = struct {
         self.AddPolylineInternal(points.items, col, true, thickness);
     }
 
+    pub fn AddCircleRing(self: *ByteDrawList, center: ByteVec2, inner_radius: f32, outer_radius: f32, col: ByteU32, num_segments: i32, aa_width: f32) void {
+        if ((col & BYTEGUI_COL32_A_MASK) == 0 or outer_radius <= 0.0) return;
+
+        const inner = @max(0.0, @min(inner_radius, outer_radius));
+        const outer = @max(inner, outer_radius);
+        if (outer <= inner) return;
+
+        const aa = if ((self.Flags & ByteDrawListFlags_AntiAliasedFill) != 0) @max(0.0, aa_width) else 0.0;
+        const radii = [_]f32{
+            @max(0.0, inner - aa),
+            inner,
+            outer,
+            outer + aa,
+        };
+        const colors = [_]ByteU32{
+            col & ~BYTEGUI_COL32_A_MASK,
+            col,
+            col,
+            col & ~BYTEGUI_COL32_A_MASK,
+        };
+
+        const segments = @max(@as(i32, 12), if (num_segments > 0) num_segments else calcCircleSegmentCount(outer));
+        const idx_start = self.IdxBuffer.items.len;
+        const base_idx: ByteDrawIdx = @intCast(self.VtxBuffer.items.len);
+        const uv = ByteVec2{ .x = 0.5, .y = 0.5 };
+
+        var i: i32 = 0;
+        while (i < segments) : (i += 1) {
+            const a = (@as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(segments))) * (2.0 * kPi);
+            const dir = ByteVec2{ .x = @cos(a), .y = @sin(a) };
+            for (radii, colors) |radius, color| {
+                self.addVertex(.{ .x = center.x + dir.x * radius, .y = center.y + dir.y * radius }, uv, color) catch return;
+            }
+        }
+
+        i = 0;
+        while (i < segments) : (i += 1) {
+            const next_i: i32 = if (i + 1 < segments) i + 1 else 0;
+            const current: ByteDrawIdx = base_idx + @as(ByteDrawIdx, @intCast(i * 4));
+            const next: ByteDrawIdx = base_idx + @as(ByteDrawIdx, @intCast(next_i * 4));
+            var band: ByteDrawIdx = 0;
+            while (band < 3) : (band += 1) {
+                const inner0 = current + band;
+                const outer0 = inner0 + 1;
+                const inner1 = next + band;
+                const outer1 = inner1 + 1;
+                self.addTriangleIndices(inner0, outer0, outer1) catch return;
+                self.addTriangleIndices(inner0, outer1, inner1) catch return;
+            }
+        }
+
+        self.addPrimitive(self.WhiteTexture, @intCast(self.IdxBuffer.items.len - idx_start)) catch return;
+    }
+
     pub fn AddCircleFilled(self: *ByteDrawList, center: ByteVec2, radius: f32, col: ByteU32, num_segments: i32) void {
         if (radius <= 0.0) return;
         const segments = if (num_segments > 0) num_segments else calcCircleSegmentCount(radius);
@@ -1459,59 +1513,61 @@ pub const ByteGui = struct {
         active_draw.AddConvexPolyFilled(&quad, col);
     }
 
-    pub fn DrawWindowControlGlyph(draw: ?*ByteDrawList, pos: ByteVec2, size: ByteVec2, col: ByteU32, is_close: bool) void {
+    pub fn DrawWindowControlGlyph(draw: ?*ByteDrawList, pos: ByteVec2, size: ByteVec2, col: ByteU32, is_close: bool, style: anytype) void {
         const active_draw = draw orelse return;
         if ((col & BYTEGUI_COL32_A_MASK) == 0) return;
 
         if (is_close) {
             const cx = pos.x + size.x * 0.5;
             const cy = pos.y + size.y * 0.5;
-            const pad = @min(size.x, size.y) * 0.24;
-            const stroke = @max(1.0, @min(size.x, size.y) * 0.07);
+            const min_size = @min(size.x, size.y);
+            const pad = min_size * style.close_padding_ratio;
+            const stroke = @max(1.0, min_size * style.close_stroke_ratio);
             DrawFlatSegment(active_draw, .{ .x = cx - pad, .y = cy - pad }, .{ .x = cx + pad, .y = cy + pad }, stroke, col);
             DrawFlatSegment(active_draw, .{ .x = cx - pad, .y = cy + pad }, .{ .x = cx + pad, .y = cy - pad }, stroke, col);
             return;
         }
 
-        const stroke = @max(1.0, size.y * 0.08);
-        const bar_len = size.x * 0.95;
+        const stroke = @max(1.0, size.y * style.minimize_stroke_ratio);
+        const bar_len = size.x * style.minimize_bar_width_ratio;
         const x_start = @floor(pos.x + (size.x - bar_len) * 0.5 + 0.5);
-        const y_top = @floor(pos.y + size.y * 0.57 - stroke * 0.5 + 0.5);
+        const y_top = @floor(pos.y + size.y * style.minimize_y_ratio - stroke * 0.5 + 0.5);
         const width = @floor(bar_len + 0.5);
         const height: f32 = @floatFromInt(@max(@as(i32, 1), @as(i32, @intFromFloat(@round(stroke)))));
         active_draw.AddRectFilled(.{ .x = x_start, .y = y_top }, .{ .x = x_start + width, .y = y_top + height }, col, 0.0);
     }
 
-    pub fn DrawInfoGlyph(draw: ?*ByteDrawList, pos: ByteVec2, size: ByteVec2, ring_col: ByteU32, background_col: ByteU32, arc_segments: i32) void {
+    pub fn DrawInfoGlyph(draw: ?*ByteDrawList, pos: ByteVec2, size: ByteVec2, ring_col: ByteU32, style: anytype, arc_segments: i32) void {
         const active_draw = draw orelse return;
         if ((ring_col & BYTEGUI_COL32_A_MASK) == 0) return;
 
         const icon_size = @min(size.x, size.y);
-        const padding = @max(1.0, icon_size * 0.12);
+        const padding = @max(1.0, icon_size * style.padding_ratio);
         const circle_size = icon_size - padding * 2.0;
+        if (circle_size <= 0.0) return;
+
         const circle_left = pos.x + (size.x - icon_size) * 0.5;
         const circle_top = pos.y + (size.y - icon_size) * 0.5;
         const center = ByteVec2{
             .x = @floor(circle_left + padding + circle_size * 0.5 + 0.5),
             .y = @floor(circle_top + padding + circle_size * 0.5 + 0.5),
         };
-        const stroke = @max(1.0, circle_size * 0.07);
+        const stroke = @max(1.0, circle_size * style.ring_stroke_ratio);
         const outer_radius = @floor(circle_size * 0.5 + 0.5);
         const inner_radius = @max(0.0, outer_radius - stroke);
         const segments = if (arc_segments > 0) arc_segments else std.math.clamp(calcCircleSegmentCount(outer_radius) * 2, 72, 160);
 
-        active_draw.AddCircleFilled(center, outer_radius, ring_col, segments);
-        if (inner_radius > 0.0 and (background_col & BYTEGUI_COL32_A_MASK) != 0) active_draw.AddCircleFilled(center, inner_radius, background_col, segments);
+        active_draw.AddCircleRing(center, inner_radius, outer_radius, ring_col, segments, style.ring_aa_width);
 
-        const stem_width = circle_size * 0.095;
-        const stem_height = circle_size * 0.42;
+        const stem_width = circle_size * style.stem_width_ratio;
+        const stem_height = circle_size * style.stem_height_ratio;
         const stem_x = center.x - stem_width * 0.5;
-        const stem_y = circle_top + padding + circle_size * 0.40;
+        const stem_y = circle_top + padding + circle_size * style.stem_y_ratio;
         active_draw.AddRectFilled(.{ .x = stem_x, .y = stem_y }, .{ .x = stem_x + stem_width, .y = stem_y + stem_height }, ring_col, 0.0);
 
-        const dot_diameter = circle_size * 0.115;
+        const dot_diameter = circle_size * style.dot_diameter_ratio;
         active_draw.AddCircleFilled(
-            .{ .x = center.x, .y = circle_top + padding + circle_size * 0.20 + dot_diameter * 0.5 },
+            .{ .x = center.x, .y = circle_top + padding + circle_size * style.dot_y_ratio + dot_diameter * 0.5 },
             dot_diameter * 0.5,
             ring_col,
             std.math.clamp(@divTrunc(segments, 3), 24, 64),
@@ -4201,13 +4257,15 @@ pub const ScrollbarDrawParams = struct {
     idle_color: ByteVec4,
     hover_color: ByteVec4,
     active_color: ByteVec4,
+    hover_t: f32,
+    fade_seconds: f32,
+    geometry_rate: f32,
+    active_geometry_rate: f32,
     hovered: bool = false,
     active: bool = false,
     visible: bool = true,
     opacity: f32 = 1.0,
     dt: f32 = 1.0 / 60.0,
-    fade_seconds: f32 = 0.16,
-    geometry_rate: f32 = 26.0,
 };
 
 pub const TextSelectionHighlightParams = struct {
@@ -4947,8 +5005,8 @@ fn scrollbarDragScroll(metrics: ScrollbarMetrics, start_scroll: f32, drag_delta:
     return start_scroll + (drag_delta / drag_range) * metrics.max_scroll;
 }
 
-fn updateScrollbarVisualState(state: *ScrollbarVisualState, hovered: bool, active: bool, dt: f32, fade_seconds: f32) void {
-    const target: f32 = if (active) 1.0 else if (hovered) 0.55 else 0.0;
+fn updateScrollbarVisualState(state: *ScrollbarVisualState, hovered: bool, active: bool, dt: f32, fade_seconds: f32, hover_t: f32) void {
+    const target: f32 = if (active) 1.0 else if (hovered) hover_t else 0.0;
     const step = if (fade_seconds > 0.0) @min(1.0, @max(0.0, dt) / fade_seconds) else 1.0;
     if (state.visual_t < target) {
         state.visual_t = @min(target, state.visual_t + step);
@@ -4975,7 +5033,7 @@ fn scrollbarApproach(current: f32, target: f32, t: f32) f32 {
     return current + (target - current) * t;
 }
 
-fn updateScrollbarGeometryState(state: *ScrollbarVisualState, metrics: ScrollbarMetrics, visible: bool, active: bool, dt: f32, rate: f32) void {
+fn updateScrollbarGeometryState(state: *ScrollbarVisualState, metrics: ScrollbarMetrics, visible: bool, active: bool, dt: f32, rate: f32, active_rate: f32) void {
     if (!visible and !state.has_geometry) return;
 
     if (!state.has_geometry or (visible and state.visibility_t <= 0.001)) {
@@ -4989,7 +5047,7 @@ fn updateScrollbarGeometryState(state: *ScrollbarVisualState, metrics: Scrollbar
 
     const t = scrollbarSmoothFactor(dt, rate);
     if (active) {
-        const active_t = scrollbarSmoothFactor(dt, @max(rate, 34.0));
+        const active_t = scrollbarSmoothFactor(dt, active_rate);
         state.thumb_pos = .{
             .x = scrollbarApproach(state.thumb_pos.x, metrics.thumb_pos.x, active_t),
             .y = scrollbarApproach(state.thumb_pos.y, metrics.thumb_pos.y, active_t),
@@ -5014,9 +5072,9 @@ fn updateScrollbarGeometryState(state: *ScrollbarVisualState, metrics: Scrollbar
 fn drawVerticalScrollbar(draw: ?*ByteDrawList, state: *ScrollbarVisualState, params: ScrollbarDrawParams) void {
     const active_draw = draw orelse return;
     const visible = params.visible or params.active;
-    updateScrollbarVisualState(state, if (visible) params.hovered else false, params.active, params.dt, params.fade_seconds);
+    updateScrollbarVisualState(state, if (visible) params.hovered else false, params.active, params.dt, params.fade_seconds, params.hover_t);
     updateScrollbarVisibilityState(state, visible, params.dt, params.fade_seconds);
-    updateScrollbarGeometryState(state, params.metrics, visible, params.active, params.dt, params.geometry_rate);
+    updateScrollbarGeometryState(state, params.metrics, visible, params.active, params.dt, params.geometry_rate, params.active_geometry_rate);
 
     if (!state.has_geometry) return;
     if (!visible and state.visibility_t <= 0.001) {
@@ -5025,7 +5083,7 @@ fn drawVerticalScrollbar(draw: ?*ByteDrawList, state: *ScrollbarVisualState, par
         return;
     }
 
-    const hover_t = 0.55;
+    const hover_t = std.math.clamp(params.hover_t, 0.001, 0.999);
     const color = if (state.visual_t <= hover_t)
         Ui.LerpColor(params.idle_color, params.hover_color, state.visual_t / hover_t)
     else
