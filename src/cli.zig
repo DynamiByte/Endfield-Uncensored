@@ -10,16 +10,15 @@ const APP_TITLE = std.unicode.utf8ToUtf16LeStringLiteral(strings.app_title);
 const VERSION_STR = app_version.version_str;
 const CLI_CONSOLE_TITLE = std.unicode.utf8ToUtf16LeStringLiteral(strings.cli.console_title);
 const EFMI_WAIT_TIMEOUT_MS: u64 = 10_000;
+const GAME_WAIT_TIMEOUT_MS: u64 = 30_000;
 const EFMI_DEFAULT_SUBPATH = "XXMI Launcher\\Resources\\Bin\\XXMI Launcher.exe";
-const EFMI_MISSING_PATH_MESSAGE = strings.cli.efmi_missing_path_message;
+const EFMI_MISSING_PATH_MESSAGE = strings.cli.efmi_missing_path_cli_message;
 const EFMI_COMMAND_LINE_FMT = "\"{s}\" --nogui --xxmi EFMI";
 const CLI_BLANK_LINE = "\n";
 const DEBUG_VALUE_BOXES = "boxes";
 const DEBUG_VALUE_BOXES_SHORT = "b";
 const DEBUG_VALUE_AUTOSCROLL = "autoscroll";
 const DEBUG_VALUE_AUTOSCROLL_SHORT = "as";
-const DEBUG_MISSING_VALUE_MESSAGE = "Missing value for --debug. Use one or more values, like: --debug boxes or --debug autoscroll";
-const DEBUG_INVALID_VALUE_MESSAGE = "Invalid value for --debug. Supported values: boxes, b, autoscroll, as";
 
 pub const BoolOverride = enum {
     auto,
@@ -62,6 +61,7 @@ pub const ParseArgsError = error{
     InvalidAllowMinimizeValue,
     MissingGamePathValue,
     InvalidGamePathValue,
+    InvalidEfmiPathValue,
     MissingDebugValue,
     InvalidDebugValue,
     MutuallyExclusiveDx11AndEfmi,
@@ -169,19 +169,13 @@ fn parseDebugValueInto(options: *DebugOptions, value: []const u8) bool {
     return parsed_any;
 }
 
-fn pathExistsWtf8(wtf8_path: []const u8) bool {
-    var path_buf: [std.Io.Dir.max_path_bytes]u16 = undefined;
-    const path_w = c.wtf8ToWtf16LeZ(wtf8_path, &path_buf) catch return false;
-    return c.GetFileAttributesW(path_w.ptr) != c.INVALID_FILE_ATTRIBUTES;
-}
-
 pub fn resolveDefaultEfmiLauncherPath(allocator: std.mem.Allocator, environ: std.process.Environ) !?[]u8 {
     var appdata_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const appdata = c.getEnvironmentVariableWtf8(environ, "APPDATA", &appdata_buf) orelse return null;
 
     var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = c.appendNormalizedPath(&path_buf, appdata, EFMI_DEFAULT_SUBPATH) catch return null;
-    if (!pathExistsWtf8(path)) return null;
+    if (!loader.validateExecutablePath(path)) return null;
 
     return try allocator.dupe(u8, path);
 }
@@ -271,7 +265,8 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
                             .auto => unreachable,
                         }
                     } else {
-                        config.efmi_launcher_path = try allocator.dupe(u8, value);
+                        if (!loader.validateExecutablePath(value)) return error.InvalidEfmiPathValue;
+                        config.efmi_launcher_path = try allocator.dupe(u8, loader.trimExecutablePath(value));
                     }
                 } else {
                     config.efmi_launcher_path = try resolveDefaultEfmiLauncherPath(allocator, environ);
@@ -314,11 +309,7 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
 }
 
 pub fn describeParseArgsError(err: ParseArgsError) []const u8 {
-    return switch (err) {
-        error.MissingDebugValue => DEBUG_MISSING_VALUE_MESSAGE,
-        error.InvalidDebugValue => DEBUG_INVALID_VALUE_MESSAGE,
-        else => strings.cli.describeParseArgsError(err),
-    };
+    return strings.cli.describeParseArgsError(err);
 }
 
 fn ensureCliConsole() void {
@@ -338,6 +329,12 @@ fn cliWrite(io: std.Io, message: []const u8) void {
 fn cliPrint(io: std.Io, comptime fmt: []const u8, args: anytype) void {
     var buf: [1024]u8 = undefined;
     const message = std.fmt.bufPrint(&buf, fmt, args) catch return;
+    cliWrite(io, message);
+}
+
+fn cliPrintProcessPath(io: std.Io, path: []const u8) void {
+    var buf: [std.Io.Dir.max_path_bytes + 64]u8 = undefined;
+    const message = std.fmt.bufPrint(&buf, strings.cli.process_path_fmt, .{path}) catch return;
     cliWrite(io, message);
 }
 
@@ -416,12 +413,12 @@ fn waitForTargetProcessTimeout(timeout_ms: u64) u32 {
 }
 
 // Injection flow
-fn cliInjectFoundProcess(io: std.Io, allocator: std.mem.Allocator, temp_dll_path: []const u8, pid: u32) !u8 {
+fn cliInjectFoundProcess(io: std.Io, temp_dll_path: []const u8, pid: u32) !u8 {
     cliPrint(io, strings.cli.process_found_fmt, .{pid});
 
     var process_path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     if (try getProcessPathWtf8(pid, &process_path_buf)) |path| {
-        cliPrint(io, strings.cli.process_path_fmt, .{path});
+        cliPrintProcessPath(io, path);
     } else {
         cliPrint(io, strings.cli.process_path_warning, .{});
     }
@@ -443,7 +440,6 @@ fn cliInjectFoundProcess(io: std.Io, allocator: std.mem.Allocator, temp_dll_path
 
     cliPrint(io, strings.cli.closing_in_5_seconds, .{});
     c.Sleep(5000);
-    _ = allocator;
     return if (injection_succeeded) 0 else 1;
 }
 
@@ -557,11 +553,8 @@ fn runSilentCli(allocator: std.mem.Allocator, environ: std.process.Environ, embe
         silentCliError(strings.cli.launch_failed_plain_fmt, .{loader.describeLaunchError(err)});
     };
 
-    var pid: u32 = 0;
-    while (pid == 0) {
-        pid = loader.findTargetProcess();
-        if (pid == 0) c.Sleep(100);
-    }
+    const pid = waitForTargetProcessTimeout(GAME_WAIT_TIMEOUT_MS);
+    if (pid == 0) silentCliError(strings.cli.game_launch_timeout, .{});
 
     c.Sleep(10);
 
@@ -662,7 +655,7 @@ fn runEfmiCli(allocator: std.mem.Allocator, embedded_dll: []const u8, efmi_launc
         return 1;
     }
 
-    return try cliInjectFoundProcess(io, allocator, temp_dll_path, pid);
+    return try cliInjectFoundProcess(io, temp_dll_path, pid);
 }
 
 pub fn run(allocator: std.mem.Allocator, environ: std.process.Environ, mode: Mode, embedded_dll: []const u8, config: LaunchConfig) !u8 {
@@ -732,5 +725,5 @@ pub fn run(allocator: std.mem.Allocator, environ: std.process.Environ, mode: Mod
         .process_found => |value| value,
     };
 
-    return try cliInjectFoundProcess(io, allocator, temp_dll_path, pid);
+    return try cliInjectFoundProcess(io, temp_dll_path, pid);
 }

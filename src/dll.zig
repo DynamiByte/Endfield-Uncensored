@@ -32,6 +32,7 @@ extern "kernel32" fn GetCurrentProcessId() callconv(.winapi) DWORD;
 extern "kernel32" fn FlushInstructionCache(hProcess: HANDLE, lpBaseAddress: ?*const anyopaque, dwSize: SIZE_T) callconv(.winapi) BOOL;
 extern "kernel32" fn VirtualAlloc(lpAddress: ?LPVOID, dwSize: SIZE_T, flAllocationType: DWORD, flProtect: DWORD) callconv(.winapi) ?LPVOID;
 extern "kernel32" fn VirtualProtect(lpAddress: LPVOID, dwSize: SIZE_T, flNewProtect: DWORD, lpflOldProtect: *DWORD) callconv(.winapi) BOOL;
+extern "kernel32" fn CloseHandle(hObject: HANDLE) callconv(.winapi) BOOL;
 extern "kernel32" fn CreateThread(
     lpThreadAttributes: ?*anyopaque,
     dwStackSize: SIZE_T,
@@ -309,7 +310,9 @@ fn patchThread(_: ?*anyopaque) callconv(.winapi) DWORD {
 pub export fn DllMain(hInstance: HINSTANCE, ul_reason_for_call: DWORD, _: ?LPVOID) callconv(.winapi) BOOL {
     if (ul_reason_for_call == DLL_PROCESS_ATTACH) {
         _ = DisableThreadLibraryCalls(@ptrCast(hInstance));
-        _ = CreateThread(null, 0, &patchThread, null, 0, null);
+        if (CreateThread(null, 0, &patchThread, null, 0, null)) |thread| {
+            _ = CloseHandle(thread);
+        }
     }
     return winBool(true);
 }

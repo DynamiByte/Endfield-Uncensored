@@ -1808,54 +1808,6 @@ fn buildSubsetGposTable(gpa: std.mem.Allocator, face: *FontFace, new_to_old: []c
     return try gpos.toOwnedSlice(gpa);
 }
 
-fn buildSubsetGlyfTable(gpa: std.mem.Allocator, face: *const FontFace, used: []const bool) SubsetError![]u8 {
-    var glyf: std.ArrayListUnmanaged(u8) = .empty;
-    errdefer glyf.deinit(gpa);
-
-    const align_to_two = face.index_to_loca_format == 0;
-    for (used, 0..) |is_used, glyph_index| {
-        if (!is_used) continue;
-        const range = face.glyphRange(@intCast(glyph_index)) orelse return error.InvalidFont;
-        if (range.len == 0) continue;
-        try glyf.appendSlice(gpa, face.data[range.offset .. range.offset + range.len]);
-        if (align_to_two and (glyf.items.len & 1) != 0) {
-            try glyf.append(gpa, 0);
-        }
-    }
-
-    return try glyf.toOwnedSlice(gpa);
-}
-
-fn buildSubsetLocaTable(gpa: std.mem.Allocator, face: *const FontFace, used: []const bool) SubsetError![]u8 {
-    var loca: std.ArrayListUnmanaged(u8) = .empty;
-    errdefer loca.deinit(gpa);
-
-    var current_offset: usize = 0;
-    const align_to_two = face.index_to_loca_format == 0;
-    for (used, 0..) |is_used, glyph_index| {
-        try appendLocaOffset(&loca, gpa, face.index_to_loca_format, current_offset);
-        if (!is_used) continue;
-        const range = face.glyphRange(@intCast(glyph_index)) orelse return error.InvalidFont;
-        current_offset += range.len;
-        if (align_to_two and (current_offset & 1) != 0) current_offset += 1;
-    }
-    try appendLocaOffset(&loca, gpa, face.index_to_loca_format, current_offset);
-
-    return try loca.toOwnedSlice(gpa);
-}
-
-fn appendLocaOffset(list: *std.ArrayListUnmanaged(u8), gpa: std.mem.Allocator, index_to_loca_format: i16, offset: usize) SubsetError!void {
-    if (index_to_loca_format == 0) {
-        if ((offset & 1) != 0) return error.InvalidFont;
-        const short_offset: u16 = std.math.cast(u16, offset / 2) orelse return error.UnsupportedFont;
-        try appendU16Be(list, gpa, short_offset);
-        return;
-    }
-
-    const long_offset: u32 = std.math.cast(u32, offset) orelse return error.UnsupportedFont;
-    try appendU32Be(list, gpa, long_offset);
-}
-
 fn appendU16Be(list: *std.ArrayListUnmanaged(u8), gpa: std.mem.Allocator, value: u16) SubsetError!void {
     try list.append(gpa, @intCast(value >> 8));
     try list.append(gpa, @intCast(value & 0xff));

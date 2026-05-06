@@ -248,6 +248,23 @@ const GameLaunchMode = enum {
     efmi,
 };
 
+const ButtonId = enum {
+    none,
+    close,
+    minimize,
+    info,
+    version,
+    launch,
+    toggle,
+    efmi,
+};
+
+const BoxButtonKind = enum {
+    toggle,
+    efmi,
+    launch,
+};
+
 const OutputDragMode = enum {
     none,
     select,
@@ -339,8 +356,8 @@ var g_force_dx11 = false;
 var g_loader_pending_launch_mode: ?GameLaunchMode = null;
 var g_loader_events: std.ArrayListUnmanaged(LoaderUiEvent) = .empty;
 
-var g_hovered_button: i32 = 0;
-var g_pressed_button: i32 = 0;
+var g_hovered_button: ButtonId = .none;
+var g_pressed_button: ButtonId = .none;
 var g_press_captured = false;
 var g_press_canceled = false;
 var g_dragging = false;
@@ -535,6 +552,15 @@ fn efmiLaunchSelected() bool {
     return g_efmi_button_visible and g_efmi_on_launch;
 }
 
+fn efmiLaunchAvailable() bool {
+    return g_efmi_button_visible and g_efmi_launcher_path != null;
+}
+
+fn efmiToggleEnabled() bool {
+    if (!g_efmi_button_visible or debugAutoscrollMode()) return false;
+    return g_efmi_launcher_path != null or g_efmi_on_launch;
+}
+
 fn selectedLaunchMode(preferred_mode: GameLaunchMode) GameLaunchMode {
     return if (efmiLaunchSelected()) .efmi else preferred_mode;
 }
@@ -579,7 +605,7 @@ fn computeLaunchButtonEnabled() bool {
     if (debugAutoscrollMode()) return false;
     if (launchCooldownActive()) return false;
     if (loaderTargetRunning()) return false;
-    if (efmiLaunchSelected()) return true;
+    if (efmiLaunchSelected()) return efmiLaunchAvailable();
     return g_game_exe_path != null;
 }
 
@@ -590,7 +616,8 @@ fn syncLaunchButtonStateImmediate() void {
 
 fn updateLaunchButtonState() void {
     g_launch_btn_enabled = computeLaunchButtonEnabled();
-    if (!g_launch_btn_enabled and (g_hovered_button == 5 or g_hovered_button == 7)) applyHoveredButton(0);
+    if (!g_launch_btn_enabled and g_hovered_button == .launch) applyHoveredButton(.none);
+    if (!efmiToggleEnabled() and g_hovered_button == .efmi) applyHoveredButton(.none);
 }
 
 fn toggleButtonLabel() []const u8 {
@@ -1276,9 +1303,18 @@ fn startScalarAnim(anim: *ScalarAnim, target: f32, duration: f32) void {
     anim.animating = true;
 }
 
-fn startButtonColorAnim(id: i32, target: ByteVec4) void {
-    if (id < 1 or id > 4) return;
-    const anim = &g_button_colors[@intCast(id)];
+fn controlButtonColorIndex(id: ButtonId) ?usize {
+    return switch (id) {
+        .close => 1,
+        .minimize => 2,
+        .info => 3,
+        .version => 4,
+        else => null,
+    };
+}
+
+fn startButtonColorAnim(id: ButtonId, target: ByteVec4) void {
+    const anim = &g_button_colors[controlButtonColorIndex(id) orelse return];
     anim.start = anim.current;
     anim.target = target;
     anim.elapsed = 0.0;
@@ -1443,7 +1479,7 @@ fn updateAnimations(dt: f32) void {
         ByteVec4{ .x = 1.0, .y = 250.0 / 255.0, .z = 0.0, .w = 1.0 }
     else
         ByteVec4{ .x = 220.0 / 255.0, .y = 220.0 / 255.0, .z = 220.0 / 255.0, .w = 1.0 };
-    const efmi_target = if (!g_launch_btn_enabled)
+    const efmi_target = if (!efmiToggleEnabled())
         kLaunchDisabledColor
     else if (g_efmi_on_launch)
         ByteVec4{ .x = 1.0, .y = 250.0 / 255.0, .z = 0.0, .w = 1.0 }
@@ -1651,8 +1687,8 @@ fn getWindowControlHitRects(min_hit: *bgc.RECT, close_hit: *bgc.RECT) void {
     close_hit.right = @intFromFloat(platformWindowSize().x);
 }
 
-fn hitTestButton(pt: c.POINT) i32 {
-    if (!pointInRoundedRectClient(pt)) return 0;
+fn hitTestButton(pt: c.POINT) ButtonId {
+    if (!pointInRoundedRectClient(pt)) return .none;
 
     var close_hit = std.mem.zeroes(bgc.RECT);
     var min_hit = std.mem.zeroes(bgc.RECT);
@@ -1664,14 +1700,14 @@ fn hitTestButton(pt: c.POINT) i32 {
     const toggle_hit = getToggleRect(true);
     const efmi_hit = getEfmiRect(true);
 
-    if (pointInRect(toggle_hit, pt)) return 6;
-    if (pointInRect(close_hit, pt)) return 1;
-    if (g_allow_minimize and pointInRect(min_hit, pt)) return 2;
-    if (pointInRect(info_hit, pt)) return 3;
-    if (pointInRect(version_hit, pt)) return 4;
-    if (pointInRect(launch_hit, pt) and g_launch_btn_enabled) return 5;
-    if (g_efmi_button_visible and g_launch_btn_enabled and pointInRect(efmi_hit, pt)) return 7;
-    return 0;
+    if (pointInRect(toggle_hit, pt)) return .toggle;
+    if (pointInRect(close_hit, pt)) return .close;
+    if (g_allow_minimize and pointInRect(min_hit, pt)) return .minimize;
+    if (pointInRect(info_hit, pt)) return .info;
+    if (pointInRect(version_hit, pt)) return .version;
+    if (pointInRect(launch_hit, pt) and g_launch_btn_enabled) return .launch;
+    if (efmiToggleEnabled() and pointInRect(efmi_hit, pt)) return .efmi;
+    return .none;
 }
 
 fn outputTextRect() c.RECT {
@@ -2115,10 +2151,15 @@ fn copyOutputSelectionToClipboard(hwnd: c.HWND) bool {
     }
 
     const raw = c.GlobalLock(h_mem) orelse return false;
+    var locked = true;
+    defer {
+        if (locked) _ = c.GlobalUnlock(h_mem);
+    }
     const wide: [*]u16 = @ptrCast(@alignCast(raw));
     const wide_len = std.unicode.wtf8ToWtf16Le(wide[0..selected.len], selected) catch return false;
     wide[wide_len] = 0;
     _ = c.GlobalUnlock(h_mem);
+    locked = false;
 
     if (c.OpenClipboard(hwnd) == c.FALSE) return false;
     defer _ = c.CloseClipboard();
@@ -2172,7 +2213,7 @@ fn beginOutputMouseDown(hwnd: c.HWND, pt: c.POINT) bool {
     if (!pointInOutputTextRect(pt)) return false;
 
     g_output_autoscroll_to_bottom_active = false;
-    applyHoveredButton(0);
+    applyHoveredButton(.none);
     const ptf = ByteVec2{ .x = @floatFromInt(pt.x), .y = @floatFromInt(pt.y) };
     if (currentOutputScrollbarMetrics()) |metrics| {
         const hit_pad = scaleF(3.0);
@@ -2266,26 +2307,26 @@ fn handleOutputMouseWheel(hwnd: c.HWND, w_param: c.WPARAM, l_param: c.LPARAM) c.
     return 0;
 }
 
-fn applyHoveredButton(next_hover: i32) void {
+fn applyHoveredButton(next_hover: ButtonId) void {
     const prev_hover = g_hovered_button;
     if (prev_hover == next_hover) return;
 
     g_hovered_button = next_hover;
-    if (prev_hover >= 1 and prev_hover <= 4) startButtonColorAnim(prev_hover, kControlIdleColor);
-    if (g_hovered_button == 1) {
-        startButtonColorAnim(1, .{ .x = 1.0, .y = 127.0 / 255.0, .z = 80.0 / 255.0, .w = 1.0 });
-    } else if (g_hovered_button == 2) {
-        startButtonColorAnim(2, .{ .x = 218.0 / 255.0, .y = 165.0 / 255.0, .z = 32.0 / 255.0, .w = 1.0 });
-    } else if (g_hovered_button == 3 or g_hovered_button == 4) {
+    if (controlButtonColorIndex(prev_hover) != null) startButtonColorAnim(prev_hover, kControlIdleColor);
+    if (g_hovered_button == .close) {
+        startButtonColorAnim(.close, .{ .x = 1.0, .y = 127.0 / 255.0, .z = 80.0 / 255.0, .w = 1.0 });
+    } else if (g_hovered_button == .minimize) {
+        startButtonColorAnim(.minimize, .{ .x = 218.0 / 255.0, .y = 165.0 / 255.0, .z = 32.0 / 255.0, .w = 1.0 });
+    } else if (g_hovered_button == .info or g_hovered_button == .version) {
         startButtonColorAnim(g_hovered_button, kControlHoverBlue);
     }
 
-    const launch_group_hovered = g_hovered_button == 5 or g_hovered_button == 7;
+    const launch_group_hovered = g_hovered_button == .launch or g_hovered_button == .efmi;
     startScalarAnim(&g_launch_anim, if (launch_group_hovered) 1.0 else 0.0, 0.18);
-    startScalarAnim(&g_launch_label_anim, if (g_hovered_button == 5) 1.0 else 0.0, 0.18);
-    startScalarAnim(&g_toggle_anim, if (g_hovered_button == 6) 1.0 else 0.0, 0.18);
+    startScalarAnim(&g_launch_label_anim, if (g_hovered_button == .launch) 1.0 else 0.0, 0.18);
+    startScalarAnim(&g_toggle_anim, if (g_hovered_button == .toggle) 1.0 else 0.0, 0.18);
     startScalarAnim(&g_efmi_anim, if (launch_group_hovered) 1.0 else 0.0, 0.18);
-    startScalarAnim(&g_efmi_label_anim, if (g_hovered_button == 7) 1.0 else 0.0, 0.18);
+    startScalarAnim(&g_efmi_label_anim, if (g_hovered_button == .efmi) 1.0 else 0.0, 0.18);
 }
 
 fn beginMouseLeaveTracking(hwnd: c.HWND) void {
@@ -2305,7 +2346,7 @@ fn cursorIdForClientPoint(pt: c.POINT) u16 {
     if (pointInOutputTextRect(pt) and !pointInOutputScrollbarThumb(pt)) return IDC_IBEAM_ID;
 
     const hit_id = hitTestButton(pt);
-    if (hit_id == 5 or hit_id == 6 or hit_id == 7) return IDC_HAND_ID;
+    if (hit_id == .launch or hit_id == .toggle or hit_id == .efmi) return IDC_HAND_ID;
 
     return IDC_ARROW_ID;
 }
@@ -2325,7 +2366,7 @@ fn applyDefaultCursor() void {
 fn clearWindowHoverState() void {
     g_cursor_in_window = false;
     g_mouse_leave_tracking = false;
-    applyHoveredButton(0);
+    applyHoveredButton(.none);
     applyDefaultCursor();
 }
 
@@ -2337,7 +2378,7 @@ fn armHoverAfterCursorMotion() void {
 
 fn updateHoverStates(dt: f32) void {
     _ = dt;
-    if (!g_cursor_in_window) applyHoveredButton(0);
+    if (!g_cursor_in_window) applyHoveredButton(.none);
 }
 
 fn yellowBandContactPointPx() ByteVec2 {
@@ -2359,16 +2400,8 @@ fn drawYellowRotatedRect(draw: ?*ByteDrawList, opacity: f32) void {
     );
 }
 
-fn buttonIsLaunch(id: []const u8) bool {
-    return std.mem.eql(u8, id, "launch_btn");
-}
-
-fn buttonIsEfmi(id: []const u8) bool {
-    return std.mem.eql(u8, id, "efmi_btn");
-}
-
-fn getButtonLabelTexture(id: []const u8) *const TextTexture {
-    if (buttonIsLaunch(id)) return &g_launch_label_texture;
+fn getButtonLabelTexture(kind: BoxButtonKind) *const TextTexture {
+    if (kind == .launch) return &g_launch_label_texture;
     return &g_toggle_label_texture;
 }
 
@@ -2406,18 +2439,18 @@ fn drawEfmiButtonLabelTexture(draw: ?*ByteDrawList, pos: ByteVec2, size: ByteVec
     );
 }
 
-fn drawAnimatedButtonLabelTexture(draw: ?*ByteDrawList, id: []const u8, pos: ByteVec2, size: ByteVec2, anim: f32, opacity: f32) bool {
-    const is_launch = buttonIsLaunch(id);
+fn drawAnimatedButtonLabelTexture(draw: ?*ByteDrawList, kind: BoxButtonKind, pos: ByteVec2, size: ByteVec2, anim: f32, opacity: f32) bool {
+    const is_launch = kind == .launch;
     if (is_launch) return drawAnimatedTextureLabel(draw, &g_launch_label_texture, true, pos, size, g_launch_label_anim.value, opacity);
-    if (buttonIsEfmi(id)) return drawEfmiButtonLabelTexture(draw, pos, size, g_efmi_label_anim.value, opacity);
-    const text_texture = getButtonLabelTexture(id);
+    if (kind == .efmi) return drawEfmiButtonLabelTexture(draw, pos, size, g_efmi_label_anim.value, opacity);
+    const text_texture = getButtonLabelTexture(kind);
     return drawAnimatedTextureLabel(draw, text_texture, is_launch, pos, size, anim, opacity);
 }
 
-fn drawAnimatedBoxButtonVisual(id: []const u8, _: []const u8, base_pos: ByteVec2, base_size: ByteVec2, anim: f32, enabled: bool, base_color: ByteVec4, opacity: f32) void {
+fn drawAnimatedBoxButtonVisual(kind: BoxButtonKind, base_pos: ByteVec2, base_size: ByteVec2, anim: f32, enabled: bool, base_color: ByteVec4, opacity: f32) void {
     _ = enabled;
-    const is_launch = buttonIsLaunch(id);
-    const is_efmi = buttonIsEfmi(id);
+    const is_launch = kind == .launch;
+    const is_efmi = kind == .efmi;
     const is_launch_group = is_launch or is_efmi;
     const color = base_color;
     const rounding = if (is_launch_group) scaleF(8.0) + scaleF(4.0) * anim else scaleF(5.0) + scaleF(2.0) * anim;
@@ -2435,7 +2468,7 @@ fn drawAnimatedBoxButtonVisual(id: []const u8, _: []const u8, base_pos: ByteVec2
         const label_size = ByteVec2{ .x = efmiLabelWidth(), .y = h };
         Ui.DrawRoundedLeftEdgeShadowedRectFilled(draw, visual_pos, visual_size, rounding, color, darkerEfmiShadowColor(color), opacity, launchVisualPos(), launchVisualSize(), launchVisualRounding(), scaleF(EFMI_SHADOW_WIDTH), EFMI_SHADOW_STRENGTH);
         draw.Flags = saved_flags;
-        _ = drawAnimatedButtonLabelTexture(draw, id, label_pos, label_size, anim, opacity);
+        _ = drawAnimatedButtonLabelTexture(draw, kind, label_pos, label_size, anim, opacity);
         return;
     }
 
@@ -2444,7 +2477,7 @@ fn drawAnimatedBoxButtonVisual(id: []const u8, _: []const u8, base_pos: ByteVec2
     const pos = ByteVec2{ .x = center.x - size.x * 0.5, .y = center.y - size.y * 0.5 };
     draw.AddRectFilled(pos, .{ .x = pos.x + size.x, .y = pos.y + size.y }, toU32(applyOpacity(color, opacity)), rounding);
     draw.Flags = saved_flags;
-    _ = drawAnimatedButtonLabelTexture(draw, id, pos, size, anim, opacity);
+    _ = drawAnimatedButtonLabelTexture(draw, kind, pos, size, anim, opacity);
 }
 
 fn drawLogoVisual(draw: ?*ByteDrawList, opacity: f32) void {
@@ -2642,7 +2675,7 @@ fn drawDebugBoxOverlay(draw: *ByteDrawList, opacity: f32) void {
     drawDebugBoxOutline(draw, launchVisualPos(), launchVisualSize(), kDebugVisualBoundsColor, debug_opacity);
 
     if (g_efmi_button_visible) {
-        if (g_launch_btn_enabled) drawDebugRectOutline(draw, getEfmiRect(true), kDebugHitboxColor, debug_opacity);
+        if (efmiToggleEnabled()) drawDebugRectOutline(draw, getEfmiRect(true), kDebugHitboxColor, debug_opacity);
         const h = scaleF(EFMI_H) + scaleF(4.0) * g_efmi_anim.value;
         const cy = scaleF(EFMI_Y + EFMI_H * 0.5);
         drawDebugBoxOutline(
@@ -2748,9 +2781,9 @@ fn drawUI(dt: f32) void {
     drawOutputTextbox(draw, render_opacity, dt);
 
     draw.AddText(g_font_version, scaleF(12.0), snapPixelVec2(scaleVec2(VERSION_X, VERSION_Y)), toU32(applyOpacity(g_button_colors[4].current, render_opacity)), g_version_display, null);
-    drawAnimatedBoxButtonVisual("toggle_btn", toggleButtonLabel(), scaleVec2(TOGGLE_X, TOGGLE_Y + TOGGLE_Y_OFFSET), scaleVec2(TOGGLE_W, TOGGLE_H), g_toggle_anim.value, true, g_toggle_current_color, render_opacity);
-    if (g_efmi_button_visible) drawAnimatedBoxButtonVisual("efmi_btn", LABEL_EFMI, scaleVec2(EFMI_X, EFMI_Y), scaleVec2(EFMI_W, EFMI_H), g_efmi_anim.value, g_launch_btn_enabled and !debugAutoscrollMode(), g_efmi_current_color, render_opacity);
-    drawAnimatedBoxButtonVisual("launch_btn", LABEL_LAUNCH, scaleVec2(LAUNCH_X, LAUNCH_Y), scaleVec2(LAUNCH_W, LAUNCH_H), g_launch_anim.value, g_launch_btn_enabled, g_launch_current_color, render_opacity);
+    drawAnimatedBoxButtonVisual(.toggle, scaleVec2(TOGGLE_X, TOGGLE_Y + TOGGLE_Y_OFFSET), scaleVec2(TOGGLE_W, TOGGLE_H), g_toggle_anim.value, true, g_toggle_current_color, render_opacity);
+    if (g_efmi_button_visible) drawAnimatedBoxButtonVisual(.efmi, scaleVec2(EFMI_X, EFMI_Y), scaleVec2(EFMI_W, EFMI_H), g_efmi_anim.value, efmiToggleEnabled(), g_efmi_current_color, render_opacity);
+    drawAnimatedBoxButtonVisual(.launch, scaleVec2(LAUNCH_X, LAUNCH_Y), scaleVec2(LAUNCH_W, LAUNCH_H), g_launch_anim.value, g_launch_btn_enabled, g_launch_current_color, render_opacity);
     drawDebugBoxOverlay(draw, render_opacity);
 }
 
@@ -2880,16 +2913,16 @@ fn openReleaseTag() void {
 }
 
 // Input and window procedure
-fn onButtonActivated(id: i32) void {
+fn onButtonActivated(id: ButtonId) void {
     switch (id) {
-        1 => if (g_window_anim.typ == .none) startWindowAnimation(.slide_out_close),
-        2 => if (g_allow_minimize and g_window_anim.typ == .none) startWindowAnimation(.fade_out_minimize),
-        3 => openReadme(),
-        4 => openReleaseTag(),
-        5 => launchGameAction(defaultLaunchMode()),
-        6 => setLoaderMinimizeOnLaunch(!g_minimize_on_launch),
-        7 => if (g_launch_btn_enabled) setEfmiOnLaunch(!g_efmi_on_launch),
-        else => {},
+        .close => if (g_window_anim.typ == .none) startWindowAnimation(.slide_out_close),
+        .minimize => if (g_allow_minimize and g_window_anim.typ == .none) startWindowAnimation(.fade_out_minimize),
+        .info => openReadme(),
+        .version => openReleaseTag(),
+        .launch => launchGameAction(defaultLaunchMode()),
+        .toggle => setLoaderMinimizeOnLaunch(!g_minimize_on_launch),
+        .efmi => if (efmiToggleEnabled()) setEfmiOnLaunch(!g_efmi_on_launch),
+        .none => {},
     }
 }
 
@@ -2899,7 +2932,7 @@ fn handleLButtonDown(hwnd: c.HWND, l_param: c.LPARAM) c.LRESULT {
     clearOutputSelection();
 
     const hit_id = hitTestButton(pt);
-    if (hit_id != 0) {
+    if (hit_id != .none) {
         g_pressed_button = hit_id;
         g_press_captured = true;
         g_press_canceled = false;
@@ -2910,14 +2943,14 @@ fn handleLButtonDown(hwnd: c.HWND, l_param: c.LPARAM) c.LRESULT {
         getWindowControlHitRects(&min_hit, &close_hit);
 
         g_press_rect = switch (hit_id) {
-            1 => fromByteGuiRect(close_hit),
-            2 => fromByteGuiRect(min_hit),
-            3 => getInfoRect(),
-            4 => fromByteGuiRect(getVersionRect()),
-            5 => getLaunchRect(false),
-            6 => getToggleRect(true),
-            7 => getEfmiRect(true),
-            else => std.mem.zeroes(c.RECT),
+            .close => fromByteGuiRect(close_hit),
+            .minimize => fromByteGuiRect(min_hit),
+            .info => getInfoRect(),
+            .version => fromByteGuiRect(getVersionRect()),
+            .launch => getLaunchRect(false),
+            .toggle => getToggleRect(true),
+            .efmi => getEfmiRect(true),
+            .none => std.mem.zeroes(c.RECT),
         };
 
         _ = c.SetCapture(hwnd);
@@ -2994,7 +3027,7 @@ fn handleLButtonUp(l_param: c.LPARAM) c.LRESULT {
         _ = c.ReleaseCapture();
         const pt = c.POINT{ .x = lowWordSigned(l_param), .y = highWordSigned(l_param) };
         if (!g_press_canceled and pointInRoundedRectClient(pt) and c.PtInRect(&g_press_rect, pt) != c.FALSE) onButtonActivated(g_pressed_button);
-        g_pressed_button = 0;
+        g_pressed_button = .none;
         g_press_captured = false;
         g_press_canceled = false;
         return 0;
@@ -3010,7 +3043,7 @@ fn handleRButtonDown(l_param: c.LPARAM) c.LRESULT {
     }
     clearOutputSelection();
 
-    if (hitTestButton(pt) == 5) return 0;
+    if (hitTestButton(pt) == .launch) return 0;
 
     resetLaunchRightClickSequence();
     return -1;
@@ -3023,7 +3056,7 @@ fn handleRButtonUp(l_param: c.LPARAM) c.LRESULT {
         return -1;
     }
 
-    if (hitTestButton(pt) != 5) {
+    if (hitTestButton(pt) != .launch) {
         resetLaunchRightClickSequence();
         return -1;
     }
@@ -3319,6 +3352,7 @@ pub fn main(init: std.process.Init.Minimal) void {
             error.InvalidAllowMinimizeValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidAllowMinimizeValue)),
             error.MissingGamePathValue => cli.showArgumentError(cli.describeParseArgsError(error.MissingGamePathValue)),
             error.InvalidGamePathValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidGamePathValue)),
+            error.InvalidEfmiPathValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidEfmiPathValue)),
             error.MissingDebugValue => cli.showArgumentError(cli.describeParseArgsError(error.MissingDebugValue)),
             error.InvalidDebugValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidDebugValue)),
             error.MutuallyExclusiveDx11AndEfmi => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveDx11AndEfmi)),

@@ -4867,8 +4867,6 @@ fn drawOneAnimatedTextSelectionRect(draw: *ByteDrawList, covered: *std.ArrayList
     var p_max = rect.current_max;
     if (p_max.x <= p_min.x or p_max.y <= p_min.y) return;
 
-    if (p_max.x <= p_min.x or p_max.y <= p_min.y) return;
-
     p_min.x = roundToNearestPixel(p_min.x);
     p_min.y = roundToNearestPixel(p_min.y);
     p_max.x = roundToNearestPixel(p_max.x);

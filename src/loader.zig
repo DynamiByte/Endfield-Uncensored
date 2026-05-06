@@ -241,6 +241,14 @@ pub fn detectGameExe(environ: std.process.Environ, allocator: std.mem.Allocator)
 }
 
 pub fn validateGameExeOverridePath(wtf8_path: []const u8) bool {
+    return validateExecutablePath(wtf8_path);
+}
+
+pub fn trimExecutablePath(wtf8_path: []const u8) []const u8 {
+    return trimRightPathNoise(wtf8_path);
+}
+
+pub fn validateExecutablePath(wtf8_path: []const u8) bool {
     const trimmed = trimRightPathNoise(wtf8_path);
     if (trimmed.len == 0) return false;
     if (!std.ascii.eqlIgnoreCase(std.fs.path.extension(trimmed), ".exe")) return false;
