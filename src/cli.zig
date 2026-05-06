@@ -66,8 +66,8 @@ pub const ParseArgsError = error{
     InvalidDebugValue,
     MutuallyExclusiveDx11AndEfmi,
     MutuallyExclusiveGamePathAndEfmi,
-    MutuallyExclusiveAutoYesAndGui,
-    MutuallyExclusiveCliAndGuiArgs,
+    MutuallyExclusiveAutoYesAndGUI,
+    MutuallyExclusiveCliAndGUIArgs,
 };
 
 const CliWaitResult = union(enum) {
@@ -299,10 +299,10 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
         return error.MutuallyExclusiveGamePathAndEfmi;
     }
     if (config.auto_yes and !config.cli) {
-        return error.MutuallyExclusiveAutoYesAndGui;
+        return error.MutuallyExclusiveAutoYesAndGUI;
     }
     if (config.cli and (config.wine_mode_override != .auto or config.allow_minimize_override != .auto)) {
-        return error.MutuallyExclusiveCliAndGuiArgs;
+        return error.MutuallyExclusiveCliAndGUIArgs;
     }
 
     return config;

@@ -1,4 +1,4 @@
-// ByteType - TrueType parser, rasterizer, and build-time subsetter for ByteGui
+// ByteType - TrueType parser, rasterizer, and build-time subsetter for ByteGUI
 const std = @import("std");
 
 const allocator = std.heap.c_allocator;

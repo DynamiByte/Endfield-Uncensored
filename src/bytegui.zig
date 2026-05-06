@@ -1,4 +1,4 @@
-// ByteGui - A minimal immediate mode GUI library for Endfield Uncensored, built on OpenGL.
+// ByteGUI - A minimal immediate mode GUI library for Endfield Uncensored, built on OpenGL.
 
 const builtin = @import("builtin");
 const std = @import("std");
@@ -159,8 +159,8 @@ pub const ByteTextureID = ?*anyopaque;
 pub const BYTEGUI_COL32_A_MASK: ByteU32 = 0xFF000000;
 
 const kPi: f32 = 3.14159265358979323846;
-const default_class_name = std.unicode.utf8ToUtf16LeStringLiteral("ByteGuiPlatformWindow");
-const default_title = std.unicode.utf8ToUtf16LeStringLiteral("ByteGui");
+const default_class_name = std.unicode.utf8ToUtf16LeStringLiteral("ByteGUIPlatformWindow");
+const default_title = std.unicode.utf8ToUtf16LeStringLiteral("ByteGUI");
 const idc_arrow_id: u16 = 32512;
 const image_icon_type: c.UINT = 1;
 const load_image_shared: c.UINT = 0x8000;
@@ -168,9 +168,9 @@ const wm_seticon: c.UINT = 0x0080;
 const icon_small_slot: c.WPARAM = 0;
 const icon_big_slot: c.WPARAM = 1;
 
-fn setByteGuiTrace(_: []const u8) void {}
+fn setByteGUITrace(_: []const u8) void {}
 
-fn setByteGuiTraceFmt(comptime fmt: []const u8, args: anytype) void {
+fn setByteGUITraceFmt(comptime fmt: []const u8, args: anytype) void {
     _ = fmt;
     _ = args;
 }
@@ -199,30 +199,30 @@ pub const FontStyleBold: i32 = 1;
 pub const FontStyleItalic: i32 = 2;
 pub const FontStyleBoldItalic: i32 = 3;
 
-pub const ByteGuiCol_Text: usize = 0;
-pub const ByteGuiCol_WindowBg: usize = 1;
-pub const ByteGuiCol_ChildBg: usize = 2;
-pub const ByteGuiCol_Border: usize = 3;
-pub const ByteGuiCol_ScrollbarBg: usize = 4;
-pub const ByteGuiCol_ScrollbarGrab: usize = 5;
-pub const ByteGuiCol_ScrollbarGrabHovered: usize = 6;
-pub const ByteGuiCol_ScrollbarGrabActive: usize = 7;
-pub const ByteGuiCol_COUNT: usize = 8;
-pub const ByteGuiCol = i32;
+pub const ByteGUICol_Text: usize = 0;
+pub const ByteGUICol_WindowBg: usize = 1;
+pub const ByteGUICol_ChildBg: usize = 2;
+pub const ByteGUICol_Border: usize = 3;
+pub const ByteGUICol_ScrollbarBg: usize = 4;
+pub const ByteGUICol_ScrollbarGrab: usize = 5;
+pub const ByteGUICol_ScrollbarGrabHovered: usize = 6;
+pub const ByteGUICol_ScrollbarGrabActive: usize = 7;
+pub const ByteGUICol_COUNT: usize = 8;
+pub const ByteGUICol = i32;
 
-pub const ByteGuiStyleVar_Alpha: i32 = 0;
-pub const ByteGuiStyleVar = i32;
+pub const ByteGUIStyleVar_Alpha: i32 = 0;
+pub const ByteGUIStyleVar = i32;
 
-pub const ByteGuiWindowFlags_None: u32 = 0;
-pub const ByteGuiWindowFlags_NoDecoration: u32 = 1 << 0;
-pub const ByteGuiWindowFlags_NoMove: u32 = 1 << 1;
-pub const ByteGuiWindowFlags_NoResize: u32 = 1 << 2;
-pub const ByteGuiWindowFlags_NoSavedSettings: u32 = 1 << 3;
-pub const ByteGuiWindowFlags_NoNav: u32 = 1 << 4;
-pub const ByteGuiWindowFlags_NoBackground: u32 = 1 << 5;
-pub const ByteGuiWindowFlags_NoScrollbar: u32 = 1 << 6;
-pub const ByteGuiWindowFlags_NoScrollWithMouse: u32 = 1 << 7;
-pub const ByteGuiWindowFlags = u32;
+pub const ByteGUIWindowFlags_None: u32 = 0;
+pub const ByteGUIWindowFlags_NoDecoration: u32 = 1 << 0;
+pub const ByteGUIWindowFlags_NoMove: u32 = 1 << 1;
+pub const ByteGUIWindowFlags_NoResize: u32 = 1 << 2;
+pub const ByteGUIWindowFlags_NoSavedSettings: u32 = 1 << 3;
+pub const ByteGUIWindowFlags_NoNav: u32 = 1 << 4;
+pub const ByteGUIWindowFlags_NoBackground: u32 = 1 << 5;
+pub const ByteGUIWindowFlags_NoScrollbar: u32 = 1 << 6;
+pub const ByteGUIWindowFlags_NoScrollWithMouse: u32 = 1 << 7;
+pub const ByteGUIWindowFlags = u32;
 
 pub const ByteDrawListFlags_None: u32 = 0;
 pub const ByteDrawListFlags_AntiAliasedFill: u32 = 1 << 0;
@@ -289,7 +289,7 @@ pub const ByteDrawData = struct {
     }
 };
 
-pub const ByteGuiIO = struct {
+pub const ByteGUIIO = struct {
     Fonts: ?*ByteFontAtlas = null,
     IniFilename: ?[*:0]const u8 = null,
     LogFilename: ?[*:0]const u8 = null,
@@ -301,7 +301,7 @@ pub const ByteGuiIO = struct {
     BackendPlatformName: ?[*:0]const u8 = null,
 };
 
-pub const ByteGuiStyle = struct {
+pub const ByteGUIStyle = struct {
     Alpha: f32 = 1.0,
     WindowPadding: ByteVec2 = .{ .x = 8.0, .y = 8.0 },
     FramePadding: ByteVec2 = .{ .x = 4.0, .y = 3.0 },
@@ -320,7 +320,7 @@ pub const ByteGuiStyle = struct {
     AntiAliasedLines: bool = true,
     CurveTessellationTol: f32 = 1.25,
     CircleTessellationMaxError: f32 = 0.30,
-    Colors: [ByteGuiCol_COUNT]ByteVec4 = .{
+    Colors: [ByteGUICol_COUNT]ByteVec4 = .{
         .{ .x = 1.0, .y = 1.0, .z = 1.0, .w = 1.0 },
         .{ .x = 0.06, .y = 0.06, .z = 0.06, .w = 0.94 },
         .{ .x = 0.0, .y = 0.0, .z = 0.0, .w = 0.0 },
@@ -854,7 +854,7 @@ pub const ByteDrawList = struct {
     }
 };
 
-pub const ByteGuiPlatformWindowConfig = struct {
+pub const ByteGUIPlatformWindowConfig = struct {
     Instance: c.HINSTANCE = null,
     WndProc: c.WNDPROC = null,
     ClassName: [*:0]const u16 = default_class_name,
@@ -894,9 +894,9 @@ const ChildState = struct {
     Size: ByteVec2 = .{},
 };
 
-pub const ByteGuiContext = struct {
-    IO: ByteGuiIO = .{},
-    Style: ByteGuiStyle = .{},
+pub const ByteGUIContext = struct {
+    IO: ByteGUIIO = .{},
+    Style: ByteGUIStyle = .{},
     FontAtlas: ByteFontAtlas = .{},
     DrawList: ByteDrawList = .{},
     DrawData: ByteDrawData = .{},
@@ -920,12 +920,12 @@ pub const ByteGuiContext = struct {
 
     TextCache: std.ArrayListUnmanaged(TextCacheEntry) = .empty,
 
-    fn init(self: *ByteGuiContext) void {
+    fn init(self: *ByteGUIContext) void {
         self.* = .{};
         self.IO.Fonts = &self.FontAtlas;
     }
 
-    fn deinit(self: *ByteGuiContext) void {
+    fn deinit(self: *ByteGUIContext) void {
         clearTextCache();
         self.FontAtlas.deinit();
         self.DrawList.deinit();
@@ -963,50 +963,50 @@ const HostWindowData = struct {
     ClassRegistered: bool = false,
 };
 
-var GByteGui: ?*ByteGuiContext = null;
+var GByteGUI: ?*ByteGUIContext = null;
 var GHostWindow: HostWindowData = .{};
 
 // Immediate-mode context and front end
-pub const ByteGui = struct {
-    pub fn CreateContext() ?*ByteGuiContext {
+pub const ByteGUI = struct {
+    pub fn CreateContext() ?*ByteGUIContext {
         DestroyContext(null);
-        const ctx = allocator.create(ByteGuiContext) catch return null;
+        const ctx = allocator.create(ByteGUIContext) catch return null;
         ctx.init();
-        GByteGui = ctx;
+        GByteGUI = ctx;
         return ctx;
     }
 
-    pub fn DestroyContext(ctx: ?*ByteGuiContext) void {
+    pub fn DestroyContext(ctx: ?*ByteGUIContext) void {
         var actual = ctx;
-        if (actual == null) actual = GByteGui;
+        if (actual == null) actual = GByteGUI;
         if (actual == null) return;
 
-        if (actual == GByteGui) clearTextCache();
+        if (actual == GByteGUI) clearTextCache();
         actual.?.deinit();
         allocator.destroy(actual.?);
-        if (actual == GByteGui) GByteGui = null;
-        if (GByteGui == null) bt.shutdown();
+        if (actual == GByteGUI) GByteGUI = null;
+        if (GByteGUI == null) bt.shutdown();
     }
 
-    pub fn GetCurrentContext() ?*ByteGuiContext {
-        return GByteGui;
+    pub fn GetCurrentContext() ?*ByteGUIContext {
+        return GByteGUI;
     }
 
-    pub fn GetIO() *ByteGuiIO {
-        return &GByteGui.?.IO;
+    pub fn GetIO() *ByteGUIIO {
+        return &GByteGUI.?.IO;
     }
 
-    pub fn GetStyle() *ByteGuiStyle {
-        return &GByteGui.?.Style;
+    pub fn GetStyle() *ByteGUIStyle {
+        return &GByteGUI.?.Style;
     }
 
     pub fn GetDrawData() ?*ByteDrawData {
-        if (GByteGui) |ctx| return &ctx.DrawData;
+        if (GByteGUI) |ctx| return &ctx.DrawData;
         return null;
     }
 
     pub fn GetWindowDrawList() ?*ByteDrawList {
-        if (GByteGui) |ctx| return &ctx.DrawList;
+        if (GByteGUI) |ctx| return &ctx.DrawList;
         return null;
     }
 
@@ -1019,7 +1019,7 @@ pub const ByteGui = struct {
     }
 
     pub fn NewFrame() void {
-        const ctx = GByteGui orelse return;
+        const ctx = GByteGUI orelse return;
 
         ctx.FrameBegun = true;
         ctx.HasNextWindowPos = false;
@@ -1044,7 +1044,7 @@ pub const ByteGui = struct {
     }
 
     pub fn Render() void {
-        const ctx = GByteGui orelse return;
+        const ctx = GByteGUI orelse return;
 
         ctx.DrawData.Valid = true;
         ctx.DrawData.DisplayPos = .{};
@@ -1058,12 +1058,12 @@ pub const ByteGui = struct {
         ctx.FrameBegun = false;
     }
 
-    pub fn Begin(name: []const u8, p_open: ?*bool, flags: ByteGuiWindowFlags) bool {
+    pub fn Begin(name: []const u8, p_open: ?*bool, flags: ByteGUIWindowFlags) bool {
         _ = name;
         _ = p_open;
         _ = flags;
 
-        const ctx = GByteGui orelse return false;
+        const ctx = GByteGUI orelse return false;
         ctx.WindowPos = if (ctx.HasNextWindowPos) ctx.NextWindowPos else .{};
         ctx.WindowSize = if (ctx.HasNextWindowSize) ctx.NextWindowSize else ctx.IO.DisplaySize;
         ctx.HasNextWindowPos = false;
@@ -1081,12 +1081,12 @@ pub const ByteGui = struct {
 
     pub fn End() void {}
 
-    pub fn BeginChild(str_id: []const u8, size: ByteVec2, border: bool, flags: ByteGuiWindowFlags) bool {
+    pub fn BeginChild(str_id: []const u8, size: ByteVec2, border: bool, flags: ByteGUIWindowFlags) bool {
         _ = str_id;
         _ = border;
         _ = flags;
 
-        const ctx = GByteGui orelse return false;
+        const ctx = GByteGUI orelse return false;
         const child = ChildState{
             .PreviousClipRect = ctx.CurrentClipRect,
             .PreviousCursorPos = ctx.CursorScreenPos,
@@ -1107,7 +1107,7 @@ pub const ByteGui = struct {
     }
 
     pub fn EndChild() void {
-        const ctx = GByteGui orelse return;
+        const ctx = GByteGUI orelse return;
         if (ctx.ChildStack.items.len == 0) return;
 
         const child = ctx.ChildStack.pop().?;
@@ -1117,24 +1117,24 @@ pub const ByteGui = struct {
     }
 
     pub fn SetNextWindowPos(pos: ByteVec2) void {
-        const ctx = GByteGui orelse return;
+        const ctx = GByteGUI orelse return;
         ctx.NextWindowPos = pos;
         ctx.HasNextWindowPos = true;
     }
 
     pub fn SetNextWindowSize(size: ByteVec2) void {
-        const ctx = GByteGui orelse return;
+        const ctx = GByteGUI orelse return;
         ctx.NextWindowSize = size;
         ctx.HasNextWindowSize = true;
     }
 
     pub fn SetCursorScreenPos(pos: ByteVec2) void {
-        const ctx = GByteGui orelse return;
+        const ctx = GByteGUI orelse return;
         ctx.CursorScreenPos = pos;
     }
 
     pub fn TextWrapped(comptime fmt: []const u8, args: anytype) void {
-        const ctx = GByteGui orelse return;
+        const ctx = GByteGUI orelse return;
         const text = std.fmt.allocPrint(allocator, fmt, args) catch return;
         defer allocator.free(text);
 
@@ -1151,7 +1151,7 @@ pub const ByteGui = struct {
         const texture = entry.Texture;
         if (texture == null) return;
 
-        var color = ctx.Style.Colors[ByteGuiCol_Text];
+        var color = ctx.Style.Colors[ByteGUICol_Text];
         color.w *= ctx.Style.Alpha;
         const col_u32 = ColorConvertFloat4ToU32(color);
         const pos = ByteVec2{ .x = @floor(ctx.CursorScreenPos.x + 0.5), .y = @floor(ctx.CursorScreenPos.y + 0.5) };
@@ -1585,14 +1585,14 @@ pub const ByteGui = struct {
     }
 
     pub fn PushFont(font: ?*ByteFont) void {
-        const ctx = GByteGui orelse return;
+        const ctx = GByteGUI orelse return;
         const active = font orelse return;
         ctx.FontStack.append(allocator, active) catch return;
         ctx.CurrentFont = active;
     }
 
     pub fn PopFont() void {
-        const ctx = GByteGui orelse return;
+        const ctx = GByteGUI orelse return;
         if (ctx.FontStack.items.len == 0) return;
         _ = ctx.FontStack.pop();
         if (ctx.FontStack.items.len > 0) {
@@ -1604,15 +1604,15 @@ pub const ByteGui = struct {
         }
     }
 
-    pub fn PushStyleVar(idx: ByteGuiStyleVar, val: f32) void {
-        const ctx = GByteGui orelse return;
-        if (idx != ByteGuiStyleVar_Alpha) return;
+    pub fn PushStyleVar(idx: ByteGUIStyleVar, val: f32) void {
+        const ctx = GByteGUI orelse return;
+        if (idx != ByteGUIStyleVar_Alpha) return;
         ctx.AlphaStack.append(allocator, ctx.Style.Alpha) catch return;
         ctx.Style.Alpha = val;
     }
 
     pub fn PopStyleVar(count: i32) void {
-        const ctx = GByteGui orelse return;
+        const ctx = GByteGUI orelse return;
         var remaining = count;
         while (remaining > 0 and ctx.AlphaStack.items.len > 0) : (remaining -= 1) {
             ctx.Style.Alpha = ctx.AlphaStack.pop().?;
@@ -1692,31 +1692,31 @@ pub const Ui = struct {
     }
 
     pub fn ColorToU32(color: ByteVec4) ByteU32 {
-        return ByteGui.ColorConvertFloat4ToU32(color);
+        return ByteGUI.ColorConvertFloat4ToU32(color);
     }
 
     pub fn ScaleF(value: f32) f32 {
-        return ByteGui_ImplWin32_ScaleF(value);
+        return ByteGUI_ImplWin32_ScaleF(value);
     }
 
     pub fn ScaleI(value: i32) i32 {
-        return ByteGui_ImplWin32_ScaleI(value);
+        return ByteGUI_ImplWin32_ScaleI(value);
     }
 
     pub fn ScaleIF(value: f32) i32 {
-        return ByteGui_ImplWin32_ScaleI_F(value);
+        return ByteGUI_ImplWin32_ScaleI_F(value);
     }
 
     pub fn ScaleVec2(x: f32, y: f32) ByteVec2 {
-        return ByteGui_ImplWin32_ScaleVec2(x, y);
+        return ByteGUI_ImplWin32_ScaleVec2(x, y);
     }
 
     pub fn SnapPixel(value: f32) f32 {
-        return ByteGui_ImplWin32_SnapPixel(value);
+        return ByteGUI_ImplWin32_SnapPixel(value);
     }
 
     pub fn SnapPixelVec2(value: ByteVec2) ByteVec2 {
-        return ByteGui_ImplWin32_SnapPixel(value);
+        return ByteGUI_ImplWin32_SnapPixel(value);
     }
 
     pub fn MakeRectL(x: f32, y: f32, w: f32, h: f32) c.RECT {
@@ -1796,7 +1796,7 @@ pub const Ui = struct {
             RotatePoint(rect_pos.x + rect_size.x, rect_pos.y + rect_size.y, pivot.x, pivot.y, ccos, ssin),
             RotatePoint(rect_pos.x, rect_pos.y + rect_size.y, pivot.x, pivot.y, ccos, ssin),
         };
-        ByteGui.DrawConvexPolyFilledClippedToCornerOnlyRoundedRect(active_draw, &subject, clip_pos, clip_size, clip_radius, col, arc_segments);
+        ByteGUI.DrawConvexPolyFilledClippedToCornerOnlyRoundedRect(active_draw, &subject, clip_pos, clip_size, clip_radius, col, arc_segments);
     }
 
     pub fn DrawDiagonalBandClippedToCornerOnlyRoundedRect(
@@ -1823,7 +1823,7 @@ pub const Ui = struct {
             contact_end,
             contact_start,
         };
-        ByteGui.DrawConvexPolyFilledClippedToCornerOnlyRoundedRect(
+        ByteGUI.DrawConvexPolyFilledClippedToCornerOnlyRoundedRect(
             active_draw,
             subject[0..],
             .{ .x = 0.0, .y = 0.0 },
@@ -1913,7 +1913,7 @@ pub const Ui = struct {
         DrawDebugOutlineBounds(draw, pos, .{ .x = pos.x + size.x, .y = pos.y + size.y }, color, opacity, thickness);
     }
 
-    pub fn DrawDebugGuideVertical(draw: ?*ByteDrawList, x: f32, y_min: f32, y_max: f32, color: ByteVec4, opacity: f32, thickness: f32) void {
+    pub fn DrawDebugGUIdeVertical(draw: ?*ByteDrawList, x: f32, y_min: f32, y_max: f32, color: ByteVec4, opacity: f32, thickness: f32) void {
         const active_draw = draw orelse return;
         const top = @floor(@min(y_min, y_max));
         const bottom = @ceil(@max(y_min, y_max));
@@ -1924,7 +1924,7 @@ pub const Ui = struct {
         active_draw.AddRectFilled(.{ .x = left, .y = top }, .{ .x = left + line_thickness, .y = bottom }, col, 0.0);
     }
 
-    pub fn DrawDebugGuideHorizontal(draw: ?*ByteDrawList, y: f32, x_min: f32, x_max: f32, color: ByteVec4, opacity: f32, thickness: f32) void {
+    pub fn DrawDebugGUIdeHorizontal(draw: ?*ByteDrawList, y: f32, x_min: f32, x_max: f32, color: ByteVec4, opacity: f32, thickness: f32) void {
         const active_draw = draw orelse return;
         const left = @floor(@min(x_min, x_max));
         const right = @ceil(@max(x_min, x_max));
@@ -1936,8 +1936,8 @@ pub const Ui = struct {
     }
 
     pub fn DrawDebugCrosshair(draw: ?*ByteDrawList, center: ByteVec2, radius: f32, color: ByteVec4, opacity: f32, thickness: f32) void {
-        DrawDebugGuideHorizontal(draw, center.y, center.x - radius, center.x + radius, color, opacity, thickness);
-        DrawDebugGuideVertical(draw, center.x, center.y - radius, center.y + radius, color, opacity, thickness);
+        DrawDebugGUIdeHorizontal(draw, center.y, center.x - radius, center.x + radius, color, opacity, thickness);
+        DrawDebugGUIdeVertical(draw, center.x, center.y - radius, center.y + radius, color, opacity, thickness);
     }
 
     pub fn DrawDebugLineSegment(draw: ?*ByteDrawList, center: ByteVec2, axis: ByteVec2, length: f32, thickness: f32, color: ByteVec4, opacity: f32) void {
@@ -2151,7 +2151,7 @@ pub const Ui = struct {
 
     pub fn RasterizeTextTexture(font: ?*ByteFont, logical_font_size: f32, text: []const u8, supersample: f32, pad_scale: f32, layout_scale: f32) ?RasterizedTexture {
         const active_font = font orelse return null;
-        const raster = rasterizeTextImageFromFont(active_font, logical_font_size * ByteGui_ImplWin32_GetDpiScale(), text, supersample, pad_scale, 0.0, layout_scale, 255) orelse return null;
+        const raster = rasterizeTextImageFromFont(active_font, logical_font_size * ByteGUI_ImplWin32_GetDpiScale(), text, supersample, pad_scale, 0.0, layout_scale, 255) orelse return null;
         return .{
             .rgba = raster.rgba,
             .pixel_w = raster.pixel_w,
@@ -2203,7 +2203,7 @@ pub const Ui = struct {
     fn rasterizeSvgTextureImage(params: SvgTextureBuildParams) ?RasterizedTexture {
         if (params.paths.len == 0) return null;
         const ss = @max(1, @as(i32, @intFromFloat(@round(params.supersample))));
-        const raster_scale = ByteGui_ImplWin32_GetDpiScale() * params.supersample;
+        const raster_scale = ByteGUI_ImplWin32_GetDpiScale() * params.supersample;
         const pad_px = alignUpInt(@max(2, @as(i32, @intFromFloat(@ceil(raster_scale * 2.0)))), ss);
         const pixel_w: u32 = @intCast(alignUpInt(@max(1, @as(i32, @intFromFloat(@ceil(params.canvas_size.x * raster_scale))) + pad_px * 2), ss));
         const pixel_h: u32 = @intCast(alignUpInt(@max(1, @as(i32, @intFromFloat(@ceil(params.canvas_size.y * raster_scale))) + pad_px * 2), ss));
@@ -2287,7 +2287,7 @@ pub const Ui = struct {
 
     pub fn UploadRasterizedTexture(out_texture: *TextTexture, raster: *const RasterizedTexture) bool {
         CleanupTextTexture(out_texture);
-        if (!ByteGui_ImplOpenGL_HasContext() or raster.rgba.len == 0 or raster.pixel_w == 0 or raster.pixel_h == 0) return false;
+        if (!ByteGUI_ImplOpenGL_HasContext() or raster.rgba.len == 0 or raster.pixel_w == 0 or raster.pixel_h == 0) return false;
 
         out_texture.texture = createTextureFromRGBA(raster.rgba, raster.pixel_w, raster.pixel_h, .linear) orelse return false;
         out_texture.display_size_px = raster.display_size_px;
@@ -2304,7 +2304,7 @@ pub const Ui = struct {
 
     pub fn BuildAlphaMaskTexture(out_texture: *TextTexture, alpha: []const u8, pixel_w: u32, pixel_h: u32, display_size_px: ByteVec2) bool {
         CleanupTextTexture(out_texture);
-        if (!ByteGui_ImplOpenGL_HasContext() or pixel_w == 0 or pixel_h == 0 or alpha.len < @as(usize, pixel_w) * @as(usize, pixel_h)) return false;
+        if (!ByteGUI_ImplOpenGL_HasContext() or pixel_w == 0 or pixel_h == 0 or alpha.len < @as(usize, pixel_w) * @as(usize, pixel_h)) return false;
 
         out_texture.texture = createTextureFromAlpha(alpha, pixel_w, pixel_h, .linear) orelse return false;
         out_texture.display_size_px = display_size_px;
@@ -2412,7 +2412,7 @@ fn drawSolidQuad(min: ByteVec2, max: ByteVec2) void {
     gl.glEnd();
 }
 
-fn restoreDefaultGuiBlendFunc() void {
+fn restoreDefaultGUIBlendFunc() void {
     if (g_glBlendFuncSeparate) |blendSeparate| {
         blendSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     } else {
@@ -2495,7 +2495,7 @@ fn svgCoverageCompositeCallback(_: *const ByteDrawList, cmd: *const ByteDrawCmd)
 
     gl.glColorMask(gl.TRUE, gl.TRUE, gl.TRUE, gl.TRUE);
     gl.glEnable(gl.BLEND);
-    restoreDefaultGuiBlendFunc();
+    restoreDefaultGUIBlendFunc();
     gl.glEnable(gl.TEXTURE_2D);
     gl.glColor4ub(0xFF, 0xFF, 0xFF, 0xFF);
 }
@@ -3883,7 +3883,7 @@ fn appendArc(points: *ByteVec2List, center: ByteVec2, radius: f32, a_min: f32, a
 }
 
 fn calcCircleSegmentCount(radius: f32) i32 {
-    const tessellation_error = if (GByteGui) |ctx| @max(0.05, ctx.Style.CircleTessellationMaxError) else 0.10;
+    const tessellation_error = if (GByteGUI) |ctx| @max(0.05, ctx.Style.CircleTessellationMaxError) else 0.10;
     if (radius <= 0.0) return 12;
     const max_error = @min(tessellation_error, radius);
     const angle = std.math.acos(@max(0.0, 1.0 - max_error / radius));
@@ -3993,7 +3993,7 @@ fn nextUtf8Index(text: []const u8, index: usize, end: usize) usize {
 
 fn textWidthRange(font: ?*ByteFont, font_size: f32, text: []const u8, start: usize, end: usize) f32 {
     if (end <= start) return 0.0;
-    return ByteGui.CalcTextWidth(font, font_size, text[start..end]);
+    return ByteGUI.CalcTextWidth(font, font_size, text[start..end]);
 }
 
 fn textLineIndexAtX(font: ?*ByteFont, font_size: f32, text: []const u8, line: TextLine, x: f32) usize {
@@ -4328,7 +4328,7 @@ fn normalizedTextSelectionRange(selection: ?TextSelectionRange, text_len: usize)
 
 fn textSelectionWidth(font: ?*ByteFont, font_size: f32, text: []const u8, start: usize, end: usize) f32 {
     if (end <= start) return 0.0;
-    return ByteGui.CalcTextWidth(font, font_size, text[start..end]);
+    return ByteGUI.CalcTextWidth(font, font_size, text[start..end]);
 }
 
 fn appendTextSelectionTargets(targets: *std.ArrayListUnmanaged(TextSelectionHighlightTarget), params: TextSelectionHighlightParams) bool {
@@ -4908,9 +4908,9 @@ fn drawTextSelectionRectWithoutAlphaOverlap(draw: *ByteDrawList, covered: *std.A
     if (core_shape.items.len < 3) return;
 
     for (pieces.items) |piece| {
-        var clip = ByteGui.BuildRectPolygon(piece.min.x, piece.min.y, piece.max.x, piece.max.y);
+        var clip = ByteGUI.BuildRectPolygon(piece.min.x, piece.min.y, piece.max.x, piece.max.y);
         defer clip.deinit(allocator);
-        var clipped = ByteGui.ClipPolygonAgainstConvexPolygon(core_shape.items, clip.items);
+        var clipped = ByteGUI.ClipPolygonAgainstConvexPolygon(core_shape.items, clip.items);
         defer clipped.deinit(allocator);
         if (clipped.items.len >= 3) draw.AddConvexPolyFilled(clipped.items, col);
         drawTextSelectionCornerAAFringes(draw, p_min, p_max, piece.min, piece.max, col, rounding_tl, rounding_tr, rounding_br, rounding_bl);
@@ -5633,7 +5633,7 @@ fn rasterizeTextImageFromFont(font: *const ByteFont, size_pixels: f32, text: []c
     defer layout.deinit();
 
     const align_to = @max(1, @as(i32, @intFromFloat(@round(supersample))));
-    const raster_scale = ByteGui_ImplWin32_GetDpiScale() * supersample;
+    const raster_scale = ByteGUI_ImplWin32_GetDpiScale() * supersample;
     const pad_px = alignUpInt(@max(2, @as(i32, @intFromFloat(@ceil(raster_scale * pad_scale)))), align_to);
     const content_w = alignUpInt(@max(1, @as(i32, @intFromFloat(@ceil(layout.width)))), align_to);
     const tight_h: f32 = layout.height;
@@ -5759,7 +5759,7 @@ fn rasterizeTextImageFromFont(font: *const ByteFont, size_pixels: f32, text: []c
 }
 
 fn buildTextTextureFromFont(font: *const ByteFont, size_pixels: f32, text: []const u8, supersample: f32, pad_scale: f32, wrap_width: f32, layout_scale: f32, rgb_value: u8, filter: TextureFilter) ?BuiltTextTexture {
-    if (!ByteGui_ImplOpenGL_HasContext()) return null;
+    if (!ByteGUI_ImplOpenGL_HasContext()) return null;
 
     var raster = rasterizeTextImageFromFont(font, size_pixels, text, supersample, pad_scale, wrap_width, layout_scale, rgb_value) orelse return null;
     defer raster.deinit();
@@ -5777,7 +5777,7 @@ fn buildTextTextureFromFont(font: *const ByteFont, size_pixels: f32, text: []con
 
 fn uploadRasterizedMaskTextureWithFilter(out_texture: *Ui.TextTexture, raster: *const Ui.RasterizedTexture, filter: TextureFilter) bool {
     Ui.CleanupTextTexture(out_texture);
-    if (!ByteGui_ImplOpenGL_HasContext() or raster.rgba.len == 0 or raster.pixel_w == 0 or raster.pixel_h == 0) return false;
+    if (!ByteGUI_ImplOpenGL_HasContext() or raster.rgba.len == 0 or raster.pixel_w == 0 or raster.pixel_h == 0) return false;
 
     out_texture.texture = createTextureFromRgbaAlphaMask(raster.rgba, raster.pixel_w, raster.pixel_h, filter) orelse return false;
     out_texture.display_size_px = raster.display_size_px;
@@ -5820,7 +5820,7 @@ fn createTextureFromRgbaAlphaMask(rgba: []const u8, width: u32, height: u32, fil
 }
 
 fn createTextureFromAlpha(alpha: []const u8, width: u32, height: u32, filter: TextureFilter) ByteTextureID {
-    if (!ByteGui_ImplOpenGL_HasContext() or width == 0 or height == 0 or alpha.len < @as(usize, width) * @as(usize, height)) return null;
+    if (!ByteGUI_ImplOpenGL_HasContext() or width == 0 or height == 0 or alpha.len < @as(usize, width) * @as(usize, height)) return null;
 
     var textures = [_]gl.GLuint{0};
     gl.glGenTextures(1, &textures);
@@ -5843,7 +5843,7 @@ fn createTextureFromAlpha(alpha: []const u8, width: u32, height: u32, filter: Te
 }
 
 fn createTextureFromRGBA(pixels: []const u8, width: u32, height: u32, filter: TextureFilter) ByteTextureID {
-    if (!ByteGui_ImplOpenGL_HasContext() or width == 0 or height == 0) return null;
+    if (!ByteGUI_ImplOpenGL_HasContext() or width == 0 or height == 0) return null;
 
     var textures = [_]gl.GLuint{0};
     gl.glGenTextures(1, &textures);
@@ -5866,7 +5866,7 @@ fn createTextureFromRGBA(pixels: []const u8, width: u32, height: u32, filter: Te
 }
 
 fn clearTextCache() void {
-    const ctx = GByteGui orelse return;
+    const ctx = GByteGUI orelse return;
     for (ctx.TextCache.items) |*entry| entry.deinit();
     ctx.TextCache.clearRetainingCapacity();
 }
@@ -5876,9 +5876,9 @@ fn getOrCreateTextTexture(font_opt: ?*ByteFont, size_pixels: f32, wrap_width: f3
 }
 
 fn getOrCreateTextTextureWithFilter(font_opt: ?*ByteFont, size_pixels: f32, wrap_width: f32, text: []const u8, filter: TextureFilter) ?*TextCacheEntry {
-    const ctx = GByteGui orelse return null;
+    const ctx = GByteGUI orelse return null;
     const font = font_opt orelse return null;
-    if (!ByteGui_ImplOpenGL_HasContext() or text.len == 0) return null;
+    if (!ByteGUI_ImplOpenGL_HasContext() or text.len == 0) return null;
 
     const pixel_size100: i32 = @intFromFloat(@round(size_pixels * 100.0));
     const wrap_width100: i32 = @intFromFloat(@round(wrap_width * 100.0));
@@ -5931,21 +5931,21 @@ fn updateHostWindowSizeState(width: i32, height: i32) void {
     if (width <= 0 or height <= 0) return;
     GHostWindow.WindowWidthPx = width;
     GHostWindow.WindowHeightPx = height;
-    if (GByteGui) |ctx| ctx.IO.DisplaySize = .{ .x = @floatFromInt(width), .y = @floatFromInt(height) };
+    if (GByteGUI) |ctx| ctx.IO.DisplaySize = .{ .x = @floatFromInt(width), .y = @floatFromInt(height) };
 }
 
 fn getWin32BackendData() ?*MiniWin32BackendData {
-    const ctx = GByteGui orelse return null;
+    const ctx = GByteGUI orelse return null;
     return if (ctx.IO.BackendPlatformUserData) |ptr| @ptrCast(@alignCast(ptr)) else null;
 }
 
 fn getOpenGLBackendData() ?*MiniOpenGLBackendData {
-    const ctx = GByteGui orelse return null;
+    const ctx = GByteGUI orelse return null;
     return if (ctx.IO.BackendRendererUserData) |ptr| @ptrCast(@alignCast(ptr)) else null;
 }
 
 fn ensureWin32BackendData() bool {
-    const ctx = GByteGui orelse return false;
+    const ctx = GByteGUI orelse return false;
     if (getWin32BackendData() != null) return true;
 
     const bd = allocator.create(MiniWin32BackendData) catch return false;
@@ -5958,7 +5958,7 @@ fn ensureWin32BackendData() bool {
 }
 
 fn ensureOpenGLBackendData() bool {
-    const ctx = GByteGui orelse return false;
+    const ctx = GByteGUI orelse return false;
     if (getOpenGLBackendData() != null) return true;
 
     const bd = allocator.create(MiniOpenGLBackendData) catch return false;
@@ -6016,20 +6016,20 @@ fn unbindDrawListVertexArrays() void {
     gl.glDisableClientState(gl.VERTEX_ARRAY);
 }
 
-pub fn ByteGui_ImplOpenGL_HasContext() bool {
+pub fn ByteGUI_ImplOpenGL_HasContext() bool {
     return if (getOpenGLBackendData()) |bd| bd.RenderContext != null else false;
 }
 
-pub fn ByteGui_ImplOpenGL_Init(hwnd: ?c.HWND, width: c.UINT, height: c.UINT) bool {
+pub fn ByteGUI_ImplOpenGL_Init(hwnd: ?c.HWND, width: c.UINT, height: c.UINT) bool {
     if (hwnd == null or width == 0 or height == 0) return false;
 
-    setByteGuiTrace("gl:init:start");
-    if (getOpenGLBackendData() != null) ByteGui_ImplOpenGL_Shutdown();
+    setByteGUITrace("gl:init:start");
+    if (getOpenGLBackendData() != null) ByteGUI_ImplOpenGL_Shutdown();
     if (!ensureOpenGLBackendData()) return false;
     const bd = getOpenGLBackendData().?;
     const native_hwnd: w32.HWND = @ptrFromInt(@intFromPtr(hwnd.?));
     const window_dc = w32.GetDC(native_hwnd) orelse return false;
-    setByteGuiTrace("gl:init:dc");
+    setByteGUITrace("gl:init:dc");
 
     var pfd = std.mem.zeroes(w32.PIXELFORMATDESCRIPTOR);
     pfd.nSize = @sizeOf(w32.PIXELFORMATDESCRIPTOR);
@@ -6041,14 +6041,14 @@ pub fn ByteGui_ImplOpenGL_Init(hwnd: ?c.HWND, width: c.UINT, height: c.UINT) boo
     pfd.cDepthBits = 24;
     pfd.cStencilBits = 8;
     pfd.iLayerType = w32.PFD_MAIN_PLANE;
-    setByteGuiTrace("gl:init:pfd");
+    setByteGUITrace("gl:init:pfd");
 
     const pixel_format = w32.ChoosePixelFormat(window_dc, &pfd);
     if (pixel_format == 0 or w32.SetPixelFormat(window_dc, pixel_format, &pfd) == w32.FALSE) {
         _ = w32.ReleaseDC(native_hwnd, window_dc);
         return false;
     }
-    setByteGuiTrace("gl:init:pixel_format");
+    setByteGUITrace("gl:init:pixel_format");
 
     const render_context = w32.wglCreateContext(window_dc) orelse {
         _ = w32.ReleaseDC(native_hwnd, window_dc);
@@ -6060,25 +6060,25 @@ pub fn ByteGui_ImplOpenGL_Init(hwnd: ?c.HWND, width: c.UINT, height: c.UINT) boo
         return false;
     }
     g_glBlendFuncSeparate = @ptrCast(w32.wglGetProcAddress("glBlendFuncSeparate"));
-    setByteGuiTrace("gl:init:context");
+    setByteGUITrace("gl:init:context");
 
     bd.WindowHwnd = native_hwnd;
     bd.WindowDc = window_dc;
     bd.RenderContext = render_context;
     bd.WhiteTexture = createWhiteTexture();
-    setByteGuiTrace("gl:init:white");
+    setByteGUITrace("gl:init:white");
     if (bd.WhiteTexture == null) {
-        ByteGui_ImplOpenGL_Shutdown();
+        ByteGUI_ImplOpenGL_Shutdown();
         return false;
     }
 
     updateHostWindowSizeState(@intCast(width), @intCast(height));
-    setByteGuiTrace("gl:init:done");
+    setByteGUITrace("gl:init:done");
     return true;
 }
 
-pub fn ByteGui_ImplOpenGL_Shutdown() void {
-    const ctx = GByteGui orelse return;
+pub fn ByteGUI_ImplOpenGL_Shutdown() void {
+    const ctx = GByteGUI orelse return;
     const bd = getOpenGLBackendData() orelse return;
 
     clearTextCache();
@@ -6102,12 +6102,12 @@ pub fn ByteGui_ImplOpenGL_Shutdown() void {
     ctx.WhiteTexture = null;
 }
 
-pub fn ByteGui_ImplOpenGL_Resize(width: c.UINT, height: c.UINT) void {
+pub fn ByteGUI_ImplOpenGL_Resize(width: c.UINT, height: c.UINT) void {
     if (width == 0 or height == 0) return;
     updateHostWindowSizeState(@intCast(width), @intCast(height));
 }
 
-pub fn ByteGui_ImplOpenGL_BeginFrame(clear_color: *const [4]f32) bool {
+pub fn ByteGUI_ImplOpenGL_BeginFrame(clear_color: *const [4]f32) bool {
     const bd = getOpenGLBackendData() orelse return false;
     if (bd.WindowDc == null or bd.RenderContext == null) return false;
     if (w32.wglMakeCurrent(bd.WindowDc, bd.RenderContext) == w32.FALSE) return false;
@@ -6117,19 +6117,19 @@ pub fn ByteGui_ImplOpenGL_BeginFrame(clear_color: *const [4]f32) bool {
     return true;
 }
 
-pub fn ByteGui_ImplOpenGL_Present() bool {
+pub fn ByteGUI_ImplOpenGL_Present() bool {
     const bd = getOpenGLBackendData() orelse return false;
     const window_dc = bd.WindowDc orelse return false;
     return w32.SwapBuffers(window_dc) != w32.FALSE;
 }
 
-pub fn ByteGui_ImplOpenGL_NewFrame() void {
-    const ctx = GByteGui orelse return;
+pub fn ByteGUI_ImplOpenGL_NewFrame() void {
+    const ctx = GByteGUI orelse return;
     const bd = getOpenGLBackendData() orelse return;
     ctx.WhiteTexture = bd.WhiteTexture;
 }
 
-pub fn ByteGui_ImplOpenGL_RenderDrawData(draw_data: ?*ByteDrawData) void {
+pub fn ByteGUI_ImplOpenGL_RenderDrawData(draw_data: ?*ByteDrawData) void {
     const dd = draw_data orelse return;
     if (!dd.Valid or dd.DisplaySize.x <= 0.0 or dd.DisplaySize.y <= 0.0) return;
 
@@ -6176,7 +6176,7 @@ pub fn ByteGui_ImplOpenGL_RenderDrawData(draw_data: ?*ByteDrawData) void {
     gl.glDisable(gl.SCISSOR_TEST);
 }
 
-pub fn ByteGui_ImplWin32_EnableDpiAwareness() void {
+pub fn ByteGUI_ImplWin32_EnableDpiAwareness() void {
     const user32 = c.GetModuleHandleA("user32.dll");
     if (user32 == null) return;
 
@@ -6196,29 +6196,29 @@ pub fn ByteGui_ImplWin32_EnableDpiAwareness() void {
     }
 }
 
-pub noinline fn ByteGui_ImplWin32_CreatePlatformWindow(config: ?*const ByteGuiPlatformWindowConfig) bool {
+pub noinline fn ByteGUI_ImplWin32_CreatePlatformWindow(config: ?*const ByteGUIPlatformWindowConfig) bool {
     const cfg_ptr = config orelse return false;
     const cfg = cfg_ptr.*;
     std.mem.doNotOptimizeAway(cfg);
     if (cfg.Instance == null or cfg.WndProc == null or cfg.LogicalWidth <= 0 or cfg.LogicalHeight <= 0) return false;
-    setByteGuiTrace("win32:create:start");
+    setByteGUITrace("win32:create:start");
 
-    ByteGui_ImplWin32_EnableDpiAwareness();
-    if (GHostWindow.Hwnd != null) ByteGui_ImplWin32_DestroyPlatformWindow();
+    ByteGUI_ImplWin32_EnableDpiAwareness();
+    if (GHostWindow.Hwnd != null) ByteGUI_ImplWin32_DestroyPlatformWindow();
 
     GHostWindow = .{};
     GHostWindow.Instance = cfg.Instance;
     GHostWindow.LogicalWidth = cfg.LogicalWidth;
     GHostWindow.LogicalHeight = cfg.LogicalHeight;
     GHostWindow.DpiScale = getSystemDpiScale();
-    GHostWindow.WindowWidthPx = ByteGui_ImplWin32_ScaleI(cfg.LogicalWidth);
-    GHostWindow.WindowHeightPx = ByteGui_ImplWin32_ScaleI(cfg.LogicalHeight);
-    setByteGuiTrace("win32:create:metrics");
+    GHostWindow.WindowWidthPx = ByteGUI_ImplWin32_ScaleI(cfg.LogicalWidth);
+    GHostWindow.WindowHeightPx = ByteGUI_ImplWin32_ScaleI(cfg.LogicalHeight);
+    setByteGUITrace("win32:create:metrics");
     GHostWindow.ClassName = allocator.dupeZ(u16, std.mem.span(cfg.ClassName)) catch return false;
-    setByteGuiTrace("win32:create:classname");
+    setByteGUITrace("win32:create:classname");
     const big_icon = if (cfg.IconResourceId != 0) loadIconResource(cfg.Instance, cfg.IconResourceId, c.GetSystemMetrics(c.SM_CXICON), c.GetSystemMetrics(c.SM_CYICON)) else null;
     const small_icon = if (cfg.IconResourceId != 0) loadIconResource(cfg.Instance, cfg.IconResourceId, c.GetSystemMetrics(c.SM_CXSMICON), c.GetSystemMetrics(c.SM_CYSMICON)) else null;
-    setByteGuiTrace("win32:create:icons");
+    setByteGUITrace("win32:create:icons");
 
     var wc = std.mem.zeroes(c.WNDCLASSEXW);
     wc.cbSize = @sizeOf(c.WNDCLASSEXW);
@@ -6230,7 +6230,7 @@ pub noinline fn ByteGui_ImplWin32_CreatePlatformWindow(config: ?*const ByteGuiPl
     wc.hCursor = if (w32.loadCursorResource(idc_arrow_id)) |cursor| @ptrFromInt(@intFromPtr(cursor)) else null;
     wc.lpszClassName = GHostWindow.ClassName.?.ptr;
     if (c.RegisterClassExW(&wc) == 0) return false;
-    setByteGuiTrace("win32:create:registered");
+    setByteGUITrace("win32:create:registered");
     GHostWindow.ClassRegistered = true;
 
     var pos_x: i32 = c.CW_USEDEFAULT;
@@ -6242,15 +6242,15 @@ pub noinline fn ByteGui_ImplWin32_CreatePlatformWindow(config: ?*const ByteGuiPl
         pos_y = @divTrunc(screen_h - GHostWindow.WindowHeightPx, 2);
     }
 
-    setByteGuiTraceFmt("win32:create:before_window ex={x} style={x}", .{ cfg.ExStyle, cfg.Style });
+    setByteGUITraceFmt("win32:create:before_window ex={x} style={x}", .{ cfg.ExStyle, cfg.Style });
     GHostWindow.Hwnd = c.CreateWindowExW(cfg.ExStyle, GHostWindow.ClassName.?.ptr, cfg.Title, cfg.Style, pos_x, pos_y, GHostWindow.WindowWidthPx, GHostWindow.WindowHeightPx, null, null, cfg.Instance, null);
-    setByteGuiTrace("win32:create:window");
+    setByteGUITrace("win32:create:window");
     if (GHostWindow.Hwnd != null and (big_icon != null or small_icon != null)) applyWindowIcons(GHostWindow.Hwnd.?, big_icon, small_icon);
-    setByteGuiTrace("win32:create:done");
+    setByteGUITrace("win32:create:done");
     return GHostWindow.Hwnd != null;
 }
 
-pub fn ByteGui_ImplWin32_DestroyPlatformWindow() void {
+pub fn ByteGUI_ImplWin32_DestroyPlatformWindow() void {
     const hwnd = GHostWindow.Hwnd;
     const instance = GHostWindow.Instance;
     const class_name = GHostWindow.ClassName;
@@ -6264,66 +6264,66 @@ pub fn ByteGui_ImplWin32_DestroyPlatformWindow() void {
     if (class_name) |name| allocator.free(name);
 }
 
-pub fn ByteGui_ImplWin32_GetPlatformHwnd() ?c.HWND {
+pub fn ByteGUI_ImplWin32_GetPlatformHwnd() ?c.HWND {
     return GHostWindow.Hwnd;
 }
 
-pub fn ByteGui_ImplWin32_GetDpiScale() f32 {
+pub fn ByteGUI_ImplWin32_GetDpiScale() f32 {
     return if (GHostWindow.DpiScale > 0.0) GHostWindow.DpiScale else 1.0;
 }
 
-pub fn ByteGui_ImplWin32_ScaleF(value: f32) f32 {
-    return value * ByteGui_ImplWin32_GetDpiScale();
+pub fn ByteGUI_ImplWin32_ScaleF(value: f32) f32 {
+    return value * ByteGUI_ImplWin32_GetDpiScale();
 }
 
-pub fn ByteGui_ImplWin32_ScaleI(value: i32) i32 {
-    return @intFromFloat(@round(@as(f32, @floatFromInt(value)) * ByteGui_ImplWin32_GetDpiScale()));
+pub fn ByteGUI_ImplWin32_ScaleI(value: i32) i32 {
+    return @intFromFloat(@round(@as(f32, @floatFromInt(value)) * ByteGUI_ImplWin32_GetDpiScale()));
 }
 
-pub fn ByteGui_ImplWin32_ScaleI_F(value: f32) i32 {
-    return @intFromFloat(@round(value * ByteGui_ImplWin32_GetDpiScale()));
+pub fn ByteGUI_ImplWin32_ScaleI_F(value: f32) i32 {
+    return @intFromFloat(@round(value * ByteGUI_ImplWin32_GetDpiScale()));
 }
 
-pub fn ByteGui_ImplWin32_ScaleVec2(x: f32, y: f32) ByteVec2 {
-    return .{ .x = ByteGui_ImplWin32_ScaleF(x), .y = ByteGui_ImplWin32_ScaleF(y) };
+pub fn ByteGUI_ImplWin32_ScaleVec2(x: f32, y: f32) ByteVec2 {
+    return .{ .x = ByteGUI_ImplWin32_ScaleF(x), .y = ByteGUI_ImplWin32_ScaleF(y) };
 }
 
-pub fn ByteGui_ImplWin32_SnapPixel(value: anytype) @TypeOf(value) {
+pub fn ByteGUI_ImplWin32_SnapPixel(value: anytype) @TypeOf(value) {
     return switch (@TypeOf(value)) {
         f32 => @floor(value + 0.5),
         ByteVec2 => .{
-            .x = ByteGui_ImplWin32_SnapPixel(value.x),
-            .y = ByteGui_ImplWin32_SnapPixel(value.y),
+            .x = ByteGUI_ImplWin32_SnapPixel(value.x),
+            .y = ByteGUI_ImplWin32_SnapPixel(value.y),
         },
-        else => @compileError("ByteGui_ImplWin32_SnapPixel only supports f32 and ByteVec2."),
+        else => @compileError("ByteGUI_ImplWin32_SnapPixel only supports f32 and ByteVec2."),
     };
 }
 
-pub fn ByteGui_ImplWin32_CornerRadiusPx(logical_radius: f32, enabled: bool) f32 {
+pub fn ByteGUI_ImplWin32_CornerRadiusPx(logical_radius: f32, enabled: bool) f32 {
     if (!enabled) return 0.0;
-    return ByteGui_ImplWin32_SnapPixel(ByteGui_ImplWin32_ScaleF(logical_radius));
+    return ByteGUI_ImplWin32_SnapPixel(ByteGUI_ImplWin32_ScaleF(logical_radius));
 }
 
-fn ByteGui_ImplWin32_GetWindowSizeVec2() ByteVec2 {
+fn ByteGUI_ImplWin32_GetWindowSizeVec2() ByteVec2 {
     return .{
         .x = @floatFromInt(GHostWindow.WindowWidthPx),
         .y = @floatFromInt(GHostWindow.WindowHeightPx),
     };
 }
 
-pub fn ByteGui_ImplWin32_PointInCornerOnlyRoundedClientArea(pt: anytype, radius: f32) bool {
+pub fn ByteGUI_ImplWin32_PointInCornerOnlyRoundedClientArea(pt: anytype, radius: f32) bool {
     return Ui.PointInCornerOnlyRoundedRect(
         .{ .x = pt.x, .y = pt.y },
         .{},
-        ByteGui_ImplWin32_GetWindowSizeVec2(),
+        ByteGUI_ImplWin32_GetWindowSizeVec2(),
         radius,
     );
 }
 
-pub fn ByteGui_ImplWin32_ApplyCornerOnlyRoundedWindowShape(radius: f32, use_layered_frame: bool) void {
+pub fn ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShape(radius: f32, use_layered_frame: bool) void {
     const host_hwnd = GHostWindow.Hwnd orelse return;
     const hwnd: w32.HWND = @ptrFromInt(@intFromPtr(host_hwnd));
-    const size = ByteGui_ImplWin32_GetWindowSizeVec2();
+    const size = ByteGUI_ImplWin32_GetWindowSizeVec2();
     const width: w32.INT = @intFromFloat(@ceil(@max(1.0, size.x)));
     const height: w32.INT = @intFromFloat(@ceil(@max(1.0, size.y)));
 
@@ -6332,7 +6332,7 @@ pub fn ByteGui_ImplWin32_ApplyCornerOnlyRoundedWindowShape(radius: f32, use_laye
     } else {
         const aa_pad: w32.INT = 2;
         const radius_pad: f32 = @floatFromInt(aa_pad);
-        const clamped_radius = @min(ByteGui_ImplWin32_SnapPixel(radius), @min(size.x, size.y) * 0.5);
+        const clamped_radius = @min(ByteGUI_ImplWin32_SnapPixel(radius), @min(size.x, size.y) * 0.5);
         const diameter: w32.INT = @intFromFloat(@ceil(@max(1.0, (clamped_radius + radius_pad) * 2.0)));
         if (w32.CreateRoundRectRgn(-aa_pad, -aa_pad, width + aa_pad + 1, height + aa_pad + 1, diameter, diameter)) |region| {
             if (w32.SetWindowRgn(hwnd, region, w32.TRUE) == 0) {
@@ -6347,20 +6347,20 @@ pub fn ByteGui_ImplWin32_ApplyCornerOnlyRoundedWindowShape(radius: f32, use_laye
     }
 }
 
-pub fn ByteGui_ImplWin32_GetWindowWidth() i32 {
+pub fn ByteGUI_ImplWin32_GetWindowWidth() i32 {
     return GHostWindow.WindowWidthPx;
 }
 
-pub fn ByteGui_ImplWin32_GetWindowHeight() i32 {
+pub fn ByteGUI_ImplWin32_GetWindowHeight() i32 {
     return GHostWindow.WindowHeightPx;
 }
 
-pub fn ByteGui_ImplWin32_HandleDpiChanged(w_param: c.WPARAM, l_param: c.LPARAM, apply_suggested_rect: bool) bool {
+pub fn ByteGUI_ImplWin32_HandleDpiChanged(w_param: c.WPARAM, l_param: c.LPARAM, apply_suggested_rect: bool) bool {
     const new_scale = @as(f32, @floatFromInt(lowWord(@as(usize, @intCast(w_param))))) / 96.0;
     const changed = @abs(new_scale - GHostWindow.DpiScale) > 0.001;
     GHostWindow.DpiScale = new_scale;
-    GHostWindow.WindowWidthPx = ByteGui_ImplWin32_ScaleI(GHostWindow.LogicalWidth);
-    GHostWindow.WindowHeightPx = ByteGui_ImplWin32_ScaleI(GHostWindow.LogicalHeight);
+    GHostWindow.WindowWidthPx = ByteGUI_ImplWin32_ScaleI(GHostWindow.LogicalWidth);
+    GHostWindow.WindowHeightPx = ByteGUI_ImplWin32_ScaleI(GHostWindow.LogicalHeight);
 
     if (apply_suggested_rect and GHostWindow.Hwnd != null) {
         const ptr_value: usize = @bitCast(l_param);
@@ -6377,7 +6377,7 @@ pub fn ByteGui_ImplWin32_HandleDpiChanged(w_param: c.WPARAM, l_param: c.LPARAM, 
     return changed;
 }
 
-pub fn ByteGui_ImplWin32_Init(hwnd: ?c.HWND) bool {
+pub fn ByteGUI_ImplWin32_Init(hwnd: ?c.HWND) bool {
     if (!ensureWin32BackendData()) return false;
 
     const bd = getWin32BackendData().?;
@@ -6390,15 +6390,15 @@ pub fn ByteGui_ImplWin32_Init(hwnd: ?c.HWND) bool {
     return true;
 }
 
-pub fn ByteGui_ImplWin32_Shutdown() void {
-    const ctx = GByteGui orelse return;
+pub fn ByteGUI_ImplWin32_Shutdown() void {
+    const ctx = GByteGUI orelse return;
     if (getWin32BackendData()) |bd| allocator.destroy(bd);
     ctx.IO.BackendPlatformUserData = null;
     ctx.IO.BackendPlatformName = null;
 }
 
-pub fn ByteGui_ImplWin32_NewFrame() void {
-    const ctx = GByteGui orelse return;
+pub fn ByteGUI_ImplWin32_NewFrame() void {
+    const ctx = GByteGUI orelse return;
     const bd = getWin32BackendData() orelse return;
 
     var current_time: i64 = 0;
@@ -6417,7 +6417,7 @@ pub fn ByteGui_ImplWin32_NewFrame() void {
     }
 }
 
-pub fn ByteGui_ImplWin32_WndProcHandler(hwnd: ?c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) c.LRESULT {
+pub fn ByteGUI_ImplWin32_WndProcHandler(hwnd: ?c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) c.LRESULT {
     _ = hwnd;
     _ = msg;
     _ = w_param;

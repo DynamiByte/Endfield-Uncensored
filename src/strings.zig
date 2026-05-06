@@ -201,8 +201,8 @@ pub const cli = struct {
             error.InvalidDebugValue => parse_invalid_debug_value,
             error.MutuallyExclusiveDx11AndEfmi => parse_mutually_exclusive_dx11_and_efmi,
             error.MutuallyExclusiveGamePathAndEfmi => parse_mutually_exclusive_game_path_and_efmi,
-            error.MutuallyExclusiveAutoYesAndGui => parse_mutually_exclusive_auto_yes_and_gui,
-            error.MutuallyExclusiveCliAndGuiArgs => parse_mutually_exclusive_cli_and_gui_args,
+            error.MutuallyExclusiveAutoYesAndGUI => parse_mutually_exclusive_auto_yes_and_gui,
+            error.MutuallyExclusiveCliAndGUIArgs => parse_mutually_exclusive_cli_and_gui_args,
             else => parse_unknown,
         };
     }

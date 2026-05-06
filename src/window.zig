@@ -10,19 +10,19 @@ pub const c = @import("win32.zig");
 
 const allocator = std.heap.c_allocator;
 
-const ByteGui = bytegui.ByteGui;
-const ByteGuiStyle = bytegui.ByteGuiStyle;
-const ByteGuiWindowFlags_NoBackground = bytegui.ByteGuiWindowFlags_NoBackground;
-const ByteGuiWindowFlags_NoDecoration = bytegui.ByteGuiWindowFlags_NoDecoration;
-const ByteGuiWindowFlags_NoMove = bytegui.ByteGuiWindowFlags_NoMove;
-const ByteGuiWindowFlags_NoNav = bytegui.ByteGuiWindowFlags_NoNav;
-const ByteGuiWindowFlags_NoResize = bytegui.ByteGuiWindowFlags_NoResize;
-const ByteGuiWindowFlags_NoSavedSettings = bytegui.ByteGuiWindowFlags_NoSavedSettings;
+const ByteGUI = bytegui.ByteGUI;
+const ByteGUIStyle = bytegui.ByteGUIStyle;
+const ByteGUIWindowFlags_NoBackground = bytegui.ByteGUIWindowFlags_NoBackground;
+const ByteGUIWindowFlags_NoDecoration = bytegui.ByteGUIWindowFlags_NoDecoration;
+const ByteGUIWindowFlags_NoMove = bytegui.ByteGUIWindowFlags_NoMove;
+const ByteGUIWindowFlags_NoNav = bytegui.ByteGUIWindowFlags_NoNav;
+const ByteGUIWindowFlags_NoResize = bytegui.ByteGUIWindowFlags_NoResize;
+const ByteGUIWindowFlags_NoSavedSettings = bytegui.ByteGUIWindowFlags_NoSavedSettings;
 const ByteDrawList = bytegui.ByteDrawList;
 const ByteFont = bytegui.ByteFont;
 const ByteFontConfig = bytegui.ByteFontConfig;
 const Ui = bytegui.Ui;
-const ByteGuiPlatformWindowConfig = bytegui.ByteGuiPlatformWindowConfig;
+const ByteGUIPlatformWindowConfig = bytegui.ByteGUIPlatformWindowConfig;
 const ByteU32 = bytegui.ByteU32;
 const ByteVec2 = bytegui.ByteVec2;
 const ByteVec4 = bytegui.ByteVec4;
@@ -436,7 +436,7 @@ const kDebugTextBoundsColor = ByteVec4{ .x = 0.00, .y = 0.72, .z = 0.15, .w = 1.
 const kDebugLogoBoundsColor = ByteVec4{ .x = 1.00, .y = 0.48, .z = 0.00, .w = 1.0 };
 const kDebugScrollbarBoundsColor = ByteVec4{ .x = 0.00, .y = 0.75, .z = 0.90, .w = 1.0 };
 const kDebugConstraintBoundsColor = ByteVec4{ .x = 1.00, .y = 0.85, .z = 0.00, .w = 1.0 };
-const kDebugGuideLineColor = ByteVec4{ .x = 1.00, .y = 1.00, .z = 1.00, .w = 1.0 };
+const kDebugGUIdeLineColor = ByteVec4{ .x = 1.00, .y = 1.00, .z = 1.00, .w = 1.0 };
 const kDebugCenterLineColor = ByteVec4{ .x = 0.0, .y = 0.0, .z = 0.0, .w = 1.0 };
 const DEBUG_BOX_OVERLAY_OPACITY = 0.64;
 const DEBUG_BOX_CONSTRAINT_OPACITY = 0.70;
@@ -499,15 +499,15 @@ fn computeVersionDisplay(out_buf: []u8) ![]const u8 {
     return strings.computeVersionDisplay(out_buf, VERSION_STR);
 }
 
-fn toByteGuiHwnd(hwnd: c.HWND) bgc.HWND {
+fn toByteGUIHwnd(hwnd: c.HWND) bgc.HWND {
     return @ptrFromInt(@intFromPtr(hwnd));
 }
 
-fn fromByteGuiHwnd(hwnd: ?bgc.HWND) ?c.HWND {
+fn fromByteGUIHwnd(hwnd: ?bgc.HWND) ?c.HWND {
     return if (hwnd) |value| @ptrFromInt(@intFromPtr(value)) else null;
 }
 
-fn fromByteGuiRect(rect: bgc.RECT) c.RECT {
+fn fromByteGUIRect(rect: bgc.RECT) c.RECT {
     return .{
         .left = rect.left,
         .top = rect.top,
@@ -1125,7 +1125,7 @@ fn rebuildButtonLabelTextures() bool {
 
 fn rebuildLogoLayers() void {
     cleanupLogoLayers();
-    const dpi_scale = bytegui.ByteGui_ImplWin32_GetDpiScale();
+    const dpi_scale = bytegui.ByteGUI_ImplWin32_GetDpiScale();
 
     var base_layers: [LOGO_BASE_PATH_LAYERS.len]?Ui.ParsedSvgLayer = .{null} ** LOGO_BASE_PATH_LAYERS.len;
     defer deinitLogoLayerSlots(base_layers[0..]);
@@ -1257,16 +1257,16 @@ fn windowUsesLayeredOpacity() bool {
 }
 
 fn windowCornerRadiusPx() f32 {
-    return bytegui.ByteGui_ImplWin32_CornerRadiusPx(CORNER_RADIUS, !g_wine_mode);
+    return bytegui.ByteGUI_ImplWin32_CornerRadiusPx(CORNER_RADIUS, !g_wine_mode);
 }
 
 fn applyWindowShape() void {
-    bytegui.ByteGui_ImplWin32_ApplyCornerOnlyRoundedWindowShape(windowCornerRadiusPx(), windowUsesLayeredOpacity());
+    bytegui.ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShape(windowCornerRadiusPx(), windowUsesLayeredOpacity());
 }
 
 fn applyBaseStyle() void {
-    const style = ByteGui.GetStyle();
-    style.* = ByteGuiStyle{};
+    const style = ByteGUI.GetStyle();
+    style.* = ByteGUIStyle{};
     style.WindowPadding = .{};
     style.FramePadding = .{};
     style.ItemSpacing = .{};
@@ -1285,18 +1285,18 @@ fn applyBaseStyle() void {
     style.CurveTessellationTol = 0.8;
     style.CircleTessellationMaxError = 0.10;
 
-    style.Colors[bytegui.ByteGuiCol_WindowBg] = .{};
-    style.Colors[bytegui.ByteGuiCol_ChildBg] = .{};
-    style.Colors[bytegui.ByteGuiCol_Text] = .{ .x = 0.0, .y = 0.0, .z = 0.0, .w = 1.0 };
-    style.Colors[bytegui.ByteGuiCol_Border] = .{};
-    style.Colors[bytegui.ByteGuiCol_ScrollbarBg] = .{};
-    style.Colors[bytegui.ByteGuiCol_ScrollbarGrab] = .{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.35 };
-    style.Colors[bytegui.ByteGuiCol_ScrollbarGrabHovered] = .{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.55 };
-    style.Colors[bytegui.ByteGuiCol_ScrollbarGrabActive] = .{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.75 };
+    style.Colors[bytegui.ByteGUICol_WindowBg] = .{};
+    style.Colors[bytegui.ByteGUICol_ChildBg] = .{};
+    style.Colors[bytegui.ByteGUICol_Text] = .{ .x = 0.0, .y = 0.0, .z = 0.0, .w = 1.0 };
+    style.Colors[bytegui.ByteGUICol_Border] = .{};
+    style.Colors[bytegui.ByteGUICol_ScrollbarBg] = .{};
+    style.Colors[bytegui.ByteGUICol_ScrollbarGrab] = .{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.35 };
+    style.Colors[bytegui.ByteGUICol_ScrollbarGrabHovered] = .{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.55 };
+    style.Colors[bytegui.ByteGUICol_ScrollbarGrabActive] = .{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.75 };
 }
 
 fn loadFonts() void {
-    const io = ByteGui.GetIO();
+    const io = ByteGUI.GetIO();
     io.Fonts.?.Clear();
     g_font_textbox = null;
     g_font_version = null;
@@ -1322,10 +1322,10 @@ fn loadFonts() void {
 }
 
 fn refreshUiScaleResources() void {
-    if (ByteGui.GetCurrentContext() == null) return;
+    if (ByteGUI.GetCurrentContext() == null) return;
     applyBaseStyle();
     loadFonts();
-    if (bytegui.ByteGui_ImplOpenGL_HasContext()) {
+    if (bytegui.ByteGUI_ImplOpenGL_HasContext()) {
         _ = rebuildButtonLabelTextures();
         rebuildLogoLayers();
     }
@@ -1379,8 +1379,8 @@ fn setWindowOpacityImmediate(opacity: f32) bool {
 
 fn platformWindowSize() ByteVec2 {
     return .{
-        .x = @floatFromInt(bytegui.ByteGui_ImplWin32_GetWindowWidth()),
-        .y = @floatFromInt(bytegui.ByteGui_ImplWin32_GetWindowHeight()),
+        .x = @floatFromInt(bytegui.ByteGUI_ImplWin32_GetWindowWidth()),
+        .y = @floatFromInt(bytegui.ByteGUI_ImplWin32_GetWindowHeight()),
     };
 }
 
@@ -1610,13 +1610,13 @@ fn updateAnimations(dt: f32) void {
 
 // Hit testing and hover state
 fn pointInRoundedRectClient(pt: c.POINT) bool {
-    return bytegui.ByteGui_ImplWin32_PointInCornerOnlyRoundedClientArea(pt, windowCornerRadiusPx());
+    return bytegui.ByteGUI_ImplWin32_PointInCornerOnlyRoundedClientArea(pt, windowCornerRadiusPx());
 }
 
 fn getVersionRect() bgc.RECT {
     const font = if (g_font_version != null) g_font_version else g_font_textbox;
     const pos = snapPixelVec2(scaleVec2(VERSION_X, VERSION_Y));
-    return ByteGui.CalcTextHitRect(font, scaleF(12.0), pos, g_version_display, scaleF(3.0), null, 0.0);
+    return ByteGUI.CalcTextHitRect(font, scaleF(12.0), pos, g_version_display, scaleF(3.0), null, 0.0);
 }
 
 fn getInfoRect() c.RECT {
@@ -1705,7 +1705,7 @@ fn getEfmiRect(expanded_hit: bool) c.RECT {
 }
 
 fn getWindowControlHitRects(min_hit: *bgc.RECT, close_hit: *bgc.RECT) void {
-    ByteGui.CalcHorizontalNeighborHitRects(
+    ByteGUI.CalcHorizontalNeighborHitRects(
         scaleVec2(MIN_X, MIN_Y + MIN_Y_OFFSET),
         scaleVec2(MIN_W, MIN_H),
         scaleVec2(CLOSE_X, CLOSE_Y + CLOSE_Y_OFFSET),
@@ -1768,7 +1768,7 @@ fn pointInOutputTextRect(pt: c.POINT) bool {
 }
 
 fn outputMaxScrollFor(content_height: f32, viewport_height: f32) f32 {
-    return ByteGui.CalcTextScrollMax(content_height, viewport_height);
+    return ByteGUI.CalcTextScrollMax(content_height, viewport_height);
 }
 
 fn clampOutputScrollTo(max_scroll: f32) void {
@@ -1789,11 +1789,11 @@ fn outputScrollLineHeight() f32 {
 }
 
 fn snappedOutputScrollYWithLayout(value: f32, max_scroll: f32, layout: *const bytegui.TextLayoutResult) f32 {
-    return ByteGui.SnapTextScrollYToLine(value, max_scroll, layout);
+    return ByteGUI.SnapTextScrollYToLine(value, max_scroll, layout);
 }
 
 fn snappedOutputScrollYFallback(value: f32, max_scroll: f32) f32 {
-    return ByteGui.SnapTextScrollYToLineHeight(value, max_scroll, outputScrollLineHeight());
+    return ByteGUI.SnapTextScrollYToLineHeight(value, max_scroll, outputScrollLineHeight());
 }
 
 fn snappedOutputScrollY(value: f32, max_scroll: f32) f32 {
@@ -1847,7 +1847,7 @@ fn buildOutputText(out: *std.ArrayListUnmanaged(u8)) bool {
 fn layoutOutputText(text: []const u8) ?OutputTextLayout {
     const font = g_font_textbox orelse return null;
     const rect = outputTextRect();
-    return ByteGui.LayoutScrollableText(.{
+    return ByteGUI.LayoutScrollableText(.{
         .font = font,
         .font_size = font.LegacySize,
         .text = text,
@@ -1869,7 +1869,7 @@ fn refreshOutputLayoutState() void {
 }
 
 fn outputScrollbarTrackFor(viewport_height: f32) bytegui.VerticalScrollbarTrack {
-    return ByteGui.CalcVerticalScrollbarTrack(.{
+    return ByteGUI.CalcVerticalScrollbarTrack(.{
         .viewport_rect = outputTextRect(),
         .viewport_height = viewport_height,
         .width = scaleF(OUTPUT_SCROLLBAR_W),
@@ -1878,7 +1878,7 @@ fn outputScrollbarTrackFor(viewport_height: f32) bytegui.VerticalScrollbarTrack 
 }
 
 fn outputScrollbarMetricsForScrollY(content_height: f32, viewport_height: f32, scroll_y: f32) ?bytegui.ScrollbarMetrics {
-    return ByteGui.CalcVerticalScrollbarMetricsForTrack(
+    return ByteGUI.CalcVerticalScrollbarMetricsForTrack(
         outputScrollbarTrackFor(viewport_height),
         content_height,
         viewport_height,
@@ -1901,11 +1901,11 @@ fn outputScrollbarDrawMetricsFor(content_height: f32, viewport_height: f32) ?byt
 }
 
 fn outputScrollbarInactiveMetricsFor(viewport_height: f32) bytegui.ScrollbarMetrics {
-    return ByteGui.VerticalScrollbarInactiveMetrics(outputScrollbarTrackFor(viewport_height));
+    return ByteGUI.VerticalScrollbarInactiveMetrics(outputScrollbarTrackFor(viewport_height));
 }
 
 fn outputScrollbarDragScroll(metrics: bytegui.ScrollbarMetrics, pt_y: i32) f32 {
-    return ByteGui.ScrollbarDragScrollFromThumbOffset(metrics, @floatFromInt(pt_y), g_output_scroll_drag_thumb_offset_y);
+    return ByteGUI.ScrollbarDragScrollFromThumbOffset(metrics, @floatFromInt(pt_y), g_output_scroll_drag_thumb_offset_y);
 }
 
 fn currentOutputScrollbarMetrics() ?bytegui.ScrollbarMetrics {
@@ -1924,7 +1924,7 @@ fn syncOutputScrollbarDragAnchor(metrics: bytegui.ScrollbarMetrics) void {
 fn pointInOutputScrollbarThumb(pt: c.POINT) bool {
     const metrics = currentOutputScrollbarMetrics() orelse return false;
     const hit_pad = scaleF(3.0);
-    return ByteGui.PointInScrollbarThumb(metrics, .{ .x = @floatFromInt(pt.x), .y = @floatFromInt(pt.y) }, hit_pad);
+    return ByteGUI.PointInScrollbarThumb(metrics, .{ .x = @floatFromInt(pt.x), .y = @floatFromInt(pt.y) }, hit_pad);
 }
 
 fn cursorInOutputScrollbarThumb(metrics: bytegui.ScrollbarMetrics) bool {
@@ -1933,7 +1933,7 @@ fn cursorInOutputScrollbarThumb(metrics: bytegui.ScrollbarMetrics) bool {
     if (c.GetCursorPos(&pt) == c.FALSE) return false;
     _ = c.ScreenToClient(hwnd, &pt);
     const hit_pad = scaleF(3.0);
-    return ByteGui.PointInScrollbarThumb(metrics, .{ .x = @floatFromInt(pt.x), .y = @floatFromInt(pt.y) }, hit_pad);
+    return ByteGUI.PointInScrollbarThumb(metrics, .{ .x = @floatFromInt(pt.x), .y = @floatFromInt(pt.y) }, hit_pad);
 }
 
 fn setOutputScrollY(value: f32) void {
@@ -2123,7 +2123,7 @@ fn outputIndexFromPoint(pt: c.POINT) usize {
 
     var laid_out = layoutOutputText(text.items) orelse return text.items.len;
     defer laid_out.deinit();
-    return ByteGui.TextIndexFromPoint(outputTextIndexParams(text.items, &laid_out.layout, pt));
+    return ByteGUI.TextIndexFromPoint(outputTextIndexParams(text.items, &laid_out.layout, pt));
 }
 
 fn outputIndexFromDragPoint(pt: c.POINT) usize {
@@ -2133,7 +2133,7 @@ fn outputIndexFromDragPoint(pt: c.POINT) usize {
 
     var laid_out = layoutOutputText(text.items) orelse return text.items.len;
     defer laid_out.deinit();
-    return ByteGui.TextIndexFromDragPoint(outputTextIndexParams(text.items, &laid_out.layout, pt));
+    return ByteGUI.TextIndexFromDragPoint(outputTextIndexParams(text.items, &laid_out.layout, pt));
 }
 
 fn clampOutputSelection(text_len: usize) void {
@@ -2255,7 +2255,7 @@ fn beginOutputMouseDown(hwnd: c.HWND, pt: c.POINT) bool {
     const ptf = ByteVec2{ .x = @floatFromInt(pt.x), .y = @floatFromInt(pt.y) };
     if (currentOutputScrollbarMetrics()) |metrics| {
         const hit_pad = scaleF(3.0);
-        if (ByteGui.PointInScrollbarThumb(metrics, ptf, hit_pad)) {
+        if (ByteGUI.PointInScrollbarThumb(metrics, ptf, hit_pad)) {
             g_output_pending_autoscroll = false;
             g_output_autoscroll_to_bottom_active = false;
             g_output_scroll_target_y = g_output_scroll_y;
@@ -2493,7 +2493,7 @@ fn drawAnimatedBoxButtonVisual(kind: BoxButtonKind, base_pos: ByteVec2, base_siz
     const color = base_color;
     const rounding = if (is_launch_group) scaleF(8.0) + scaleF(4.0) * anim else scaleF(5.0) + scaleF(2.0) * anim;
 
-    const draw = ByteGui.GetWindowDrawList() orelse return;
+    const draw = ByteGUI.GetWindowDrawList() orelse return;
     const saved_flags = draw.Flags;
     draw.Flags |= bytegui.ByteDrawListFlags_AntiAliasedFill;
 
@@ -2537,7 +2537,7 @@ fn drawOutputScrollbar(draw: *ByteDrawList, laid_out: *const OutputTextLayout, o
     const maybe_metrics = outputScrollbarDrawMetricsFor(laid_out.content_height, laid_out.viewport.y);
     const visible = if (maybe_metrics) |_| laid_out.overflow else false;
     const metrics = maybe_metrics orelse outputScrollbarInactiveMetricsFor(laid_out.viewport.y);
-    ByteGui.DrawVerticalScrollbar(draw, &g_output_scrollbar_visual, .{
+    ByteGUI.DrawVerticalScrollbar(draw, &g_output_scrollbar_visual, .{
         .metrics = metrics,
         .idle_color = .{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.40 },
         .hover_color = .{ .x = 0.2, .y = 0.2, .z = 0.2, .w = 0.55 },
@@ -2572,17 +2572,17 @@ fn drawDebugBoxOutline(draw: *ByteDrawList, pos: ByteVec2, size: ByteVec2, color
     drawDebugOutlineBounds(draw, pos, .{ .x = pos.x + size.x, .y = pos.y + size.y }, color, opacity);
 }
 
-fn drawDebugGuideVertical(draw: *ByteDrawList, x: f32, y_min: f32, y_max: f32, color: ByteVec4, opacity: f32) void {
-    Ui.DrawDebugGuideVertical(draw, x, y_min, y_max, color, opacity, scaleF(1.0));
+fn drawDebugGUIdeVertical(draw: *ByteDrawList, x: f32, y_min: f32, y_max: f32, color: ByteVec4, opacity: f32) void {
+    Ui.DrawDebugGUIdeVertical(draw, x, y_min, y_max, color, opacity, scaleF(1.0));
 }
 
-fn drawDebugGuideHorizontal(draw: *ByteDrawList, y: f32, x_min: f32, x_max: f32, color: ByteVec4, opacity: f32) void {
-    Ui.DrawDebugGuideHorizontal(draw, y, x_min, x_max, color, opacity, scaleF(1.0));
+fn drawDebugGUIdeHorizontal(draw: *ByteDrawList, y: f32, x_min: f32, x_max: f32, color: ByteVec4, opacity: f32) void {
+    Ui.DrawDebugGUIdeHorizontal(draw, y, x_min, x_max, color, opacity, scaleF(1.0));
 }
 
 fn drawDebugCrosshair(draw: *ByteDrawList, center: ByteVec2, radius: f32, color: ByteVec4, opacity: f32) void {
-    drawDebugGuideHorizontal(draw, center.y, center.x - radius, center.x + radius, color, opacity);
-    drawDebugGuideVertical(draw, center.x, center.y - radius, center.y + radius, color, opacity);
+    drawDebugGUIdeHorizontal(draw, center.y, center.x - radius, center.x + radius, color, opacity);
+    drawDebugGUIdeVertical(draw, center.x, center.y - radius, center.y + radius, color, opacity);
 }
 
 fn drawDebugLineSegment(draw: *ByteDrawList, center: ByteVec2, axis: ByteVec2, length: f32, thickness: f32, color: ByteVec4, opacity: f32) void {
@@ -2618,11 +2618,11 @@ fn drawDebugLayoutConstraintBounds(draw: *ByteDrawList, opacity: f32) void {
     // Main horizontal layout lane and center split/edge constraints
     drawDebugBoxOutline(draw, .{ .x = logo_slot_left, .y = content_top }, .{ .x = logo_right - logo_slot_left, .y = content_height }, kDebugConstraintBoundsColor, constraint_opacity);
     drawDebugBoxOutline(draw, .{ .x = text_left, .y = content_top }, .{ .x = text_slot_w, .y = content_height }, kDebugConstraintBoundsColor, constraint_opacity);
-    drawDebugOutlineBounds(draw, .{ .x = logo_slot_left, .y = content_top }, .{ .x = text_left + text_slot_w, .y = content_bottom }, kDebugGuideLineColor, guide_opacity);
-    drawDebugGuideVertical(draw, logo_right, content_top, content_bottom, kDebugConstraintBoundsColor, guide_opacity);
-    drawDebugGuideVertical(draw, text_left, content_top, content_bottom, kDebugConstraintBoundsColor, guide_opacity);
-    drawDebugGuideHorizontal(draw, content_top, logo_slot_left, text_left + text_slot_w, kDebugConstraintBoundsColor, guide_opacity);
-    drawDebugGuideHorizontal(draw, content_bottom, logo_slot_left, text_left + text_slot_w, kDebugConstraintBoundsColor, guide_opacity);
+    drawDebugOutlineBounds(draw, .{ .x = logo_slot_left, .y = content_top }, .{ .x = text_left + text_slot_w, .y = content_bottom }, kDebugGUIdeLineColor, guide_opacity);
+    drawDebugGUIdeVertical(draw, logo_right, content_top, content_bottom, kDebugConstraintBoundsColor, guide_opacity);
+    drawDebugGUIdeVertical(draw, text_left, content_top, content_bottom, kDebugConstraintBoundsColor, guide_opacity);
+    drawDebugGUIdeHorizontal(draw, content_top, logo_slot_left, text_left + text_slot_w, kDebugConstraintBoundsColor, guide_opacity);
+    drawDebugGUIdeHorizontal(draw, content_bottom, logo_slot_left, text_left + text_slot_w, kDebugConstraintBoundsColor, guide_opacity);
 
     // Button/control base constraint boxes before expansion
     drawDebugBoxOutline(draw, scaleVec2(TOGGLE_X, TOGGLE_Y + TOGGLE_Y_OFFSET), scaleVec2(TOGGLE_W, TOGGLE_H), kDebugConstraintBoundsColor, constraint_opacity);
@@ -2633,10 +2633,10 @@ fn drawDebugLayoutConstraintBounds(draw: *ByteDrawList, opacity: f32) void {
     drawDebugBoxOutline(draw, scaleVec2(CLOSE_X, CLOSE_Y + CLOSE_Y_OFFSET), scaleVec2(CLOSE_W, CLOSE_H), kDebugConstraintBoundsColor, constraint_opacity);
 
     drawDebugCrosshair(draw, snapPixelVec2(scaleVec2(VERSION_X, VERSION_Y)), scaleF(4.0), kDebugConstraintBoundsColor, guide_opacity);
-    drawDebugCrosshair(draw, .{ .x = center_x, .y = center_y }, scaleF(5.0), kDebugGuideLineColor, guide_opacity);
+    drawDebugCrosshair(draw, .{ .x = center_x, .y = center_y }, scaleF(5.0), kDebugGUIdeLineColor, guide_opacity);
 }
 
-fn drawDebugWindowCenterGuides(draw: *ByteDrawList, opacity: f32) void {
+fn drawDebugWindowCenterGUIdes(draw: *ByteDrawList, opacity: f32) void {
     const platform_size = platformWindowSize();
     const design_size = scaleVec2(WINDOW_WIDTH, WINDOW_HEIGHT);
     const width = if (platform_size.x > 0.0) platform_size.x else design_size.x;
@@ -2647,8 +2647,8 @@ fn drawDebugWindowCenterGuides(draw: *ByteDrawList, opacity: f32) void {
     const center_y = @floor(height * 0.5);
     const center_opacity = @max(opacity, 0.85);
 
-    drawDebugGuideVertical(draw, center_x, 0.0, height, kDebugCenterLineColor, center_opacity);
-    drawDebugGuideHorizontal(draw, center_y, 0.0, width, kDebugCenterLineColor, center_opacity);
+    drawDebugGUIdeVertical(draw, center_x, 0.0, height, kDebugCenterLineColor, center_opacity);
+    drawDebugGUIdeHorizontal(draw, center_y, 0.0, width, kDebugCenterLineColor, center_opacity);
 }
 
 fn drawDebugLogoBounds(draw: *ByteDrawList, bounds: LogoBounds, color: ByteVec4, opacity: f32) void {
@@ -2682,7 +2682,7 @@ fn drawDebugBoxOverlay(draw: *ByteDrawList, opacity: f32) void {
 
     const debug_opacity = @min(opacity, DEBUG_BOX_OVERLAY_OPACITY);
     const window_size = platformWindowSize();
-    drawDebugWindowCenterGuides(draw, debug_opacity);
+    drawDebugWindowCenterGUIdes(draw, debug_opacity);
     drawDebugLayoutConstraintBounds(draw, debug_opacity);
     drawDebugBoxOutline(draw, .{}, window_size, kDebugWindowBoundsColor, debug_opacity);
 
@@ -2773,7 +2773,7 @@ fn drawOutputTextbox(draw: ?*ByteDrawList, opacity: f32, dt: f32) void {
         bytegui.TextSelectionRange{ .start = range.start, .end = range.end }
     else
         null;
-    ByteGui.DrawTextSelectionHighlightClipped(active_draw, &g_output_selection_highlight, .{
+    ByteGUI.DrawTextSelectionHighlightClipped(active_draw, &g_output_selection_highlight, .{
         .font = font,
         .font_size = font.LegacySize,
         .text = text.items,
@@ -2788,7 +2788,7 @@ fn drawOutputTextbox(draw: ?*ByteDrawList, opacity: f32, dt: f32) void {
         .dt = dt,
     }, rect);
 
-    ByteGui.DrawTextLayoutClipped(active_draw, .{
+    ByteGUI.DrawTextLayoutClipped(active_draw, .{
         .font = font,
         .font_size = font.LegacySize,
         .text = text.items,
@@ -2804,20 +2804,20 @@ fn drawOutputTextbox(draw: ?*ByteDrawList, opacity: f32, dt: f32) void {
 fn drawUI(dt: f32) void {
     const render_opacity: f32 = 1.0;
     const window_size = platformWindowSize();
-    ByteGui.SetNextWindowPos(.{});
-    ByteGui.SetNextWindowSize(window_size);
+    ByteGUI.SetNextWindowPos(.{});
+    ByteGUI.SetNextWindowSize(window_size);
 
-    const flags: u32 = ByteGuiWindowFlags_NoDecoration | ByteGuiWindowFlags_NoMove | ByteGuiWindowFlags_NoResize | ByteGuiWindowFlags_NoSavedSettings | ByteGuiWindowFlags_NoNav | ByteGuiWindowFlags_NoBackground;
-    _ = ByteGui.Begin("##root", null, flags);
-    defer ByteGui.End();
+    const flags: u32 = ByteGUIWindowFlags_NoDecoration | ByteGUIWindowFlags_NoMove | ByteGUIWindowFlags_NoResize | ByteGUIWindowFlags_NoSavedSettings | ByteGUIWindowFlags_NoNav | ByteGUIWindowFlags_NoBackground;
+    _ = ByteGUI.Begin("##root", null, flags);
+    defer ByteGUI.End();
 
-    const draw = ByteGui.GetWindowDrawList() orelse return;
-    ByteGui.DrawCornerOnlyRoundedRectFilled(draw, .{}, window_size, windowCornerRadiusPx(), toU32(applyOpacity(.{ .x = 1.0, .y = 1.0, .z = 1.0, .w = 1.0 }, render_opacity)), std.math.clamp(scaleIF(6.0), 6, 20));
+    const draw = ByteGUI.GetWindowDrawList() orelse return;
+    ByteGUI.DrawCornerOnlyRoundedRectFilled(draw, .{}, window_size, windowCornerRadiusPx(), toU32(applyOpacity(.{ .x = 1.0, .y = 1.0, .z = 1.0, .w = 1.0 }, render_opacity)), std.math.clamp(scaleIF(6.0), 6, 20));
     drawYellowRotatedRect(draw, render_opacity);
 
-    ByteGui.DrawInfoGlyph(draw, scaleVec2(INFO_X, INFO_Y), scaleVec2(INFO_W, INFO_H), toU32(applyOpacity(g_button_colors[3].current, render_opacity)), INFO_GLYPH_STYLE, std.math.clamp(scaleIF(72.0), 72, 160));
-    if (g_allow_minimize) ByteGui.DrawWindowControlGlyph(draw, scaleVec2(MIN_X, MIN_Y + MIN_Y_OFFSET), scaleVec2(MIN_W, MIN_H), toU32(applyOpacity(g_button_colors[2].current, render_opacity)), false, WINDOW_CONTROL_GLYPH_STYLE);
-    ByteGui.DrawWindowControlGlyph(draw, scaleVec2(CLOSE_X, CLOSE_Y + CLOSE_Y_OFFSET), scaleVec2(CLOSE_W, CLOSE_H), toU32(applyOpacity(g_button_colors[1].current, render_opacity)), true, WINDOW_CONTROL_GLYPH_STYLE);
+    ByteGUI.DrawInfoGlyph(draw, scaleVec2(INFO_X, INFO_Y), scaleVec2(INFO_W, INFO_H), toU32(applyOpacity(g_button_colors[3].current, render_opacity)), INFO_GLYPH_STYLE, std.math.clamp(scaleIF(72.0), 72, 160));
+    if (g_allow_minimize) ByteGUI.DrawWindowControlGlyph(draw, scaleVec2(MIN_X, MIN_Y + MIN_Y_OFFSET), scaleVec2(MIN_W, MIN_H), toU32(applyOpacity(g_button_colors[2].current, render_opacity)), false, WINDOW_CONTROL_GLYPH_STYLE);
+    ByteGUI.DrawWindowControlGlyph(draw, scaleVec2(CLOSE_X, CLOSE_Y + CLOSE_Y_OFFSET), scaleVec2(CLOSE_W, CLOSE_H), toU32(applyOpacity(g_button_colors[1].current, render_opacity)), true, WINDOW_CONTROL_GLYPH_STYLE);
     drawLogoVisual(draw, render_opacity);
 
     drawOutputTextbox(draw, render_opacity, dt);
@@ -2985,10 +2985,10 @@ fn handleLButtonDown(hwnd: c.HWND, l_param: c.LPARAM) c.LRESULT {
         getWindowControlHitRects(&min_hit, &close_hit);
 
         g_press_rect = switch (hit_id) {
-            .close => fromByteGuiRect(close_hit),
-            .minimize => fromByteGuiRect(min_hit),
+            .close => fromByteGUIRect(close_hit),
+            .minimize => fromByteGUIRect(min_hit),
             .info => getInfoRect(),
-            .version => fromByteGuiRect(getVersionRect()),
+            .version => fromByteGUIRect(getVersionRect()),
             .launch => getLaunchRect(false),
             .toggle => getToggleRect(true),
             .efmi => getEfmiRect(true),
@@ -3173,7 +3173,7 @@ fn wndProc(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) call
                 const width = lowWordU(l_param);
                 const height = highWordU(l_param);
                 if (width > 0 and height > 0) {
-                    bytegui.ByteGui_ImplOpenGL_Resize(width, height);
+                    bytegui.ByteGUI_ImplOpenGL_Resize(width, height);
                     applyWindowShape();
                 }
                 if (w_param == c.SIZE_RESTORED and g_was_minimized) {
@@ -3184,12 +3184,12 @@ fn wndProc(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) call
             return 0;
         },
         c.WM_DPICHANGED => {
-            const old_scale = bytegui.ByteGui_ImplWin32_GetDpiScale();
-            if (bytegui.ByteGui_ImplWin32_HandleDpiChanged(w_param, l_param, true)) {
+            const old_scale = bytegui.ByteGUI_ImplWin32_GetDpiScale();
+            if (bytegui.ByteGUI_ImplWin32_HandleDpiChanged(w_param, l_param, true)) {
                 refreshUiScaleResources();
                 applyWindowShape();
                 if (g_dragging) {
-                    const new_scale = bytegui.ByteGui_ImplWin32_GetDpiScale();
+                    const new_scale = bytegui.ByteGUI_ImplWin32_GetDpiScale();
                     g_drag_offset.x = @intFromFloat(@ceil(@as(f32, @floatFromInt(g_drag_offset.x)) * (new_scale / old_scale)));
                     g_drag_offset.y = @intFromFloat(@ceil(@as(f32, @floatFromInt(g_drag_offset.y)) * (new_scale / old_scale)));
                 }
@@ -3206,7 +3206,7 @@ fn wndProc(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) call
         else => {},
     }
 
-    _ = bytegui.ByteGui_ImplWin32_WndProcHandler(toByteGuiHwnd(active_hwnd), msg, w_param, l_param);
+    _ = bytegui.ByteGUI_ImplWin32_WndProcHandler(toByteGUIHwnd(active_hwnd), msg, w_param, l_param);
     return c.DefWindowProcW(active_hwnd, msg, w_param, l_param);
 }
 
@@ -3237,20 +3237,20 @@ fn resetButtonColorAnimations() void {
     }
 }
 
-fn initByteGuiIo() void {
-    const io = ByteGui.GetIO();
+fn initByteGUIIo() void {
+    const io = ByteGUI.GetIO();
     io.IniFilename = null;
     io.LogFilename = null;
     io.DisplaySize = platformWindowSize();
 }
 
-fn initGuiResources(platform_hwnd: ?bgc.HWND) void {
+fn initGUIResources(platform_hwnd: ?bgc.HWND) void {
     applyBaseStyle();
     loadFonts();
-    _ = bytegui.ByteGui_ImplWin32_Init(platform_hwnd);
+    _ = bytegui.ByteGUI_ImplWin32_Init(platform_hwnd);
 }
 
-fn initializeGuiState() void {
+fn initializeGUIState() void {
     refreshEfmiAvailability();
     if (debugAutoscrollMode()) {
         enterDebugAutoscrollMode();
@@ -3267,7 +3267,7 @@ fn initializeGuiState() void {
 
 fn prewarmVisibleTextCaches() void {
     if (g_font_version) |font| {
-        _ = ByteGui.PrewarmTextTexture(font, scaleF(12.0), 0.0, g_version_display);
+        _ = ByteGUI.PrewarmTextTexture(font, scaleF(12.0), 0.0, g_version_display);
     }
     if (g_font_textbox) |font| {
         var text: std.ArrayListUnmanaged(u8) = .empty;
@@ -3276,15 +3276,15 @@ fn prewarmVisibleTextCaches() void {
 
         var laid_out = layoutOutputText(text.items) orelse return;
         defer laid_out.deinit();
-        for (laid_out.layout.lines.items) |line| _ = ByteGui.PrewarmTextTexture(font, font.LegacySize, 0.0, text.items[line.start..line.end]);
+        for (laid_out.layout.lines.items) |line| _ = ByteGUI.PrewarmTextTexture(font, font.LegacySize, 0.0, text.items[line.start..line.end]);
     }
 }
 
-noinline fn initGuiApp(instance: ?c.HMODULE) bool {
+noinline fn initGUIApp(instance: ?c.HMODULE) bool {
     bytegui.BYTEGUI_CHECKVERSION();
-    _ = ByteGui.CreateContext() orelse return false;
+    _ = ByteGUI.CreateContext() orelse return false;
 
-    var window_config = ByteGuiPlatformWindowConfig{};
+    var window_config = ByteGUIPlatformWindowConfig{};
     window_config.Instance = if (instance) |handle| @ptrFromInt(@intFromPtr(handle)) else null;
     window_config.WndProc = wndProcBridge;
     window_config.ClassName = WINDOW_CLASS;
@@ -3294,12 +3294,12 @@ noinline fn initGuiApp(instance: ?c.HMODULE) bool {
     window_config.LogicalWidth = WINDOW_WIDTH;
     window_config.LogicalHeight = WINDOW_HEIGHT;
 
-    if (!bytegui.ByteGui_ImplWin32_CreatePlatformWindow(&window_config)) return false;
-    const platform_hwnd = bytegui.ByteGui_ImplWin32_GetPlatformHwnd();
-    g_hwnd = fromByteGuiHwnd(platform_hwnd);
+    if (!bytegui.ByteGUI_ImplWin32_CreatePlatformWindow(&window_config)) return false;
+    const platform_hwnd = bytegui.ByteGUI_ImplWin32_GetPlatformHwnd();
+    g_hwnd = fromByteGUIHwnd(platform_hwnd);
     if (!initLayeredWindowOpacity()) return false;
-    initByteGuiIo();
-    initGuiResources(platform_hwnd);
+    initByteGUIIo();
+    initGUIResources(platform_hwnd);
 
     var prepared_assets = StartupPreparedAssets{};
     var asset_thread: ?std.Thread = std.Thread.spawn(.{}, startupAssetWorkerMain, .{&prepared_assets}) catch null;
@@ -3309,8 +3309,8 @@ noinline fn initGuiApp(instance: ?c.HMODULE) bool {
     }
 
     const window_size = platformWindowSize();
-    if (!bytegui.ByteGui_ImplOpenGL_Init(platform_hwnd, @intFromFloat(window_size.x), @intFromFloat(window_size.y))) return false;
-    initializeGuiState();
+    if (!bytegui.ByteGUI_ImplOpenGL_Init(platform_hwnd, @intFromFloat(window_size.x), @intFromFloat(window_size.y))) return false;
+    initializeGUIState();
     if (asset_thread) |thread| {
         thread.join();
         asset_thread = null;
@@ -3327,26 +3327,26 @@ noinline fn initGuiApp(instance: ?c.HMODULE) bool {
     return true;
 }
 
-fn shutdownGuiApp() void {
+fn shutdownGUIApp() void {
     stopLoaderWorker();
     clearLoaderEvents();
-    bytegui.ByteGui_ImplOpenGL_Shutdown();
-    bytegui.ByteGui_ImplWin32_Shutdown();
+    bytegui.ByteGUI_ImplOpenGL_Shutdown();
+    bytegui.ByteGUI_ImplWin32_Shutdown();
     cleanupRenderResources();
     clearDetectedEfmiLauncherPath();
-    if (g_hwnd != null) bytegui.ByteGui_ImplWin32_DestroyPlatformWindow();
-    if (ByteGui.GetCurrentContext() != null) ByteGui.DestroyContext(null);
+    if (g_hwnd != null) bytegui.ByteGUI_ImplWin32_DestroyPlatformWindow();
+    if (ByteGUI.GetCurrentContext() != null) ByteGUI.DestroyContext(null);
     if (g_game_exe_path) |path| allocator.free(path);
     clearStatusLines();
 }
 
-fn runGui() !u8 {
+fn runGUI() !u8 {
     g_version_display = try computeVersionDisplay(&g_version_display_buf);
-    if (!initGuiApp(c.GetModuleHandleA(null))) {
-        shutdownGuiApp();
+    if (!initGUIApp(c.GetModuleHandleA(null))) {
+        shutdownGUIApp();
         return 1;
     }
-    defer shutdownGuiApp();
+    defer shutdownGUIApp();
 
     var msg = std.mem.zeroes(c.MSG);
     while (g_running) {
@@ -3357,7 +3357,7 @@ fn runGui() !u8 {
         }
         if (!g_running) break;
 
-        const io = ByteGui.GetIO();
+        const io = ByteGUI.GetIO();
         const dt = @min(if (io.DeltaTime > 0.0) io.DeltaTime else 1.0 / 60.0, 1.0 / 30.0);
         drainLoaderEvents();
         updateLaunchButtonState();
@@ -3368,16 +3368,16 @@ fn runGui() !u8 {
         updateOutputDragFromCursor(dt);
         if (!g_running or g_hwnd == null) break;
 
-        bytegui.ByteGui_ImplOpenGL_NewFrame();
-        bytegui.ByteGui_ImplWin32_NewFrame();
-        ByteGui.NewFrame();
+        bytegui.ByteGUI_ImplOpenGL_NewFrame();
+        bytegui.ByteGUI_ImplWin32_NewFrame();
+        ByteGUI.NewFrame();
         drawUI(dt);
-        ByteGui.Render();
+        ByteGUI.Render();
 
         const clear_color = [4]f32{ 0, 0, 0, 0 };
-        _ = bytegui.ByteGui_ImplOpenGL_BeginFrame(&clear_color);
-        bytegui.ByteGui_ImplOpenGL_RenderDrawData(ByteGui.GetDrawData());
-        _ = bytegui.ByteGui_ImplOpenGL_Present();
+        _ = bytegui.ByteGUI_ImplOpenGL_BeginFrame(&clear_color);
+        bytegui.ByteGUI_ImplOpenGL_RenderDrawData(ByteGUI.GetDrawData());
+        _ = bytegui.ByteGUI_ImplOpenGL_Present();
         c.Sleep(1);
     }
     return 0;
@@ -3399,8 +3399,8 @@ pub fn main(init: std.process.Init.Minimal) void {
             error.InvalidDebugValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidDebugValue)),
             error.MutuallyExclusiveDx11AndEfmi => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveDx11AndEfmi)),
             error.MutuallyExclusiveGamePathAndEfmi => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveGamePathAndEfmi)),
-            error.MutuallyExclusiveAutoYesAndGui => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveAutoYesAndGui)),
-            error.MutuallyExclusiveCliAndGuiArgs => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveCliAndGuiArgs)),
+            error.MutuallyExclusiveAutoYesAndGUI => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveAutoYesAndGUI)),
+            error.MutuallyExclusiveCliAndGUIArgs => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveCliAndGUIArgs)),
         }
         std.process.exit(1);
     };
@@ -3420,7 +3420,7 @@ pub fn main(init: std.process.Init.Minimal) void {
     const code = if (config.cli)
         cli.run(allocator, init.environ, if (config.silent) .silent else .visible, embedded_dll, config) catch 1
     else blk: {
-        break :blk runGui() catch 1;
+        break :blk runGUI() catch 1;
     };
     std.process.exit(code);
 }
