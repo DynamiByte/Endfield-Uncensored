@@ -52,6 +52,16 @@ pub const RECT = extern struct {
     bottom: LONG,
 };
 
+pub const WINDOWPOS = extern struct {
+    hwnd: ?HWND,
+    hwndInsertAfter: ?HWND,
+    x: INT,
+    y: INT,
+    cx: INT,
+    cy: INT,
+    flags: UINT,
+};
+
 pub const MSG = extern struct {
     hwnd: ?HWND,
     message: UINT,
@@ -254,6 +264,8 @@ pub const GMEM_MOVEABLE: UINT = 0x0002;
 
 pub const WM_DESTROY: UINT = 0x0002;
 pub const WM_SIZE: UINT = 0x0005;
+pub const WM_SIZING: UINT = 0x0214;
+pub const WM_WINDOWPOSCHANGING: UINT = 0x0046;
 pub const WM_ERASEBKGND: UINT = 0x0014;
 pub const WM_SETCURSOR: UINT = 0x0020;
 pub const WM_QUIT: UINT = 0x0012;
@@ -292,6 +304,7 @@ pub const SWP_NOSIZE: UINT = 0x0001;
 pub const SWP_NOMOVE: UINT = 0x0002;
 pub const SWP_NOZORDER: UINT = 0x0004;
 pub const SWP_NOACTIVATE: UINT = 0x0010;
+pub const SWP_NOCOPYBITS: UINT = 0x0100;
 
 pub const CS_CLASSDC: UINT = 0x0040;
 pub const CS_OWNDC: UINT = 0x0020;

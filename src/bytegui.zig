@@ -6103,9 +6103,28 @@ pub fn ByteGUI_ImplOpenGL_Shutdown() void {
     ctx.WhiteTexture = null;
 }
 
+fn clearOpenGLResizeSurface(width: c.UINT, height: c.UINT) void {
+    const bd = getOpenGLBackendData() orelse return;
+    const window_dc = bd.WindowDc orelse return;
+    const render_context = bd.RenderContext orelse return;
+    if (w32.wglMakeCurrent(window_dc, render_context) == w32.FALSE) return;
+
+    gl.glViewport(0, 0, @intCast(width), @intCast(height));
+    gl.glClearColor(0.0, 0.0, 0.0, 0.0);
+    gl.glClear(gl.COLOR_BUFFER_BIT);
+    _ = w32.SwapBuffers(window_dc);
+    gl.glClear(gl.COLOR_BUFFER_BIT);
+}
+
+fn prepareOpenGLResizeSurface(width: i32, height: i32) void {
+    if (width <= 0 or height <= 0) return;
+    clearOpenGLResizeSurface(@intCast(width), @intCast(height));
+}
+
 pub fn ByteGUI_ImplOpenGL_Resize(width: c.UINT, height: c.UINT) void {
     if (width == 0 or height == 0) return;
     updateHostWindowSizeState(@intCast(width), @intCast(height));
+    clearOpenGLResizeSurface(width, height);
 }
 
 pub fn ByteGUI_ImplOpenGL_BeginFrame(clear_color: *const [4]f32) bool {
@@ -6321,12 +6340,12 @@ pub fn ByteGUI_ImplWin32_PointInCornerOnlyRoundedClientArea(pt: anytype, radius:
     );
 }
 
-pub fn ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShape(radius: f32, use_layered_frame: bool) void {
+pub fn ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShapeForSize(radius: f32, use_layered_frame: bool, width_px: i32, height_px: i32) void {
     const host_hwnd = GHostWindow.Hwnd orelse return;
     const hwnd: w32.HWND = @ptrFromInt(@intFromPtr(host_hwnd));
-    const size = ByteGUI_ImplWin32_GetWindowSizeVec2();
-    const width: w32.INT = @intFromFloat(@ceil(@max(1.0, size.x)));
-    const height: w32.INT = @intFromFloat(@ceil(@max(1.0, size.y)));
+    const size = ByteVec2{ .x = @floatFromInt(@max(1, width_px)), .y = @floatFromInt(@max(1, height_px)) };
+    const width: w32.INT = @intCast(@max(1, width_px));
+    const height: w32.INT = @intCast(@max(1, height_px));
 
     if (radius <= 0.0) {
         _ = w32.SetWindowRgn(hwnd, null, w32.TRUE);
@@ -6346,6 +6365,85 @@ pub fn ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShape(radius: f32, use_laye
         const margins = w32.MARGINS{ .cxLeftWidth = -1, .cxRightWidth = -1, .cyTopHeight = -1, .cyBottomHeight = -1 };
         _ = w32.DwmExtendFrameIntoClientArea(hwnd, &margins);
     }
+}
+
+pub fn ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShape(radius: f32, use_layered_frame: bool) void {
+    ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShapeForSize(radius, use_layered_frame, GHostWindow.WindowWidthPx, GHostWindow.WindowHeightPx);
+}
+
+fn cornerOnlyRoundedRadiusPx(logical_radius: f32, enabled: bool) f32 {
+    return ByteGUI_ImplWin32_CornerRadiusPx(logical_radius, enabled);
+}
+
+pub fn ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShapeLogical(logical_radius: f32, use_layered_frame: bool) void {
+    ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShape(cornerOnlyRoundedRadiusPx(logical_radius, use_layered_frame), use_layered_frame);
+}
+
+pub fn ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShapeForSizeLogical(logical_radius: f32, use_layered_frame: bool, width_px: i32, height_px: i32) void {
+    ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShapeForSize(cornerOnlyRoundedRadiusPx(logical_radius, use_layered_frame), use_layered_frame, width_px, height_px);
+}
+
+pub fn ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShapeForRectLogical(logical_radius: f32, use_layered_frame: bool, rect: *const w32.RECT) void {
+    const width = rect.right - rect.left;
+    const height = rect.bottom - rect.top;
+    if (width > 0 and height > 0) ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShapeForSizeLogical(logical_radius, use_layered_frame, width, height);
+}
+
+pub fn ByteGUI_ImplWin32_PrepareCornerOnlyRoundedWindowResize(logical_radius: f32, use_layered_frame: bool, msg: w32.UINT, l_param: w32.LPARAM) void {
+    const ptr_value: usize = @bitCast(l_param);
+    if (ptr_value == 0) return;
+
+    switch (msg) {
+        w32.WM_SIZING => {
+            const rect: *const w32.RECT = @ptrFromInt(ptr_value);
+            const width = rect.right - rect.left;
+            const height = rect.bottom - rect.top;
+            prepareOpenGLResizeSurface(width, height);
+            ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShapeForRectLogical(logical_radius, use_layered_frame, rect);
+        },
+        w32.WM_WINDOWPOSCHANGING => {
+            const pos: *w32.WINDOWPOS = @ptrFromInt(ptr_value);
+            if ((pos.flags & w32.SWP_NOSIZE) == 0 and pos.cx > 0 and pos.cy > 0) {
+                pos.flags |= w32.SWP_NOCOPYBITS;
+                prepareOpenGLResizeSurface(pos.cx, pos.cy);
+                ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShapeForSizeLogical(logical_radius, use_layered_frame, pos.cx, pos.cy);
+            }
+        },
+        else => {},
+    }
+}
+
+pub fn ByteGUI_ImplWin32_HandleCornerOnlyRoundedWindowSize(logical_radius: f32, use_layered_frame: bool, w_param: w32.WPARAM, l_param: w32.LPARAM) bool {
+    if (w_param == w32.SIZE_MINIMIZED) return false;
+    const size_bits: usize = @bitCast(l_param);
+    const width: w32.UINT = @intCast(size_bits & 0xffff);
+    const height: w32.UINT = @intCast((size_bits >> 16) & 0xffff);
+    if (width == 0 or height == 0) return false;
+    ByteGUI_ImplOpenGL_Resize(width, height);
+    ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShapeForSizeLogical(logical_radius, use_layered_frame, @intCast(width), @intCast(height));
+    return true;
+}
+
+pub fn ByteGUI_ImplWin32_ApplyCornerOnlyRoundedDpiWindowPos(logical_radius: f32, use_layered_frame: bool, l_param: w32.LPARAM) void {
+    const host_hwnd = GHostWindow.Hwnd orelse return;
+    const hwnd: w32.HWND = @ptrFromInt(@intFromPtr(host_hwnd));
+    const ptr_value: usize = @bitCast(l_param);
+
+    if (ptr_value != 0) {
+        const rect: *const w32.RECT = @ptrFromInt(ptr_value);
+        const width = rect.right - rect.left;
+        const height = rect.bottom - rect.top;
+        if (width > 0 and height > 0) prepareOpenGLResizeSurface(width, height);
+        ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShapeForRectLogical(logical_radius, use_layered_frame, rect);
+        _ = w32.SetWindowPos(hwnd, null, rect.left, rect.top, width, height, w32.SWP_NOZORDER | w32.SWP_NOACTIVATE | w32.SWP_NOCOPYBITS);
+        return;
+    }
+
+    ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShapeLogical(logical_radius, use_layered_frame);
+    var rect = std.mem.zeroes(w32.RECT);
+    _ = w32.GetWindowRect(hwnd, &rect);
+    prepareOpenGLResizeSurface(GHostWindow.WindowWidthPx, GHostWindow.WindowHeightPx);
+    _ = w32.SetWindowPos(hwnd, null, rect.left, rect.top, GHostWindow.WindowWidthPx, GHostWindow.WindowHeightPx, w32.SWP_NOZORDER | w32.SWP_NOACTIVATE | w32.SWP_NOCOPYBITS);
 }
 
 pub fn ByteGUI_ImplWin32_GetWindowWidth() i32 {

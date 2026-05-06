@@ -1256,11 +1256,11 @@ fn windowUsesLayeredOpacity() bool {
 }
 
 fn windowCornerRadiusPx() f32 {
-    return bytegui.ByteGUI_ImplWin32_CornerRadiusPx(CORNER_RADIUS, !g_wine_mode);
+    return bytegui.ByteGUI_ImplWin32_CornerRadiusPx(CORNER_RADIUS, windowUsesLayeredOpacity());
 }
 
 fn applyWindowShape() void {
-    bytegui.ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShape(windowCornerRadiusPx(), windowUsesLayeredOpacity());
+    bytegui.ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShapeLogical(CORNER_RADIUS, windowUsesLayeredOpacity());
 }
 
 fn applyBaseStyle() void {
@@ -3167,16 +3167,18 @@ fn wndProc(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) call
             const result = handleOutputKeyDown(active_hwnd, w_param);
             if (result != -1) return result;
         },
+        c.WM_SIZING => {
+            bytegui.ByteGUI_ImplWin32_PrepareCornerOnlyRoundedWindowResize(CORNER_RADIUS, windowUsesLayeredOpacity(), msg, l_param);
+            return 1;
+        },
+        c.WM_WINDOWPOSCHANGING => {
+            bytegui.ByteGUI_ImplWin32_PrepareCornerOnlyRoundedWindowResize(CORNER_RADIUS, windowUsesLayeredOpacity(), msg, l_param);
+        },
         c.WM_SIZE => {
             if (w_param == c.SIZE_MINIMIZED) {
                 g_was_minimized = true;
             } else {
-                const width = lowWordU(l_param);
-                const height = highWordU(l_param);
-                if (width > 0 and height > 0) {
-                    bytegui.ByteGUI_ImplOpenGL_Resize(width, height);
-                    applyWindowShape();
-                }
+                _ = bytegui.ByteGUI_ImplWin32_HandleCornerOnlyRoundedWindowSize(CORNER_RADIUS, windowUsesLayeredOpacity(), w_param, l_param);
                 if (w_param == c.SIZE_RESTORED and g_was_minimized) {
                     g_was_minimized = false;
                     startWindowAnimation(.fade_in_restore);
@@ -3186,15 +3188,21 @@ fn wndProc(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) call
         },
         c.WM_DPICHANGED => {
             const old_scale = bytegui.ByteGUI_ImplWin32_GetDpiScale();
-            if (bytegui.ByteGUI_ImplWin32_HandleDpiChanged(w_param, l_param, true)) {
+            const ptr_value: usize = @bitCast(l_param);
+            const suggested_rect: ?*const c.RECT = if (ptr_value != 0) @as(*const c.RECT, @ptrFromInt(ptr_value)) else null;
+            const dpi_changed = bytegui.ByteGUI_ImplWin32_HandleDpiChanged(w_param, l_param, false);
+
+            if (dpi_changed) {
                 refreshUiScaleResources();
-                applyWindowShape();
                 if (g_dragging) {
                     const new_scale = bytegui.ByteGUI_ImplWin32_GetDpiScale();
                     g_drag_offset.x = @intFromFloat(@ceil(@as(f32, @floatFromInt(g_drag_offset.x)) * (new_scale / old_scale)));
                     g_drag_offset.y = @intFromFloat(@ceil(@as(f32, @floatFromInt(g_drag_offset.y)) * (new_scale / old_scale)));
                 }
             }
+
+            _ = suggested_rect;
+            bytegui.ByteGUI_ImplWin32_ApplyCornerOnlyRoundedDpiWindowPos(CORNER_RADIUS, windowUsesLayeredOpacity(), l_param);
             return 0;
         },
         c.WM_ERASEBKGND => return 1,
