@@ -37,7 +37,7 @@ If your antivirus flags the build, report it in GitHub issues. I try to avoid fl
 
 ## Quick Start
 
-1. Download the latest `EFU.exe` from the [Releases](https://github.com/DynamiByte/Endfield-Uncensored/releases) page
+1. Download the latest `EFU.exe` from the [Releases](https://dynamibyte.com/Endfield-Uncensored/releases) page
 2. Run `EFU.exe` as Administrator
 3. If EFU finds the game path, press `Launch Game`
 4. If EFU does not find the path, or you prefer not to launch from the app, start the game normally and EFU will inject when `Endfield.exe` appears
@@ -229,13 +229,13 @@ For example, `v1.2.0.3` means the third preview build leading up to `v1.2.0`'s r
 
 Endfield Uncensored is licensed under the AGPL-3.0 license.
 
-The bundled fonts are not covered by the project license. They remain under their own licenses, which are included alongside them. See [Inter OFL](https://github.com/DynamiByte/Endfield-Uncensored/blob/master/fonts/Inter/OFL.txt), [JetBrains Mono OFL](https://github.com/DynamiByte/Endfield-Uncensored/blob/master/fonts/JetBrainsMono/OFL.txt), and [DejaVuSansMono LICENSE](https://github.com/DynamiByte/Endfield-Uncensored/blob/master/fonts/DejaVuSansMono/LICENSE).
+The bundled fonts are not covered by the project license. They remain under their own licenses, which are included alongside them. See [Inter OFL](https://dynamibyte.com/Endfield-Uncensored/blob/master/fonts/Inter/OFL.txt), [JetBrains Mono OFL](https://dynamibyte.com/Endfield-Uncensored/blob/master/fonts/JetBrainsMono/OFL.txt), and [DejaVuSansMono LICENSE](https://dynamibyte.com/Endfield-Uncensored/blob/master/fonts/DejaVuSansMono/LICENSE).
 
 ---
 
 ## Links
 
-- Releases: [GitHub Releases](https://github.com/DynamiByte/Endfield-Uncensored/releases)
-- GameBanana: [Endfield Uncensored](https://gamebanana.com/mods/651108)
-- Issues: [GitHub Issues](https://github.com/DynamiByte/Endfield-Uncensored/issues)
-- Discord: [`dynamicbyte`](https://discord.com/users/1077491551267213392)
+- Releases: [GitHub Releases](https://dynamibyte.com/Endfield-Uncensored/releases)
+- GameBanana: [Endfield Uncensored](https://gb.dynamibyte.com/efu)
+- Issues: [GitHub Issues](https://dynamibyte.com/Endfield-Uncensored/issues)
+- Discord: [`dynamicbyte`](https://discord.dynamibyte.com/)
