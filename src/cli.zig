@@ -120,7 +120,7 @@ fn classifyArg(arg: []const u8) ArgKind {
     if (std.ascii.eqlIgnoreCase(body, "am") or std.ascii.eqlIgnoreCase(body, "allow-minimize")) return .allow_minimize;
     if (std.ascii.eqlIgnoreCase(body, "efmi")) return .efmi;
     if (std.ascii.eqlIgnoreCase(body, "gp") or std.ascii.eqlIgnoreCase(body, "game-path")) return .game_path;
-    if (std.ascii.eqlIgnoreCase(body, "debug")) return .debug;
+    if (std.ascii.eqlIgnoreCase(body, "d") or std.ascii.eqlIgnoreCase(body, "debug")) return .debug;
     return .unknown;
 }
 

@@ -289,6 +289,61 @@ pub const ByteDrawData = struct {
     }
 };
 
+pub const DebugBoxKind = enum {
+    window,
+    visual,
+    hit,
+    text,
+    logo,
+    scrollbar,
+    guide,
+};
+
+pub const DebugAutoscrollStep = struct {
+    run: usize,
+    group: usize,
+    line: usize,
+};
+
+pub const DebugAutoscrollCallbacks = struct {
+    emit_line: ?*const fn (DebugAutoscrollStep, ?*anyopaque) void = null,
+    clear: ?*const fn (?*anyopaque) void = null,
+    user_data: ?*anyopaque = null,
+};
+
+const DebugAutoscrollState = struct {
+    enabled: bool = false,
+    group: usize = 1,
+    run: usize = 1,
+    wait_seconds: f32 = 0.0,
+};
+
+const debugAutoscrollWaitSeconds: f32 = 1.0;
+const debugAutoscrollGroups: usize = 5;
+const debugAutoscrollRuns: usize = 5;
+const DebugBoxEntry = struct {
+    kind: DebugBoxKind,
+    p_min: ByteVec2,
+    p_max: ByteVec2,
+    opacity: f32 = 1.0,
+};
+
+const DebugLineEntry = struct {
+    kind: DebugBoxKind,
+    p0: ByteVec2,
+    p1: ByteVec2,
+    thickness: f32 = 1.0,
+    opacity: f32 = 1.0,
+};
+
+const debugWindowBoundsColor = ByteVec4{ .x = 0.65, .y = 0.20, .z = 1.00, .w = 1.0 };
+const debugVisualBoundsColor = ByteVec4{ .x = 0.00, .y = 0.35, .z = 1.00, .w = 1.0 };
+const debugHitboxColor = ByteVec4{ .x = 1.00, .y = 0.05, .z = 0.05, .w = 1.0 };
+const debugTextBoundsColor = ByteVec4{ .x = 0.00, .y = 0.72, .z = 0.15, .w = 1.0 };
+const debugLogoBoundsColor = ByteVec4{ .x = 1.00, .y = 0.48, .z = 0.00, .w = 1.0 };
+const debugScrollbarBoundsColor = ByteVec4{ .x = 0.00, .y = 0.75, .z = 0.90, .w = 1.0 };
+const debugGuideLineColor = ByteVec4{ .x = 0.0, .y = 0.0, .z = 0.0, .w = 1.0 };
+const debugBoxOverlayOpacity = 0.64;
 pub const ByteGUIIO = struct {
     Fonts: ?*ByteFontAtlas = null,
     IniFilename: ?[*:0]const u8 = null,
@@ -919,6 +974,13 @@ pub const ByteGUIContext = struct {
     CurrentClipRect: ByteVec4 = .{},
     WhiteTexture: ByteTextureID = null,
 
+    DebugBoxes: std.ArrayListUnmanaged(DebugBoxEntry) = .empty,
+    DebugLines: std.ArrayListUnmanaged(DebugLineEntry) = .empty,
+    DebugBoxesRequested: bool = false,
+    DebugBoxesEnabled: bool = false,
+    DebugAutoscroll: DebugAutoscrollState = .{},
+    DebugBoxesOpacity: f32 = 1.0,
+
     TextCache: std.ArrayListUnmanaged(TextCacheEntry) = .empty,
 
     fn init(self: *ByteGUIContext) void {
@@ -934,6 +996,8 @@ pub const ByteGUIContext = struct {
         self.FontStack.deinit(allocator);
         self.AlphaStack.deinit(allocator);
         self.ChildStack.deinit(allocator);
+        self.DebugBoxes.deinit(allocator);
+        self.DebugLines.deinit(allocator);
         self.TextCache.deinit(allocator);
         self.* = undefined;
     }
@@ -966,6 +1030,135 @@ const HostWindowData = struct {
 
 var GByteGUI: ?*ByteGUIContext = null;
 var GHostWindow: HostWindowData = .{};
+
+fn debugAutoscrollActive() bool {
+    const ctx = GByteGUI orelse return false;
+    return ctx.DebugAutoscroll.enabled;
+}
+
+fn debugAutoscrollEmitBatch(callbacks: DebugAutoscrollCallbacks) void {
+    const ctx = GByteGUI orelse return;
+    var line_index: usize = 1;
+    while (line_index <= ctx.DebugAutoscroll.group) : (line_index += 1) {
+        if (callbacks.emit_line) |emit| {
+            emit(.{
+                .run = ctx.DebugAutoscroll.run,
+                .group = ctx.DebugAutoscroll.group,
+                .line = line_index,
+            }, callbacks.user_data);
+        }
+    }
+    ctx.DebugAutoscroll.wait_seconds = debugAutoscrollWaitSeconds;
+}
+
+fn debugAutoscrollAdvance(callbacks: DebugAutoscrollCallbacks) void {
+    const ctx = GByteGUI orelse return;
+    if (ctx.DebugAutoscroll.group < debugAutoscrollGroups) {
+        ctx.DebugAutoscroll.group += 1;
+    } else {
+        ctx.DebugAutoscroll.group = 1;
+        if (ctx.DebugAutoscroll.run < debugAutoscrollRuns) {
+            ctx.DebugAutoscroll.run += 1;
+        } else {
+            ctx.DebugAutoscroll.run = 1;
+            if (callbacks.clear) |clear| clear(callbacks.user_data);
+        }
+    }
+    debugAutoscrollEmitBatch(callbacks);
+}
+fn debugBoxesActive() bool {
+    const ctx = GByteGUI orelse return false;
+    return ctx.DebugBoxesEnabled;
+}
+
+fn debugBoxColor(kind: DebugBoxKind) ByteVec4 {
+    return switch (kind) {
+        .window => debugWindowBoundsColor,
+        .visual => debugVisualBoundsColor,
+        .hit => debugHitboxColor,
+        .text => debugTextBoundsColor,
+        .logo => debugLogoBoundsColor,
+        .scrollbar => debugScrollbarBoundsColor,
+        .guide => debugGuideLineColor,
+    };
+}
+
+fn debugAddBounds(kind: DebugBoxKind, p_min: ByteVec2, p_max: ByteVec2, opacity: f32) void {
+    const ctx = GByteGUI orelse return;
+    if (!ctx.DebugBoxesEnabled) return;
+
+    const left = @floor(@min(p_min.x, p_max.x));
+    const top = @floor(@min(p_min.y, p_max.y));
+    const right = @ceil(@max(p_min.x, p_max.x));
+    const bottom = @ceil(@max(p_min.y, p_max.y));
+    if (right <= left or bottom <= top) return;
+
+    ctx.DebugBoxes.append(allocator, .{
+        .kind = kind,
+        .p_min = .{ .x = left, .y = top },
+        .p_max = .{ .x = right, .y = bottom },
+        .opacity = clamp01(opacity),
+    }) catch return;
+}
+
+fn debugAddRect(kind: DebugBoxKind, rect: anytype, opacity: f32) void {
+    debugAddBounds(
+        kind,
+        .{ .x = @as(f32, @floatFromInt(rect.left)), .y = @as(f32, @floatFromInt(rect.top)) },
+        .{ .x = @as(f32, @floatFromInt(rect.right)), .y = @as(f32, @floatFromInt(rect.bottom)) },
+        opacity,
+    );
+}
+
+fn debugAddLine(kind: DebugBoxKind, p0: ByteVec2, p1: ByteVec2, thickness: f32, opacity: f32) void {
+    const ctx = GByteGUI orelse return;
+    if (!ctx.DebugBoxesEnabled) return;
+    if (thickness <= 0.0) return;
+
+    const dx = p1.x - p0.x;
+    const dy = p1.y - p0.y;
+    if (dx * dx + dy * dy <= 0.0) return;
+
+    ctx.DebugLines.append(allocator, .{
+        .kind = kind,
+        .p0 = p0,
+        .p1 = p1,
+        .thickness = @max(1.0, thickness),
+        .opacity = clamp01(opacity),
+    }) catch return;
+}
+fn debugDrawBoxes(draw: ?*ByteDrawList) void {
+    const active_draw = draw orelse return;
+    const ctx = GByteGUI orelse return;
+    if (!ctx.DebugBoxesEnabled) return;
+
+    for (ctx.DebugBoxes.items) |item| {
+        Ui.DrawDebugOutlineBounds(
+            active_draw,
+            item.p_min,
+            item.p_max,
+            debugBoxColor(item.kind),
+            ctx.DebugBoxesOpacity * item.opacity,
+            1.0,
+        );
+    }
+
+    for (ctx.DebugLines.items) |item| {
+        const dx = item.p1.x - item.p0.x;
+        const dy = item.p1.y - item.p0.y;
+        const len = @sqrt(dx * dx + dy * dy);
+        if (len <= 0.0) continue;
+        Ui.DrawDebugLineSegment(
+            active_draw,
+            .{ .x = (item.p0.x + item.p1.x) * 0.5, .y = (item.p0.y + item.p1.y) * 0.5 },
+            .{ .x = dx / len, .y = dy / len },
+            len,
+            item.thickness,
+            debugBoxColor(item.kind),
+            ctx.DebugBoxesOpacity * item.opacity,
+        );
+    }
+}
 
 // Immediate-mode context and front end
 pub const ByteGUI = struct {
@@ -1011,6 +1204,74 @@ pub const ByteGUI = struct {
         return null;
     }
 
+    pub fn DebugSetBoxesEnabled(enabled: bool) void {
+        const ctx = GByteGUI orelse return;
+        ctx.DebugBoxesRequested = enabled;
+    }
+
+    pub fn DebugBoxesEnabled() bool {
+        const ctx = GByteGUI orelse return false;
+        return ctx.DebugBoxesRequested;
+    }
+
+    pub fn DebugSetAutoscrollEnabled(enabled: bool) void {
+        const ctx = GByteGUI orelse return;
+        ctx.DebugAutoscroll = .{ .enabled = enabled };
+    }
+
+    pub fn DebugAutoscrollActive() bool {
+        return debugAutoscrollActive();
+    }
+
+    pub fn DebugStartAutoscroll(callbacks: DebugAutoscrollCallbacks) void {
+        const ctx = GByteGUI orelse return;
+        ctx.DebugAutoscroll = .{ .enabled = true };
+        if (callbacks.clear) |clear| clear(callbacks.user_data);
+        debugAutoscrollEmitBatch(callbacks);
+    }
+
+    pub fn DebugUpdateAutoscroll(dt: f32, callbacks: DebugAutoscrollCallbacks) void {
+        const ctx = GByteGUI orelse return;
+        if (!ctx.DebugAutoscroll.enabled) return;
+        if (ctx.DebugAutoscroll.wait_seconds > 0.0) {
+            ctx.DebugAutoscroll.wait_seconds -= dt;
+            if (ctx.DebugAutoscroll.wait_seconds > 0.0) return;
+        }
+        debugAutoscrollAdvance(callbacks);
+    }
+
+    pub fn DebugBeginBoxes(enabled: bool, opacity: f32) void {
+        const ctx = GByteGUI orelse return;
+        ctx.DebugBoxesEnabled = enabled;
+        ctx.DebugBoxesOpacity = @min(clamp01(opacity), debugBoxOverlayOpacity);
+        ctx.DebugBoxes.clearRetainingCapacity();
+        ctx.DebugLines.clearRetainingCapacity();
+    }
+
+    pub fn DebugBoxesActive() bool {
+        return debugBoxesActive();
+    }
+
+    pub fn DebugAddBounds(kind: DebugBoxKind, p_min: ByteVec2, p_max: ByteVec2) void {
+        debugAddBounds(kind, p_min, p_max, 1.0);
+    }
+
+    pub fn DebugAddBox(kind: DebugBoxKind, pos: ByteVec2, size: ByteVec2) void {
+        debugAddBounds(kind, pos, .{ .x = pos.x + size.x, .y = pos.y + size.y }, 1.0);
+    }
+
+    pub fn DebugAddRect(kind: DebugBoxKind, rect: anytype) void {
+        debugAddRect(kind, rect, 1.0);
+    }
+
+    pub fn DebugAddLine(kind: DebugBoxKind, p0: ByteVec2, p1: ByteVec2, thickness: f32) void {
+        debugAddLine(kind, p0, p1, thickness, 1.0);
+    }
+
+    pub fn DebugDrawBoxes(draw: ?*ByteDrawList) void {
+        debugDrawBoxes(draw);
+    }
+
     pub fn ColorConvertFloat4ToU32(input: ByteVec4) ByteU32 {
         const out_r: ByteU32 = @intFromFloat(clamp01(input.x) * 255.0 + 0.5);
         const out_g: ByteU32 = @intFromFloat(clamp01(input.y) * 255.0 + 0.5);
@@ -1029,6 +1290,8 @@ pub const ByteGUI = struct {
         ctx.CursorScreenPos = .{};
         ctx.CurrentClipRect = .{ .x = 0.0, .y = 0.0, .z = ctx.IO.DisplaySize.x, .w = ctx.IO.DisplaySize.y };
         ctx.DrawList.ResetForNewFrame(ctx.CurrentClipRect, ctx.WhiteTexture, ctx.Style.AntiAliasedFill, ctx.Style.AntiAliasedLines);
+        ctx.DebugBoxes.clearRetainingCapacity();
+        ctx.DebugLines.clearRetainingCapacity();
         ctx.DrawData.Valid = false;
         ctx.DrawData.CmdLists.clearRetainingCapacity();
         ctx.DrawData.CmdListsCount = 0;
@@ -1077,6 +1340,7 @@ pub const ByteGUI = struct {
             .w = ctx.WindowPos.y + ctx.WindowSize.y,
         };
         ctx.DrawList.SetClipRect(ctx.CurrentClipRect);
+        debugAddBounds(.window, ctx.WindowPos, .{ .x = ctx.WindowPos.x + ctx.WindowSize.x, .y = ctx.WindowPos.y + ctx.WindowSize.y }, 1.0);
         return true;
     }
 
@@ -1517,6 +1781,7 @@ pub const ByteGUI = struct {
     pub fn DrawWindowControlGlyph(draw: ?*ByteDrawList, pos: ByteVec2, size: ByteVec2, col: ByteU32, is_close: bool, style: anytype) void {
         const active_draw = draw orelse return;
         if ((col & BYTEGUI_COL32_A_MASK) == 0) return;
+        debugAddBounds(.visual, pos, .{ .x = pos.x + size.x, .y = pos.y + size.y }, 1.0);
 
         if (is_close) {
             const cx = pos.x + size.x * 0.5;
@@ -1541,6 +1806,7 @@ pub const ByteGUI = struct {
     pub fn DrawInfoGlyph(draw: ?*ByteDrawList, pos: ByteVec2, size: ByteVec2, ring_col: ByteU32, style: anytype, arc_segments: i32) void {
         const active_draw = draw orelse return;
         if ((ring_col & BYTEGUI_COL32_A_MASK) == 0) return;
+        debugAddBounds(.visual, pos, .{ .x = pos.x + size.x, .y = pos.y + size.y }, 1.0);
 
         const icon_size = @min(size.x, size.y);
         const padding = icon_size * style.padding_ratio;
@@ -1857,6 +2123,8 @@ pub const Ui = struct {
             .y = content_pos.y + texture.draw_offset_px.y * scale,
         };
 
+        debugAddBounds(.text, content_pos, .{ .x = content_pos.x + content_size.x, .y = content_pos.y + content_size.y }, 1.0);
+
         active_draw.AddImage(
             @ptrCast(texture.texture),
             image_pos,
@@ -2139,6 +2407,8 @@ pub const Ui = struct {
             .y = content_pos.y + texture.draw_offset_px.y * final_scale,
         };
 
+        debugAddBounds(.text, content_pos, .{ .x = content_pos.x + content_size.x, .y = content_pos.y + content_size.y }, 1.0);
+
         active_draw.AddImage(
             @ptrCast(texture.texture),
             image_pos,
@@ -2367,6 +2637,7 @@ pub const Ui = struct {
             max_y = @max(max_y, layer.bounds_max.y * dpi_scale);
         }
         if (min_x >= max_x or min_y >= max_y) return;
+        debugAddBounds(.logo, .{ .x = min_x, .y = min_y }, .{ .x = max_x, .y = max_y }, 1.0);
 
         const layers_copy = allocator.dupe(ParsedSvgLayer, layers) catch return;
         const data = allocator.create(SvgCoverageCallbackData) catch {
@@ -4075,6 +4346,7 @@ fn drawTextLayoutClipped(draw: ?*ByteDrawList, params: TextLayoutDrawParams) voi
     const active_draw = draw orelse return;
     const font = params.font orelse return;
     if ((params.color & BYTEGUI_COL32_A_MASK) == 0) return;
+    debugAddRect(.text, params.clip_rect, 1.0);
 
     const saved_clip = setClipRectFromRect(active_draw, params.clip_rect);
     defer active_draw.SetClipRect(saved_clip);
@@ -4267,6 +4539,7 @@ pub const ScrollbarDrawParams = struct {
     visible: bool = true,
     opacity: f32 = 1.0,
     dt: f32 = 1.0 / 60.0,
+    debug_hit_pad: f32 = 0.0,
 };
 
 pub const TextSelectionHighlightParams = struct {
@@ -5082,6 +5355,17 @@ fn drawVerticalScrollbar(draw: ?*ByteDrawList, state: *ScrollbarVisualState, par
         state.visibility_t = 0.0;
         state.has_geometry = false;
         return;
+    }
+
+    debugAddBounds(.scrollbar, params.metrics.track_pos, .{ .x = params.metrics.track_pos.x + params.metrics.track_size.x, .y = params.metrics.track_pos.y + params.metrics.track_size.y }, 1.0);
+    debugAddBounds(.scrollbar, state.thumb_pos, .{ .x = state.thumb_pos.x + state.thumb_size.x, .y = state.thumb_pos.y + state.thumb_size.y }, 1.0);
+    if (params.debug_hit_pad > 0.0) {
+        debugAddBounds(
+            .hit,
+            .{ .x = state.thumb_pos.x - params.debug_hit_pad, .y = state.thumb_pos.y - params.debug_hit_pad },
+            .{ .x = state.thumb_pos.x + state.thumb_size.x + params.debug_hit_pad, .y = state.thumb_pos.y + state.thumb_size.y + params.debug_hit_pad },
+            1.0,
+        );
     }
 
     const hover_t = std.math.clamp(params.hover_t, 0.001, 0.999);

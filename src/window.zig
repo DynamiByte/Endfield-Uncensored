@@ -121,9 +121,6 @@ const OUTPUT_SCROLLBAR_HOVER_T = 0.55;
 const OUTPUT_SCROLLBAR_FADE_SECONDS = 0.16;
 const OUTPUT_SCROLLBAR_GEOMETRY_RATE = 26.0;
 const OUTPUT_SCROLLBAR_ACTIVE_GEOMETRY_RATE = 34.0;
-const DEBUG_AUTOSCROLL_WAIT_SECONDS: f32 = 1.0;
-const DEBUG_AUTOSCROLL_GROUPS: usize = 5;
-const DEBUG_AUTOSCROLL_RUNS: usize = 5;
 
 const VERSION_X = 10.0;
 const VERSION_Y = 175.0;
@@ -139,11 +136,8 @@ const LAUNCH_Y = 150.0;
 const LAUNCH_W = 136.0;
 const LAUNCH_H = 35.0;
 
-const EFMI_X = 313.0;
 const EFMI_Y = LAUNCH_Y;
-const EFMI_W = 42.0;
 const EFMI_H = LAUNCH_H;
-const EFMI_VISUAL_X_OFFSET = 4.0;
 const EFMI_VISIBLE_W = 28.0;
 const EFMI_UNDERLAP_W = 40.0;
 const EFMI_SHADOW_DARKEN = 0.86;
@@ -218,12 +212,6 @@ const CloseCountdown = struct {
     action: Action = .close,
     remaining_seconds: i32 = 0,
     elapsed: f32 = 0.0,
-};
-
-const DebugAutoscrollState = struct {
-    group: usize = 1,
-    run: usize = 1,
-    wait_seconds: f32 = 0.0,
 };
 
 const LoaderUiEvent = union(enum) {
@@ -408,8 +396,6 @@ var g_drag_offset: c.POINT = std.mem.zeroes(c.POINT);
 var g_was_minimized = false;
 var g_launch_right_click_count: u8 = 0;
 var g_launch_right_click_last_tick: u64 = 0;
-var g_debug_options: cli.DebugOptions = .{};
-var g_debug_autoscroll_state: DebugAutoscrollState = .{};
 
 var g_window_anim: WindowAnim = .{};
 var g_close_countdown: CloseCountdown = .{};
@@ -427,18 +413,7 @@ const kControlIdleColor = ByteVec4{ .x = 51.0 / 255.0, .y = 51.0 / 255.0, .z = 5
 const kControlHoverBlue = ByteVec4{ .x = 100.0 / 255.0, .y = 149.0 / 255.0, .z = 237.0 / 255.0, .w = 1.0 };
 const kLaunchEnabledColor = ByteVec4{ .x = 1.0, .y = 250.0 / 255.0, .z = 0.0, .w = 1.0 };
 const kLaunchDisabledColor = ByteVec4{ .x = 180.0 / 255.0, .y = 180.0 / 255.0, .z = 180.0 / 255.0, .w = 1.0 };
-const kDebugWindowBoundsColor = ByteVec4{ .x = 0.65, .y = 0.20, .z = 1.00, .w = 1.0 };
-const kDebugVisualBoundsColor = ByteVec4{ .x = 0.00, .y = 0.35, .z = 1.00, .w = 1.0 };
-const kDebugHitboxColor = ByteVec4{ .x = 1.00, .y = 0.05, .z = 0.05, .w = 1.0 };
-const kDebugTextBoundsColor = ByteVec4{ .x = 0.00, .y = 0.72, .z = 0.15, .w = 1.0 };
-const kDebugLogoBoundsColor = ByteVec4{ .x = 1.00, .y = 0.48, .z = 0.00, .w = 1.0 };
-const kDebugScrollbarBoundsColor = ByteVec4{ .x = 0.00, .y = 0.75, .z = 0.90, .w = 1.0 };
-const kDebugConstraintBoundsColor = ByteVec4{ .x = 1.00, .y = 0.85, .z = 0.00, .w = 1.0 };
-const kDebugGUIdeLineColor = ByteVec4{ .x = 1.00, .y = 1.00, .z = 1.00, .w = 1.0 };
-const kDebugCenterLineColor = ByteVec4{ .x = 0.0, .y = 0.0, .z = 0.0, .w = 1.0 };
-const DEBUG_BOX_OVERLAY_OPACITY = 0.64;
-const DEBUG_BOX_CONSTRAINT_OPACITY = 0.70;
-const DEBUG_BOX_GUIDE_OPACITY = 0.52;
+
 const clamp01 = Ui.Clamp01;
 const easeOutQuad = Ui.EaseOutQuad;
 const easeInOutCubic = Ui.EaseInOutCubic;
@@ -626,7 +601,7 @@ fn launchCooldownActive() bool {
 }
 
 fn debugAutoscrollMode() bool {
-    return g_debug_options.autoscroll;
+    return ByteGUI.DebugAutoscrollActive();
 }
 
 fn startLaunchCooldown(mode: GameLaunchMode) void {
@@ -717,42 +692,19 @@ fn clearStatusLines() void {
     scheduleOutputAutoscroll();
 }
 
-fn appendDebugAutoscrollBatch() void {
-    var line_index: usize = 1;
-    while (line_index <= g_debug_autoscroll_state.group) : (line_index += 1) {
-        appendStatus("{d}-{d}-{d}", .{ g_debug_autoscroll_state.run, g_debug_autoscroll_state.group, line_index });
-    }
-    g_debug_autoscroll_state.wait_seconds = DEBUG_AUTOSCROLL_WAIT_SECONDS;
-}
-
-fn startDebugAutoscrollScript() void {
-    g_debug_autoscroll_state = .{};
+fn clearDebugAutoscrollLines(_: ?*anyopaque) void {
     clearStatusLines();
-    appendDebugAutoscrollBatch();
 }
 
-fn advanceDebugAutoscrollScript() void {
-    if (g_debug_autoscroll_state.group < DEBUG_AUTOSCROLL_GROUPS) {
-        g_debug_autoscroll_state.group += 1;
-    } else {
-        g_debug_autoscroll_state.group = 1;
-        if (g_debug_autoscroll_state.run < DEBUG_AUTOSCROLL_RUNS) {
-            g_debug_autoscroll_state.run += 1;
-        } else {
-            g_debug_autoscroll_state.run = 1;
-            clearStatusLines();
-        }
-    }
-    appendDebugAutoscrollBatch();
+fn appendDebugAutoscrollLine(step: bytegui.DebugAutoscrollStep, _: ?*anyopaque) void {
+    appendStatus("{d}-{d}-{d}", .{ step.run, step.group, step.line });
 }
 
-fn updateDebugAutoscrollScript(dt: f32) void {
-    if (!debugAutoscrollMode()) return;
-    if (g_debug_autoscroll_state.wait_seconds > 0.0) {
-        g_debug_autoscroll_state.wait_seconds -= dt;
-        if (g_debug_autoscroll_state.wait_seconds > 0.0) return;
-    }
-    advanceDebugAutoscrollScript();
+fn debugAutoscrollCallbacks() bytegui.DebugAutoscrollCallbacks {
+    return .{
+        .emit_line = appendDebugAutoscrollLine,
+        .clear = clearDebugAutoscrollLines,
+    };
 }
 
 fn enterDebugAutoscrollMode() void {
@@ -765,7 +717,7 @@ fn enterDebugAutoscrollMode() void {
     setLoaderPendingLaunchMode(null);
     g_launch_cooldown_until_tick = 0;
     syncLaunchButtonStateImmediate();
-    startDebugAutoscrollScript();
+    ByteGUI.DebugStartAutoscroll(debugAutoscrollCallbacks());
 }
 
 fn cancelCloseCountdown() void {
@@ -1675,8 +1627,20 @@ fn efmiUnderlapWidth() f32 {
     return scaleF(EFMI_UNDERLAP_W);
 }
 
+fn efmiBaseLeft() f32 {
+    return scaleF(LAUNCH_X) - efmiVisibleWidth();
+}
+
+fn efmiBasePos() ByteVec2 {
+    return .{ .x = efmiBaseLeft(), .y = scaleF(EFMI_Y) };
+}
+
+fn efmiBaseSize() ByteVec2 {
+    return .{ .x = efmiVisibleWidth(), .y = scaleF(EFMI_H) };
+}
+
 fn efmiVisualLeft() f32 {
-    return launchVisualLeft() - efmiVisibleWidth();
+    return efmiBaseLeft() - launchVisualLeftShift();
 }
 
 fn efmiLabelLeft() f32 {
@@ -2501,6 +2465,7 @@ fn drawAnimatedBoxButtonVisual(kind: BoxButtonKind, base_pos: ByteVec2, base_siz
         const y = base_pos.y + base_size.y * 0.5 - h * 0.5;
         const visual_pos = ByteVec2{ .x = efmiVisualLeft(), .y = y };
         const visual_size = ByteVec2{ .x = efmiVisibleWidth() + efmiUnderlapWidth(), .y = h };
+        ByteGUI.DebugAddBox(.visual, visual_pos, visual_size);
         const label_pos = ByteVec2{ .x = efmiLabelLeft(), .y = y };
         const label_size = ByteVec2{ .x = efmiLabelWidth(), .y = h };
         Ui.DrawRoundedLeftEdgeShadowedRectFilled(draw, visual_pos, visual_size, rounding, color, darkerEfmiShadowColor(color), opacity, launchVisualPos(), launchVisualSize(), launchVisualRounding(), scaleF(EFMI_SHADOW_WIDTH), EFMI_SHADOW_STRENGTH);
@@ -2512,6 +2477,7 @@ fn drawAnimatedBoxButtonVisual(kind: BoxButtonKind, base_pos: ByteVec2, base_siz
     const center = ByteVec2{ .x = base_pos.x + base_size.x * 0.5, .y = base_pos.y + base_size.y * 0.5 };
     const size = ByteVec2{ .x = base_size.x + scaleF(12.0) * anim, .y = base_size.y + (if (is_launch_group) scaleF(4.0) else scaleF(3.0)) * anim };
     const pos = ByteVec2{ .x = center.x - size.x * 0.5, .y = center.y - size.y * 0.5 };
+    ByteGUI.DebugAddBox(.visual, pos, size);
     draw.AddRectFilled(pos, .{ .x = pos.x + size.x, .y = pos.y + size.y }, toU32(applyOpacity(color, opacity)), rounding);
     draw.Flags = saved_flags;
     _ = drawAnimatedButtonLabelTexture(draw, kind, pos, size, anim, opacity);
@@ -2550,185 +2516,60 @@ fn drawOutputScrollbar(draw: *ByteDrawList, laid_out: *const OutputTextLayout, o
         .visible = visible,
         .opacity = opacity,
         .dt = dt,
+        .debug_hit_pad = scaleF(3.0),
     });
 }
 
-fn drawDebugOutlineBounds(draw: *ByteDrawList, p_min: ByteVec2, p_max: ByteVec2, color: ByteVec4, opacity: f32) void {
-    Ui.DrawDebugOutlineBounds(draw, p_min, p_max, color, opacity, scaleF(1.0));
-}
+fn registerDebugLineSegment(kind: bytegui.DebugBoxKind, center: ByteVec2, axis: ByteVec2, length: f32, thickness: f32) void {
+    const axis_len = @sqrt(axis.x * axis.x + axis.y * axis.y);
+    if (axis_len <= 0.0 or length <= 0.0) return;
 
-fn drawDebugRectOutline(draw: *ByteDrawList, rect: anytype, color: ByteVec4, opacity: f32) void {
-    drawDebugOutlineBounds(
-        draw,
-        .{ .x = @as(f32, @floatFromInt(rect.left)), .y = @as(f32, @floatFromInt(rect.top)) },
-        .{ .x = @as(f32, @floatFromInt(rect.right)), .y = @as(f32, @floatFromInt(rect.bottom)) },
-        color,
-        opacity,
+    const dir = ByteVec2{ .x = axis.x / axis_len, .y = axis.y / axis_len };
+    const half_len = length * 0.5;
+    ByteGUI.DebugAddLine(
+        kind,
+        .{ .x = center.x - dir.x * half_len, .y = center.y - dir.y * half_len },
+        .{ .x = center.x + dir.x * half_len, .y = center.y + dir.y * half_len },
+        thickness,
     );
 }
 
-fn drawDebugBoxOutline(draw: *ByteDrawList, pos: ByteVec2, size: ByteVec2, color: ByteVec4, opacity: f32) void {
-    drawDebugOutlineBounds(draw, pos, .{ .x = pos.x + size.x, .y = pos.y + size.y }, color, opacity);
-}
+fn registerGuiDebugGuides(window_size: ByteVec2) void {
+    if (!ByteGUI.DebugBoxesActive()) return;
 
-fn drawDebugGUIdeVertical(draw: *ByteDrawList, x: f32, y_min: f32, y_max: f32, color: ByteVec4, opacity: f32) void {
-    Ui.DrawDebugGUIdeVertical(draw, x, y_min, y_max, color, opacity, scaleF(1.0));
-}
-
-fn drawDebugGUIdeHorizontal(draw: *ByteDrawList, y: f32, x_min: f32, x_max: f32, color: ByteVec4, opacity: f32) void {
-    Ui.DrawDebugGUIdeHorizontal(draw, y, x_min, x_max, color, opacity, scaleF(1.0));
-}
-
-fn drawDebugCrosshair(draw: *ByteDrawList, center: ByteVec2, radius: f32, color: ByteVec4, opacity: f32) void {
-    drawDebugGUIdeHorizontal(draw, center.y, center.x - radius, center.x + radius, color, opacity);
-    drawDebugGUIdeVertical(draw, center.x, center.y - radius, center.y + radius, color, opacity);
-}
-
-fn drawDebugLineSegment(draw: *ByteDrawList, center: ByteVec2, axis: ByteVec2, length: f32, thickness: f32, color: ByteVec4, opacity: f32) void {
-    Ui.DrawDebugLineSegment(draw, center, axis, length, thickness, color, opacity);
-}
-
-fn drawDebugLogoDContactMarker(draw: *ByteDrawList, opacity: f32) void {
-    const contact = yellowBandContactPointPx();
-    const edge_axis = ByteVec2{ .x = 0.70710677, .y = -0.70710677 };
-    const perp_axis = ByteVec2{ .x = 0.70710677, .y = 0.70710677 };
-    const main_len = scaleF(24.0);
-    const tick_len = main_len / 3.0;
+    const center = ByteVec2{ .x = @floor(window_size.x * 0.5), .y = @floor(window_size.y * 0.5) };
     const thickness = @max(1.0, scaleF(1.0));
+    ByteGUI.DebugAddLine(.guide, .{ .x = center.x, .y = 0.0 }, .{ .x = center.x, .y = window_size.y }, thickness);
+    ByteGUI.DebugAddLine(.guide, .{ .x = 0.0, .y = center.y }, .{ .x = window_size.x, .y = center.y }, thickness);
 
-    drawDebugLineSegment(draw, contact, edge_axis, main_len, thickness, kDebugHitboxColor, opacity);
-    drawDebugLineSegment(draw, contact, perp_axis, tick_len, thickness, kDebugHitboxColor, opacity);
-}
+    const d_bounds = if (g_logo_end_d_bounds.valid) g_logo_end_d_bounds else g_logo_bounds;
+    if (!d_bounds.valid) return;
 
-fn drawDebugLayoutConstraintBounds(draw: *ByteDrawList, opacity: f32) void {
-    const constraint_opacity = opacity * DEBUG_BOX_CONSTRAINT_OPACITY;
-    const guide_opacity = opacity * DEBUG_BOX_GUIDE_OPACITY;
-
-    const content_top = scaleF((WINDOW_HEIGHT - MAIN_CONTENT_SIZE) * 0.5);
-    const content_height = scaleF(MAIN_CONTENT_SIZE);
-    const content_bottom = content_top + content_height;
-    const center_x = scaleF(WINDOW_WIDTH * 0.5);
-    const center_y = scaleF(WINDOW_HEIGHT * 0.5);
-    const logo_right = scaleF(WINDOW_WIDTH * 0.5 - MAIN_CONTENT_CENTER_EDGE_OFFSET);
-    const text_left = scaleF(WINDOW_WIDTH * 0.5 + MAIN_CONTENT_CENTER_EDGE_OFFSET);
-    const logo_slot_left = logo_right - scaleF(MAIN_CONTENT_SIZE);
-    const text_slot_w = @max(1.0, scaleF(OUTPUT_W));
-
-    // Main horizontal layout lane and center split/edge constraints
-    drawDebugBoxOutline(draw, .{ .x = logo_slot_left, .y = content_top }, .{ .x = logo_right - logo_slot_left, .y = content_height }, kDebugConstraintBoundsColor, constraint_opacity);
-    drawDebugBoxOutline(draw, .{ .x = text_left, .y = content_top }, .{ .x = text_slot_w, .y = content_height }, kDebugConstraintBoundsColor, constraint_opacity);
-    drawDebugOutlineBounds(draw, .{ .x = logo_slot_left, .y = content_top }, .{ .x = text_left + text_slot_w, .y = content_bottom }, kDebugGUIdeLineColor, guide_opacity);
-    drawDebugGUIdeVertical(draw, logo_right, content_top, content_bottom, kDebugConstraintBoundsColor, guide_opacity);
-    drawDebugGUIdeVertical(draw, text_left, content_top, content_bottom, kDebugConstraintBoundsColor, guide_opacity);
-    drawDebugGUIdeHorizontal(draw, content_top, logo_slot_left, text_left + text_slot_w, kDebugConstraintBoundsColor, guide_opacity);
-    drawDebugGUIdeHorizontal(draw, content_bottom, logo_slot_left, text_left + text_slot_w, kDebugConstraintBoundsColor, guide_opacity);
-
-    // Button/control base constraint boxes before expansion
-    drawDebugBoxOutline(draw, scaleVec2(TOGGLE_X, TOGGLE_Y + TOGGLE_Y_OFFSET), scaleVec2(TOGGLE_W, TOGGLE_H), kDebugConstraintBoundsColor, constraint_opacity);
-    drawDebugBoxOutline(draw, scaleVec2(LAUNCH_X, LAUNCH_Y), scaleVec2(LAUNCH_W, LAUNCH_H), kDebugConstraintBoundsColor, constraint_opacity);
-    drawDebugBoxOutline(draw, scaleVec2(EFMI_X, EFMI_Y), scaleVec2(EFMI_W, EFMI_H), kDebugConstraintBoundsColor, constraint_opacity);
-    drawDebugBoxOutline(draw, scaleVec2(INFO_X, INFO_Y), scaleVec2(INFO_W, INFO_H), kDebugConstraintBoundsColor, constraint_opacity);
-    drawDebugBoxOutline(draw, scaleVec2(MIN_X, MIN_Y + MIN_Y_OFFSET), scaleVec2(MIN_W, MIN_H), kDebugConstraintBoundsColor, constraint_opacity);
-    drawDebugBoxOutline(draw, scaleVec2(CLOSE_X, CLOSE_Y + CLOSE_Y_OFFSET), scaleVec2(CLOSE_W, CLOSE_H), kDebugConstraintBoundsColor, constraint_opacity);
-
-    drawDebugCrosshair(draw, snapPixelVec2(scaleVec2(VERSION_X, VERSION_Y)), scaleF(4.0), kDebugConstraintBoundsColor, guide_opacity);
-    drawDebugCrosshair(draw, .{ .x = center_x, .y = center_y }, scaleF(5.0), kDebugGUIdeLineColor, guide_opacity);
-}
-
-fn drawDebugWindowCenterGUIdes(draw: *ByteDrawList, opacity: f32) void {
-    const platform_size = platformWindowSize();
-    const design_size = scaleVec2(WINDOW_WIDTH, WINDOW_HEIGHT);
-    const width = if (platform_size.x > 0.0) platform_size.x else design_size.x;
-    const height = if (platform_size.y > 0.0) platform_size.y else design_size.y;
-    if (width <= 0.0 or height <= 0.0) return;
-
-    const center_x = @floor(width * 0.5);
-    const center_y = @floor(height * 0.5);
-    const center_opacity = @max(opacity, 0.85);
-
-    drawDebugGUIdeVertical(draw, center_x, 0.0, height, kDebugCenterLineColor, center_opacity);
-    drawDebugGUIdeHorizontal(draw, center_y, 0.0, width, kDebugCenterLineColor, center_opacity);
-}
-
-fn drawDebugLogoBounds(draw: *ByteDrawList, bounds: LogoBounds, color: ByteVec4, opacity: f32) void {
-    if (!bounds.valid) return;
-    drawDebugOutlineBounds(
-        draw,
-        .{ .x = scaleF(bounds.min.x), .y = scaleF(bounds.min.y) },
-        .{ .x = scaleF(bounds.max.x), .y = scaleF(bounds.max.y) },
-        color,
-        opacity,
+    ByteGUI.DebugAddBounds(
+        .logo,
+        .{ .x = scaleF(d_bounds.min.x), .y = scaleF(d_bounds.min.y) },
+        .{ .x = scaleF(d_bounds.max.x), .y = scaleF(d_bounds.max.y) },
     );
+
+    const contact = yellowBandContactPointPx();
+    registerDebugLineSegment(.hit, contact, .{ .x = 0.70710677, .y = -0.70710677 }, scaleF(24.0), thickness);
+    registerDebugLineSegment(.hit, contact, .{ .x = 0.70710677, .y = 0.70710677 }, scaleF(8.0), thickness);
 }
-
-fn drawDebugScrollbarBounds(draw: *ByteDrawList, opacity: f32) void {
-    const metrics = currentOutputScrollbarMetrics() orelse return;
-    const hit_pad = scaleF(3.0);
-
-    drawDebugBoxOutline(draw, metrics.track_pos, metrics.track_size, kDebugScrollbarBoundsColor, opacity);
-    drawDebugBoxOutline(draw, metrics.thumb_pos, metrics.thumb_size, kDebugScrollbarBoundsColor, opacity);
-    drawDebugOutlineBounds(
-        draw,
-        .{ .x = metrics.thumb_pos.x - hit_pad, .y = metrics.thumb_pos.y - hit_pad },
-        .{ .x = metrics.thumb_pos.x + metrics.thumb_size.x + hit_pad, .y = metrics.thumb_pos.y + metrics.thumb_size.y + hit_pad },
-        kDebugHitboxColor,
-        opacity,
-    );
-}
-
-fn drawDebugBoxOverlay(draw: *ByteDrawList, opacity: f32) void {
-    if (!g_debug_options.boxes) return;
-
-    const debug_opacity = @min(opacity, DEBUG_BOX_OVERLAY_OPACITY);
-    const window_size = platformWindowSize();
-    drawDebugWindowCenterGUIdes(draw, debug_opacity);
-    drawDebugLayoutConstraintBounds(draw, debug_opacity);
-    drawDebugBoxOutline(draw, .{}, window_size, kDebugWindowBoundsColor, debug_opacity);
-
-    drawDebugLogoBounds(draw, g_logo_bounds, kDebugLogoBoundsColor, debug_opacity);
-    drawDebugLogoBounds(draw, g_logo_end_d_bounds, kDebugLogoBoundsColor, debug_opacity * 0.75);
-    drawDebugLogoDContactMarker(draw, debug_opacity);
-
-    drawDebugRectOutline(draw, outputTextRect(), kDebugTextBoundsColor, debug_opacity);
-    drawDebugScrollbarBounds(draw, debug_opacity);
+fn registerGuiDebugHitBoxes() void {
+    if (!ByteGUI.DebugBoxesActive()) return;
 
     var close_hit = std.mem.zeroes(bgc.RECT);
     var min_hit = std.mem.zeroes(bgc.RECT);
     getWindowControlHitRects(&min_hit, &close_hit);
 
-    drawDebugRectOutline(draw, close_hit, kDebugHitboxColor, debug_opacity);
-    drawDebugBoxOutline(draw, scaleVec2(CLOSE_X, CLOSE_Y + CLOSE_Y_OFFSET), scaleVec2(CLOSE_W, CLOSE_H), kDebugVisualBoundsColor, debug_opacity);
-
-    if (g_allow_minimize) {
-        drawDebugRectOutline(draw, min_hit, kDebugHitboxColor, debug_opacity);
-        drawDebugBoxOutline(draw, scaleVec2(MIN_X, MIN_Y + MIN_Y_OFFSET), scaleVec2(MIN_W, MIN_H), kDebugVisualBoundsColor, debug_opacity);
-    }
-
-    drawDebugRectOutline(draw, getInfoRect(), kDebugHitboxColor, debug_opacity);
-    drawDebugBoxOutline(draw, scaleVec2(INFO_X, INFO_Y), scaleVec2(INFO_W, INFO_H), kDebugVisualBoundsColor, debug_opacity);
-
-    drawDebugRectOutline(draw, getVersionRect(), kDebugTextBoundsColor, debug_opacity);
-
-    drawDebugRectOutline(draw, getToggleRect(true), kDebugHitboxColor, debug_opacity);
-    drawDebugRectOutline(draw, getToggleRect(false), kDebugVisualBoundsColor, debug_opacity);
-
-    if (g_launch_btn_enabled) drawDebugRectOutline(draw, getLaunchRect(false), kDebugHitboxColor, debug_opacity);
-    drawDebugBoxOutline(draw, launchVisualPos(), launchVisualSize(), kDebugVisualBoundsColor, debug_opacity);
-
-    if (g_efmi_button_visible) {
-        if (efmiToggleEnabled()) drawDebugRectOutline(draw, getEfmiRect(true), kDebugHitboxColor, debug_opacity);
-        const h = scaleF(EFMI_H) + scaleF(4.0) * g_efmi_anim.value;
-        const cy = scaleF(EFMI_Y + EFMI_H * 0.5);
-        drawDebugBoxOutline(
-            draw,
-            .{ .x = efmiVisualLeft(), .y = cy - h * 0.5 },
-            .{ .x = efmiVisibleWidth() + efmiUnderlapWidth(), .y = h },
-            kDebugVisualBoundsColor,
-            debug_opacity,
-        );
-    }
+    ByteGUI.DebugAddRect(.hit, close_hit);
+    if (g_allow_minimize) ByteGUI.DebugAddRect(.hit, min_hit);
+    ByteGUI.DebugAddRect(.hit, getInfoRect());
+    ByteGUI.DebugAddRect(.hit, getVersionRect());
+    ByteGUI.DebugAddRect(.hit, getToggleRect(true));
+    if (g_launch_btn_enabled) ByteGUI.DebugAddRect(.hit, getLaunchRect(false));
+    if (g_efmi_button_visible and efmiToggleEnabled()) ByteGUI.DebugAddRect(.hit, getEfmiRect(true));
 }
-
 fn drawOutputTextbox(draw: ?*ByteDrawList, opacity: f32, dt: f32) void {
     const active_draw = draw orelse return;
     const font = g_font_textbox orelse return;
@@ -2803,6 +2644,7 @@ fn drawOutputTextbox(draw: ?*ByteDrawList, opacity: f32, dt: f32) void {
 fn drawUI(dt: f32) void {
     const render_opacity: f32 = 1.0;
     const window_size = platformWindowSize();
+    ByteGUI.DebugBeginBoxes(ByteGUI.DebugBoxesEnabled(), render_opacity);
     ByteGUI.SetNextWindowPos(.{});
     ByteGUI.SetNextWindowSize(window_size);
 
@@ -2824,10 +2666,13 @@ fn drawUI(dt: f32) void {
     drawOutputTextbox(draw, render_opacity, dt);
 
     draw.AddText(g_font_version, scaleF(12.0), snapPixelVec2(scaleVec2(VERSION_X, VERSION_Y)), toU32(applyOpacity(g_button_colors[4].current, render_opacity)), g_version_display, null);
+    ByteGUI.DebugAddRect(.text, getVersionRect());
     drawAnimatedBoxButtonVisual(.toggle, scaleVec2(TOGGLE_X, TOGGLE_Y + TOGGLE_Y_OFFSET), scaleVec2(TOGGLE_W, TOGGLE_H), g_toggle_anim.value, true, g_toggle_current_color, render_opacity);
-    if (g_efmi_button_visible) drawAnimatedBoxButtonVisual(.efmi, scaleVec2(EFMI_X, EFMI_Y), scaleVec2(EFMI_W, EFMI_H), g_efmi_anim.value, efmiToggleEnabled(), g_efmi_current_color, render_opacity);
+    if (g_efmi_button_visible) drawAnimatedBoxButtonVisual(.efmi, efmiBasePos(), efmiBaseSize(), g_efmi_anim.value, efmiToggleEnabled(), g_efmi_current_color, render_opacity);
     drawAnimatedBoxButtonVisual(.launch, scaleVec2(LAUNCH_X, LAUNCH_Y), scaleVec2(LAUNCH_W, LAUNCH_H), g_launch_anim.value, g_launch_btn_enabled, g_launch_current_color, render_opacity);
-    drawDebugBoxOverlay(draw, render_opacity);
+    registerGuiDebugGuides(window_size);
+    registerGuiDebugHitBoxes();
+    ByteGUI.DebugDrawBoxes(draw);
 }
 
 fn refreshGamePathStatus() void {
@@ -3289,9 +3134,11 @@ fn prewarmVisibleTextCaches() void {
     }
 }
 
-noinline fn initGUIApp(instance: ?c.HMODULE) bool {
+noinline fn initGUIApp(instance: ?c.HMODULE, debug_options: cli.DebugOptions) bool {
     bytegui.BYTEGUI_CHECKVERSION();
     _ = ByteGUI.CreateContext() orelse return false;
+    ByteGUI.DebugSetBoxesEnabled(debug_options.boxes);
+    ByteGUI.DebugSetAutoscrollEnabled(debug_options.autoscroll);
 
     var window_config = ByteGUIPlatformWindowConfig{};
     window_config.Instance = if (instance) |handle| @ptrFromInt(@intFromPtr(handle)) else null;
@@ -3349,9 +3196,9 @@ fn shutdownGUIApp() void {
     clearStatusLines();
 }
 
-fn runGUI() !u8 {
+fn runGUI(debug_options: cli.DebugOptions) !u8 {
     g_version_display = try computeVersionDisplay(&g_version_display_buf);
-    if (!initGUIApp(c.GetModuleHandleA(null))) {
+    if (!initGUIApp(c.GetModuleHandleA(null), debug_options)) {
         shutdownGUIApp();
         return 1;
     }
@@ -3372,7 +3219,7 @@ fn runGUI() !u8 {
         updateLaunchButtonState();
         updateHoverStates(dt);
         updateAnimations(dt);
-        updateDebugAutoscrollScript(dt);
+        ByteGUI.DebugUpdateAutoscroll(dt, debugAutoscrollCallbacks());
         updateOutputSmoothScroll(dt);
         updateOutputDragFromCursor(dt);
         if (!g_running or g_hwnd == null) break;
@@ -3424,12 +3271,10 @@ pub fn main(init: std.process.Init.Minimal) void {
     g_force_dx11 = config.dx11;
     g_wine_mode = if (config.cli) false else resolveWineMode(config);
     g_allow_minimize = if (config.cli) true else resolveAllowMinimize(config, g_wine_mode);
-    g_debug_options = config.debug;
-
     const code = if (config.cli)
         cli.run(allocator, init.environ, if (config.silent) .silent else .visible, embedded_dll, config) catch 1
     else blk: {
-        break :blk runGUI() catch 1;
+        break :blk runGUI(config.debug) catch 1;
     };
     std.process.exit(code);
 }
