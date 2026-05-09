@@ -70,7 +70,7 @@ EFU includes an Alt+F12 in-game toggle.
 
 ### Common arguments
 
-Arguments are case-insensitive. Prefixes `-`, `--`, and `/` are accepted. Examples use `-` for single-character aliases and `--` for longer names. Boolean values are also case-insensitive; use `true|false` in examples, but `on|off`, `yes|no`, `y|n`, and `t|f` also work.
+Arguments are case-insensitive. Prefixes `-`, `--`, and `/` are accepted. Boolean values are also case-insensitive; use `true|false` in examples, but `on|off`, `yes|no`, `y|n`, and `t|f` also work.
 
 - `-c` / `--cli`: interactive console mode
 - `-s` / `--silent`: one-shot launch and inject flow with error popups instead of an interactive console
