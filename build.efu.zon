@@ -1,6 +1,6 @@
 .{
     .name = "Endfield Uncensored",
-    .version = "5.0.0.3",
+    .version = "5.0.0.4",
     .zig_version = "0.16.0",
 
     .outputs = .{
