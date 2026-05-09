@@ -51,7 +51,7 @@ If you keep EFU open, it returns to a ready state after the game closes so you c
 - The output log has smooth scrolling, scrollbar dragging, mouse selection, drag-selection autoscroll, `Ctrl+C`, and `Ctrl+A`
 - The info button opens this README, and the version text opens the matching GitHub release page
 - Triple right click the `Launch Game` button to launch with the alternate graphics API
-- Starting EFU with `-DX11` makes the `Launch Game` button launch with DX11 by default, making Vulkan the alternate graphics API
+- Starting EFU with `--DX11` makes the `Launch Game` button launch with DX11 by default, making Vulkan the alternate graphics API
 - If EFMI / XXMI is detected, the GUI can show an EFMI toggle attached to the launch button
 - If EFU is left waiting, it can still inject when the game is launched externally
 
@@ -66,17 +66,17 @@ EFU includes an Alt+F12 in-game toggle.
 
 ## CLI
 
-`EFU.exe -cli` starts the interactive console loader. It can wait for the game, launch it for you, or inject after an external start.
+`EFU.exe --cli` starts the interactive console loader. It can wait for the game, launch it for you, or inject after an external start.
 
 ### Common arguments
 
-Arguments are case-insensitive. Prefixes `-`, `--`, and `/` are accepted. Boolean values are also case-insensitive; use `true|false` in examples, but `on|off`, `yes|no`, `y|n`, and `t|f` also work.
+Arguments are case-insensitive. Prefixes `-`, `--`, and `/` are accepted. Examples use `-` for single-character aliases and `--` for longer names. Boolean values are also case-insensitive; use `true|false` in examples, but `on|off`, `yes|no`, `y|n`, and `t|f` also work.
 
-- `-c` / `-cli`: interactive console mode
-- `-s` / `-silent`: one-shot launch and inject flow with error popups instead of an interactive console
-- `-DX11`: launch the game with `-force-d3d11`
+- `-c` / `--cli`: interactive console mode
+- `-s` / `--silent`: one-shot launch and inject flow with error popups instead of an interactive console
+- `--DX11`: launch the game with `-force-d3d11`
 - `--gp` / `--game-path [PATH_TO_Endfield.exe]`: use the provided game executable instead of auto-detection for the normal game launch path
-- `-y` / `-yes`: auto-confirm prompts used by the EFMI CLI flow
+- `-y` / `--yes`: auto-confirm prompts used by the EFMI CLI flow
 - `--EFMI [PATH_TO_XXMI Launcher.exe]`: launch EFMI through XXMI, optionally using an explicit launcher path
 - `--EFMI false`: prevent EFU from auto-detecting XXMI and showing the EFMI button in the GUI
 - `--wm` / `--fwm` / `--force-wine-mode true|false`: GUI-only override for Wine detection
@@ -84,7 +84,7 @@ Arguments are case-insensitive. Prefixes `-`, `--`, and `/` are accepted. Boolea
 
 ### Debug arguments
 
-`--debug` accepts one or more comma-separated values:
+`-d` / `--debug` accepts one or more comma-separated values:
 
 - `boxes` / `b`: show GUI development overlays
 - `autoscroll` / `as`: disable game launching 
@@ -103,7 +103,7 @@ EFMI handles the game launch itself.
 
 ### Silent mode
 
-`-silent` is intended for one-shot use. No GUI or CLI output. It requires a provided game path or the EFMI launcher path, or successful auto-detection the After launching, EFU waits up to 30 seconds for `Endfield.exe` before reporting a launch timeout.
+`--silent` is intended for one-shot use. No GUI or CLI output. It requires a provided game path or the EFMI launcher path, or successful auto-detection the After launching, EFU waits up to 30 seconds for `Endfield.exe` before reporting a launch timeout.
 
 ---
 
