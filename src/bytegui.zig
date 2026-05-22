@@ -325,6 +325,7 @@ const DebugBoxEntry = struct {
     kind: DebugBoxKind,
     p_min: ByteVec2,
     p_max: ByteVec2,
+    radius: f32 = 0.0,
     opacity: f32 = 1.0,
 };
 
@@ -1110,6 +1111,25 @@ fn debugAddRect(kind: DebugBoxKind, rect: anytype, opacity: f32) void {
     );
 }
 
+fn debugAddRoundedBounds(kind: DebugBoxKind, p_min: ByteVec2, p_max: ByteVec2, radius: f32, opacity: f32) void {
+    const ctx = GByteGUI orelse return;
+    if (!ctx.DebugBoxesEnabled) return;
+
+    const left = @floor(@min(p_min.x, p_max.x));
+    const top = @floor(@min(p_min.y, p_max.y));
+    const right = @ceil(@max(p_min.x, p_max.x));
+    const bottom = @ceil(@max(p_min.y, p_max.y));
+    if (right <= left or bottom <= top) return;
+
+    ctx.DebugBoxes.append(allocator, .{
+        .kind = kind,
+        .p_min = .{ .x = left, .y = top },
+        .p_max = .{ .x = right, .y = bottom },
+        .radius = @max(0.0, radius),
+        .opacity = clamp01(opacity),
+    }) catch return;
+}
+
 fn debugAddLine(kind: DebugBoxKind, p0: ByteVec2, p1: ByteVec2, thickness: f32, opacity: f32) void {
     const ctx = GByteGUI orelse return;
     if (!ctx.DebugBoxesEnabled) return;
@@ -1133,14 +1153,26 @@ fn debugDrawBoxes(draw: ?*ByteDrawList) void {
     if (!ctx.DebugBoxesEnabled) return;
 
     for (ctx.DebugBoxes.items) |item| {
-        Ui.DrawDebugOutlineBounds(
-            active_draw,
-            item.p_min,
-            item.p_max,
-            debugBoxColor(item.kind),
-            ctx.DebugBoxesOpacity * item.opacity,
-            1.0,
-        );
+        if (item.radius > 0.0) {
+            Ui.DrawDebugRoundedOutlineBounds(
+                active_draw,
+                item.p_min,
+                item.p_max,
+                item.radius,
+                debugBoxColor(item.kind),
+                ctx.DebugBoxesOpacity * item.opacity,
+                1.0,
+            );
+        } else {
+            Ui.DrawDebugOutlineBounds(
+                active_draw,
+                item.p_min,
+                item.p_max,
+                debugBoxColor(item.kind),
+                ctx.DebugBoxesOpacity * item.opacity,
+                1.0,
+            );
+        }
     }
 
     for (ctx.DebugLines.items) |item| {
@@ -1262,6 +1294,14 @@ pub const ByteGUI = struct {
 
     pub fn DebugAddRect(kind: DebugBoxKind, rect: anytype) void {
         debugAddRect(kind, rect, 1.0);
+    }
+
+    pub fn DebugAddRoundedBox(kind: DebugBoxKind, pos: ByteVec2, size: ByteVec2, radius: f32) void {
+        debugAddRoundedBounds(kind, pos, .{ .x = pos.x + size.x, .y = pos.y + size.y }, radius, 1.0);
+    }
+
+    pub fn DebugAddRoundedRectLayout(kind: DebugBoxKind, layout: Ui.RoundedRectLayout) void {
+        DebugAddRoundedBox(kind, layout.pos, layout.size, layout.radius);
     }
 
     pub fn DebugAddLine(kind: DebugBoxKind, p0: ByteVec2, p1: ByteVec2, thickness: f32) void {
@@ -1909,6 +1949,22 @@ pub const Ui = struct {
         uv_max: ByteVec2 = .{ .x = 1.0, .y = 1.0 },
     };
 
+    pub const RoundedRectLayout = struct {
+        pos: ByteVec2 = .{},
+        size: ByteVec2 = .{},
+        radius: f32 = 0.0,
+    };
+
+    pub const AnimatedRoundedRectLayoutParams = struct {
+        base_pos: ByteVec2 = .{},
+        base_size: ByteVec2 = .{},
+        expand_size: ByteVec2 = .{},
+        anim: f32 = 0.0,
+        base_radius: f32 = 0.0,
+        radius_expand: f32 = 0.0,
+        anchor: ByteVec2 = .{ .x = 0.5, .y = 0.5 },
+    };
+
     pub fn CleanupTexture(texture: *ByteTextureID) void {
         releaseTexture(texture.*);
         texture.* = null;
@@ -1986,6 +2042,21 @@ pub const Ui = struct {
         return ByteGUI_ImplWin32_SnapPixel(value);
     }
 
+    pub fn CalcAnimatedRoundedRectLayout(params: AnimatedRoundedRectLayoutParams) RoundedRectLayout {
+        const size = ByteVec2{
+            .x = params.base_size.x + params.expand_size.x * params.anim,
+            .y = params.base_size.y + params.expand_size.y * params.anim,
+        };
+        return .{
+            .pos = .{
+                .x = params.base_pos.x - (size.x - params.base_size.x) * params.anchor.x,
+                .y = params.base_pos.y - (size.y - params.base_size.y) * params.anchor.y,
+            },
+            .size = .{ .x = @max(0.0, size.x), .y = @max(0.0, size.y) },
+            .radius = @max(0.0, params.base_radius + params.radius_expand * params.anim),
+        };
+    }
+
     pub fn MakeRectL(x: f32, y: f32, w: f32, h: f32) c.RECT {
         return .{
             .left = @intFromFloat(@floor(x)),
@@ -2009,17 +2080,21 @@ pub const Ui = struct {
     }
 
     pub fn PointInCornerOnlyRoundedRect(pt: c.POINT, pos: ByteVec2, size: ByteVec2, radius: f32) bool {
-        const left = SnapPixel(pos.x);
-        const top = SnapPixel(pos.y);
-        const right = SnapPixel(pos.x + size.x);
-        const bottom = SnapPixel(pos.y + size.y);
+        return PointInRoundedRectLayout(pt, .{ .pos = pos, .size = size, .radius = radius });
+    }
+
+    pub fn PointInRoundedRectLayout(pt: anytype, layout: RoundedRectLayout) bool {
+        const left = SnapPixel(layout.pos.x);
+        const top = SnapPixel(layout.pos.y);
+        const right = SnapPixel(layout.pos.x + layout.size.x);
+        const bottom = SnapPixel(layout.pos.y + layout.size.y);
         const width = @max(0.0, right - left);
         const height = @max(0.0, bottom - top);
         const px: f32 = @floatFromInt(pt.x);
         const py: f32 = @floatFromInt(pt.y);
         if (px < left or px >= right or py < top or py >= bottom) return false;
 
-        const r = @min(SnapPixel(radius), @min(width, height) * 0.5);
+        const r = @min(SnapPixel(layout.radius), @min(width, height) * 0.5);
         if (r <= 0.0) return true;
 
         if (px >= left + r and px < right - r) return true;
@@ -2165,6 +2240,33 @@ pub const Ui = struct {
         active_draw.AddRectFilled(.{ .x = left, .y = @max(top, bottom - line_thickness) }, .{ .x = right, .y = bottom }, col, 0.0);
         active_draw.AddRectFilled(.{ .x = left, .y = top }, .{ .x = @min(right, left + line_thickness), .y = bottom }, col, 0.0);
         active_draw.AddRectFilled(.{ .x = @max(left, right - line_thickness), .y = top }, .{ .x = right, .y = bottom }, col, 0.0);
+    }
+
+    pub fn DrawDebugRoundedOutlineBounds(draw: ?*ByteDrawList, p_min: ByteVec2, p_max: ByteVec2, radius: f32, color: ByteVec4, opacity: f32, thickness: f32) void {
+        const active_draw = draw orelse return;
+        const left = @floor(@min(p_min.x, p_max.x));
+        const top = @floor(@min(p_min.y, p_max.y));
+        const right = @ceil(@max(p_min.x, p_max.x));
+        const bottom = @ceil(@max(p_min.y, p_max.y));
+        if (right <= left or bottom <= top) return;
+
+        const size = ByteVec2{ .x = right - left, .y = bottom - top };
+        const rounded_radius = @min(@max(0.0, radius), @min(size.x, size.y) * 0.5);
+        if (rounded_radius <= 0.0) {
+            DrawDebugOutlineBounds(draw, p_min, p_max, color, opacity, thickness);
+            return;
+        }
+
+        const line_thickness = @max(1.0, thickness);
+        const col = ColorToU32(ApplyOpacity(color, opacity));
+        var points = ByteGUI.BuildRoundedRectPolygon(size, rounded_radius, line_thickness * 0.5, 8);
+        defer points.deinit(allocator);
+        if (points.items.len < 2) return;
+        for (points.items) |*point| {
+            point.x += left;
+            point.y += top;
+        }
+        active_draw.AddPolylineInternal(points.items, col, true, line_thickness);
     }
 
     pub fn DrawDebugRectOutline(draw: ?*ByteDrawList, rect: anytype, color: ByteVec4, opacity: f32, thickness: f32) void {

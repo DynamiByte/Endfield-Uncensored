@@ -1617,48 +1617,76 @@ fn getInfoRect() c.RECT {
 }
 
 fn getLaunchRect(expanded_hit: bool) c.RECT {
-    const anim = g_launch_anim.value;
-    const expand_w = (if (expanded_hit) scaleF(24.0) else scaleF(12.0)) * anim;
-    const expand_h = (if (expanded_hit) scaleF(8.0) else scaleF(4.0)) * anim;
-    const w = scaleF(LAUNCH_W) + expand_w;
-    const h = scaleF(LAUNCH_H) + expand_h;
-    const cx = scaleF(LAUNCH_X + LAUNCH_W * 0.5);
-    const cy = scaleF(LAUNCH_Y + LAUNCH_H * 0.5);
-    return makeRectL(cx - w * 0.5, cy - h * 0.5, w, h);
+    _ = expanded_hit;
+    const layout = boxButtonHitLayout(.launch);
+    return makeRectL(layout.pos.x, layout.pos.y, layout.size.x, layout.size.y);
+}
+
+fn boxButtonBaseRadius(kind: BoxButtonKind) f32 {
+    return if (kind == .launch or kind == .efmi) scaleF(8.0) else scaleF(5.0);
+}
+
+fn boxButtonRadiusExpand(kind: BoxButtonKind) f32 {
+    return if (kind == .launch or kind == .efmi) scaleF(4.0) else scaleF(2.0);
+}
+
+fn boxButtonExpandSize(kind: BoxButtonKind) ByteVec2 {
+    return switch (kind) {
+        .launch => .{ .x = scaleF(12.0), .y = scaleF(4.0) },
+        .toggle => .{ .x = scaleF(12.0), .y = scaleF(3.0) },
+        .efmi => .{ .x = 0.0, .y = scaleF(4.0) },
+    };
+}
+
+fn calcBoxButtonLayout(kind: BoxButtonKind, base_pos: ByteVec2, base_size: ByteVec2, anim: f32, anchor: ByteVec2) Ui.RoundedRectLayout {
+    return Ui.CalcAnimatedRoundedRectLayout(.{
+        .base_pos = base_pos,
+        .base_size = base_size,
+        .expand_size = boxButtonExpandSize(kind),
+        .anim = anim,
+        .base_radius = boxButtonBaseRadius(kind),
+        .radius_expand = boxButtonRadiusExpand(kind),
+        .anchor = anchor,
+    });
+}
+
+fn boxButtonHitLayout(kind: BoxButtonKind) Ui.RoundedRectLayout {
+    return switch (kind) {
+        .launch => calcBoxButtonLayout(.launch, scaleVec2(LAUNCH_X, LAUNCH_Y), scaleVec2(LAUNCH_W, LAUNCH_H), g_launch_anim.value, .{ .x = 0.5, .y = 0.5 }),
+        .toggle => calcBoxButtonLayout(.toggle, scaleVec2(TOGGLE_X, TOGGLE_Y + TOGGLE_Y_OFFSET), scaleVec2(TOGGLE_W, TOGGLE_H), g_toggle_anim.value, .{ .x = 0.5, .y = 0.5 }),
+        .efmi => calcBoxButtonLayout(.efmi, .{ .x = efmiVisualLeft(), .y = scaleF(EFMI_Y) }, .{ .x = efmiVisibleWidth(), .y = scaleF(EFMI_H) }, g_efmi_anim.value, .{ .x = 0.0, .y = 0.5 }),
+    };
+}
+
+fn boxButtonVisualLayout(kind: BoxButtonKind) Ui.RoundedRectLayout {
+    return switch (kind) {
+        .launch, .toggle => boxButtonHitLayout(kind),
+        .efmi => calcBoxButtonLayout(.efmi, .{ .x = efmiVisualLeft(), .y = scaleF(EFMI_Y) }, .{ .x = efmiVisibleWidth() + efmiUnderlapWidth(), .y = scaleF(EFMI_H) }, g_efmi_anim.value, .{ .x = 0.0, .y = 0.5 }),
+    };
+}
+
+fn pointInBoxButtonHit(kind: BoxButtonKind, pt: c.POINT) bool {
+    return Ui.PointInRoundedRectLayout(pt, boxButtonHitLayout(kind));
 }
 
 fn launchVisualLeftShift() f32 {
-    return scaleF(6.0) * g_launch_anim.value;
-}
-
-fn launchVisualLeft() f32 {
-    return scaleF(LAUNCH_X) - launchVisualLeftShift();
-}
-
-fn launchVisualHeight() f32 {
-    return scaleF(LAUNCH_H) + scaleF(4.0) * g_launch_anim.value;
+    return scaleF(LAUNCH_X) - boxButtonVisualLayout(.launch).pos.x;
 }
 
 fn launchVisualPos() ByteVec2 {
-    const h = launchVisualHeight();
-    const cy = scaleF(LAUNCH_Y + LAUNCH_H * 0.5);
-    return .{ .x = launchVisualLeft(), .y = cy - h * 0.5 };
+    return boxButtonVisualLayout(.launch).pos;
 }
 
 fn launchVisualSize() ByteVec2 {
-    return .{ .x = scaleF(LAUNCH_W) + scaleF(12.0) * g_launch_anim.value, .y = launchVisualHeight() };
+    return boxButtonVisualLayout(.launch).size;
 }
 
 fn launchVisualRounding() f32 {
-    return scaleF(8.0) + scaleF(4.0) * g_launch_anim.value;
+    return boxButtonVisualLayout(.launch).radius;
 }
 
 fn efmiVisibleWidth() f32 {
     return scaleF(EFMI_VISIBLE_W);
-}
-
-fn efmiLabelWidth() f32 {
-    return efmiVisibleWidth();
 }
 
 fn efmiUnderlapWidth() f32 {
@@ -1681,28 +1709,16 @@ fn efmiVisualLeft() f32 {
     return efmiBaseLeft() - launchVisualLeftShift();
 }
 
-fn efmiLabelLeft() f32 {
-    return efmiVisualLeft();
-}
-
 fn getToggleRect(expanded_hit: bool) c.RECT {
     _ = expanded_hit;
-    const anim = g_toggle_anim.value;
-    const expand_w = scaleF(12.0) * anim;
-    const expand_h = scaleF(3.0) * anim;
-    const w = scaleF(TOGGLE_W) + expand_w;
-    const h = scaleF(TOGGLE_H) + expand_h;
-    const cx = scaleF(TOGGLE_X + TOGGLE_W * 0.5);
-    const cy = scaleF(TOGGLE_Y + TOGGLE_H * 0.5 + TOGGLE_Y_OFFSET);
-    return makeRectL(cx - w * 0.5, cy - h * 0.5, w, h);
+    const layout = boxButtonHitLayout(.toggle);
+    return makeRectL(layout.pos.x, layout.pos.y, layout.size.x, layout.size.y);
 }
 
 fn getEfmiRect(expanded_hit: bool) c.RECT {
     _ = expanded_hit;
-    const anim = g_efmi_anim.value;
-    const h = scaleF(EFMI_H) + scaleF(4.0) * anim;
-    const cy = scaleF(EFMI_Y + EFMI_H * 0.5);
-    return makeRectL(efmiVisualLeft(), cy - h * 0.5, efmiVisibleWidth(), h);
+    const layout = boxButtonHitLayout(.efmi);
+    return makeRectL(layout.pos.x, layout.pos.y, layout.size.x, layout.size.y);
 }
 
 fn getWindowControlHitRects(min_hit: *bgc.RECT, close_hit: *bgc.RECT) void {
@@ -1735,18 +1751,24 @@ fn hitTestButton(pt: c.POINT) ButtonId {
 
     const info_hit = getInfoRect();
     const version_hit = getVersionRect();
-    const launch_hit = getLaunchRect(false);
-    const toggle_hit = getToggleRect(true);
-    const efmi_hit = getEfmiRect(true);
 
-    if (pointInRect(toggle_hit, pt)) return .toggle;
+    if (pointInBoxButtonHit(.toggle, pt)) return .toggle;
     if (pointInRect(close_hit, pt)) return .close;
     if (g_allow_minimize and pointInRect(min_hit, pt)) return .minimize;
     if (pointInRect(info_hit, pt)) return .info;
     if (pointInRect(version_hit, pt)) return .version;
-    if (pointInRect(launch_hit, pt) and g_launch_btn_enabled) return .launch;
-    if (efmiToggleEnabled() and pointInRect(efmi_hit, pt)) return .efmi;
+    if (g_launch_btn_enabled and pointInBoxButtonHit(.launch, pt)) return .launch;
+    if (efmiToggleEnabled() and pointInBoxButtonHit(.efmi, pt)) return .efmi;
     return .none;
+}
+
+fn pointInPressedButton(pt: c.POINT) bool {
+    return switch (g_pressed_button) {
+        .launch => pointInBoxButtonHit(.launch, pt),
+        .toggle => pointInBoxButtonHit(.toggle, pt),
+        .efmi => pointInBoxButtonHit(.efmi, pt),
+        else => c.PtInRect(&g_press_rect, pt) != c.FALSE,
+    };
 }
 
 fn outputTextRect() c.RECT {
@@ -2488,37 +2510,28 @@ fn drawAnimatedButtonLabelTexture(draw: ?*ByteDrawList, kind: BoxButtonKind, pos
 
 fn drawAnimatedBoxButtonVisual(kind: BoxButtonKind, base_pos: ByteVec2, base_size: ByteVec2, anim: f32, enabled: bool, base_color: ByteVec4, opacity: f32) void {
     _ = enabled;
-    const is_launch = kind == .launch;
     const is_efmi = kind == .efmi;
-    const is_launch_group = is_launch or is_efmi;
     const color = base_color;
-    const rounding = if (is_launch_group) scaleF(8.0) + scaleF(4.0) * anim else scaleF(5.0) + scaleF(2.0) * anim;
 
     const draw = ByteGUI.GetWindowDrawList() orelse return;
     const saved_flags = draw.Flags;
     draw.Flags |= bytegui.ByteDrawListFlags_AntiAliasedFill;
 
     if (is_efmi) {
-        const h = base_size.y + scaleF(4.0) * anim;
-        const y = base_pos.y + base_size.y * 0.5 - h * 0.5;
-        const visual_pos = ByteVec2{ .x = efmiVisualLeft(), .y = y };
-        const visual_size = ByteVec2{ .x = efmiVisibleWidth() + efmiUnderlapWidth(), .y = h };
-        ByteGUI.DebugAddBox(.visual, visual_pos, visual_size);
-        const label_pos = ByteVec2{ .x = efmiLabelLeft(), .y = y };
-        const label_size = ByteVec2{ .x = efmiLabelWidth(), .y = h };
-        Ui.DrawRoundedLeftEdgeShadowedRectFilled(draw, visual_pos, visual_size, rounding, color, darkerEfmiShadowColor(color), opacity, launchVisualPos(), launchVisualSize(), launchVisualRounding(), scaleF(EFMI_SHADOW_WIDTH), EFMI_SHADOW_STRENGTH);
+        const visual_layout = boxButtonVisualLayout(.efmi);
+        const label_layout = boxButtonHitLayout(.efmi);
+        ByteGUI.DebugAddRoundedRectLayout(.visual, visual_layout);
+        Ui.DrawRoundedLeftEdgeShadowedRectFilled(draw, visual_layout.pos, visual_layout.size, visual_layout.radius, color, darkerEfmiShadowColor(color), opacity, launchVisualPos(), launchVisualSize(), launchVisualRounding(), scaleF(EFMI_SHADOW_WIDTH), EFMI_SHADOW_STRENGTH);
         draw.Flags = saved_flags;
-        _ = drawAnimatedButtonLabelTexture(draw, kind, label_pos, label_size, anim, opacity);
+        _ = drawAnimatedButtonLabelTexture(draw, kind, label_layout.pos, label_layout.size, anim, opacity);
         return;
     }
 
-    const center = ByteVec2{ .x = base_pos.x + base_size.x * 0.5, .y = base_pos.y + base_size.y * 0.5 };
-    const size = ByteVec2{ .x = base_size.x + scaleF(12.0) * anim, .y = base_size.y + (if (is_launch_group) scaleF(4.0) else scaleF(3.0)) * anim };
-    const pos = ByteVec2{ .x = center.x - size.x * 0.5, .y = center.y - size.y * 0.5 };
-    ByteGUI.DebugAddBox(.visual, pos, size);
-    draw.AddRectFilled(pos, .{ .x = pos.x + size.x, .y = pos.y + size.y }, toU32(applyOpacity(color, opacity)), rounding);
+    const layout = calcBoxButtonLayout(kind, base_pos, base_size, anim, .{ .x = 0.5, .y = 0.5 });
+    ByteGUI.DebugAddRoundedRectLayout(.visual, layout);
+    draw.AddRectFilled(layout.pos, .{ .x = layout.pos.x + layout.size.x, .y = layout.pos.y + layout.size.y }, toU32(applyOpacity(color, opacity)), layout.radius);
     draw.Flags = saved_flags;
-    _ = drawAnimatedButtonLabelTexture(draw, kind, pos, size, anim, opacity);
+    _ = drawAnimatedButtonLabelTexture(draw, kind, layout.pos, layout.size, anim, opacity);
 }
 
 fn drawLogoVisual(draw: ?*ByteDrawList, opacity: f32) void {
@@ -2604,9 +2617,9 @@ fn registerGuiDebugHitBoxes() void {
     if (g_allow_minimize) ByteGUI.DebugAddRect(.hit, min_hit);
     ByteGUI.DebugAddRect(.hit, getInfoRect());
     ByteGUI.DebugAddRect(.hit, getVersionRect());
-    ByteGUI.DebugAddRect(.hit, getToggleRect(true));
-    if (g_launch_btn_enabled) ByteGUI.DebugAddRect(.hit, getLaunchRect(false));
-    if (g_efmi_button_visible and efmiToggleEnabled()) ByteGUI.DebugAddRect(.hit, getEfmiRect(true));
+    ByteGUI.DebugAddRoundedRectLayout(.hit, boxButtonHitLayout(.toggle));
+    if (g_launch_btn_enabled) ByteGUI.DebugAddRoundedRectLayout(.hit, boxButtonHitLayout(.launch));
+    if (g_efmi_button_visible and efmiToggleEnabled()) ByteGUI.DebugAddRoundedRectLayout(.hit, boxButtonHitLayout(.efmi));
 }
 fn drawOutputTextbox(draw: ?*ByteDrawList, opacity: f32, dt: f32) void {
     const active_draw = draw orelse return;
@@ -2957,7 +2970,7 @@ fn handleLButtonUp(l_param: c.LPARAM) c.LRESULT {
     if (g_press_captured) {
         _ = c.ReleaseCapture();
         const pt = c.POINT{ .x = lowWordSigned(l_param), .y = highWordSigned(l_param) };
-        if (!g_press_canceled and pointInRoundedRectClient(pt) and c.PtInRect(&g_press_rect, pt) != c.FALSE) onButtonActivated(g_pressed_button);
+        if (!g_press_canceled and pointInRoundedRectClient(pt) and pointInPressedButton(pt)) onButtonActivated(g_pressed_button);
         g_pressed_button = .none;
         g_press_captured = false;
         g_press_canceled = false;
