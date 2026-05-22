@@ -20,7 +20,7 @@ const VK_F12: c_int = 0x7B;
 const VK_LMENU: c_int = 0xA4;
 const VK_RMENU: c_int = 0xA5;
 const KEY_DOWN_MASK: u16 = 0x8000;
-const POLL_MS: DWORD = 25;
+const POLL: DWORD = 25;
 const JUMP_SIZE: usize = 12;
 const MAX_STOLEN_BYTES: usize = 32;
 
@@ -295,7 +295,7 @@ fn patchThread(_: ?*anyopaque) callconv(.winapi) DWORD {
 
     var was_combo_down = altDown() and keyDown(VK_F12);
     while (true) {
-        Sleep(POLL_MS);
+        Sleep(POLL);
         const combo_down = altDown() and keyDown(VK_F12);
         if (hotkeyWindowActive() and combo_down and !was_combo_down) {
             const enabled = @atomicLoad(bool, &g_enabled, .acquire);

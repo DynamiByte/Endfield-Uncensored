@@ -388,7 +388,7 @@ pub fn injectDll(pid: u32, dll_path: []const u8) InjectError!void {
     ) orelse return error.CreateRemoteThreadFailed;
     defer _ = c.CloseHandle(thread);
 
-    switch (c.WaitForSingleObject(thread, 5000)) {
+    switch (c.WaitForSingleObject(thread, 10_000)) {
         c.WAIT_OBJECT_0 => {},
         c.WAIT_TIMEOUT => return error.RemoteThreadWaitTimedOut,
         else => return error.RemoteThreadWaitFailed,

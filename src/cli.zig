@@ -9,8 +9,8 @@ const c = @import("win32.zig");
 const APP_TITLE = std.unicode.utf8ToUtf16LeStringLiteral(strings.app_title);
 const VERSION_STR = app_version.version_str;
 const CLI_CONSOLE_TITLE = std.unicode.utf8ToUtf16LeStringLiteral(strings.cli.console_title);
-const EFMI_WAIT_TIMEOUT_MS: u64 = 10_000;
-const GAME_WAIT_TIMEOUT_MS: u64 = 30_000;
+const GAME_SILENT_TIMEOUT: u64 = 10_000;
+const EFMI_SILENT_TIMEOUT: u64 = 15_000;
 const EFMI_DEFAULT_SUBPATH = "XXMI Launcher\\Resources\\Bin\\XXMI Launcher.exe";
 const EFMI_MISSING_PATH_MESSAGE = strings.cli.efmi_missing_path_cli_message;
 const EFMI_COMMAND_LINE_FMT = "\"{s}\" --nogui --xxmi EFMI";
@@ -402,8 +402,8 @@ pub fn launchEfmiLauncher(efmi_launcher_path: []const u8) loader.LaunchError!voi
     loader.closeProcessInformation(&process_info);
 }
 
-fn waitForTargetProcessTimeout(timeout_ms: u64) u32 {
-    const deadline = c.GetTickCount64() + timeout_ms;
+fn waitForTargetProcessTimeout(timeout: u64) u32 {
+    const deadline = c.GetTickCount64() + timeout;
     while (c.GetTickCount64() < deadline) {
         const pid = loader.findTargetProcess();
         if (pid != 0) return pid;
@@ -553,7 +553,7 @@ fn runSilentCli(allocator: std.mem.Allocator, environ: std.process.Environ, embe
         silentCliError(strings.cli.launch_failed_plain_fmt, .{loader.describeLaunchError(err)});
     };
 
-    const pid = waitForTargetProcessTimeout(GAME_WAIT_TIMEOUT_MS);
+    const pid = waitForTargetProcessTimeout(GAME_SILENT_TIMEOUT);
     if (pid == 0) silentCliError(strings.cli.game_launch_timeout, .{});
 
     c.Sleep(10);
@@ -587,7 +587,7 @@ fn runSilentEfmiCli(allocator: std.mem.Allocator, embedded_dll: []const u8, efmi
         silentCliError(strings.cli.efmi_launch_failed_fmt, .{describeEfmiLaunchError(err)});
     };
 
-    const pid = waitForTargetProcessTimeout(EFMI_WAIT_TIMEOUT_MS);
+    const pid = waitForTargetProcessTimeout(EFMI_SILENT_TIMEOUT);
     if (pid == 0) silentCliError(strings.cli.efmi_timeout, .{});
 
     c.Sleep(10);
@@ -632,7 +632,7 @@ fn runEfmiCli(allocator: std.mem.Allocator, embedded_dll: []const u8, efmi_launc
     }
 
     cliPrint(io, strings.cli.xxmi_found, .{});
-    cliPrint(io, strings.cli.location_fmt, .{efmi_launcher_path});
+    cliPrint(io, strings.cli.xxmi_path_fmt, .{efmi_launcher_path});
     if (!auto_yes) {
         cliPrint(io, strings.cli.efmi_launch_prompt, .{});
         if (!cliWaitForEfmiLaunchOrQuit(false)) return 0;
@@ -647,13 +647,10 @@ fn runEfmiCli(allocator: std.mem.Allocator, embedded_dll: []const u8, efmi_launc
     };
 
     cliPrint(io, strings.cli.waiting_for_target_fmt, .{loader.target_exe_name});
-    const pid = waitForTargetProcessTimeout(EFMI_WAIT_TIMEOUT_MS);
-    if (pid == 0) {
-        cliPrint(io, strings.cli.efmi_timeout_line, .{});
-        cliPrint(io, strings.cli.closing_in_5_seconds, .{});
-        c.Sleep(5000);
-        return 1;
-    }
+    const pid = switch (cliWaitForTargetProcessOrCommand(io, null, false)) {
+        .quit => return 0,
+        .process_found => |value| value,
+    };
 
     return try cliInjectFoundProcess(io, temp_dll_path, pid);
 }

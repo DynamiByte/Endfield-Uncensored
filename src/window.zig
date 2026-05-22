@@ -146,9 +146,9 @@ const EFMI_SHADOW_STRENGTH = 0.42;
 const EFMI_LABEL_LINE_SIZE = 14.0;
 
 const DRAG_THRESHOLD = 12;
-const PROCESS_POLL_MS: u64 = 175;
-const LAUNCH_COOLDOWN_MS: u64 = 3_000;
-const EFMI_LAUNCH_COOLDOWN_MS: u64 = 10_000;
+const PROCESS_POLL: u64 = 175;
+const LAUNCH_COOLDOWN: u64 = 3_000;
+const EFMI_LAUNCH_COOLDOWN: u64 = 10_000;
 const BUTTON_LABEL_HOVER_DELTA = 0.02;
 const BUTTON_LABEL_SUPERSAMPLE = 1.0;
 const BUTTON_LABEL_RENDER_SCALE = 1.25;
@@ -605,11 +605,11 @@ fn debugAutoscrollMode() bool {
 }
 
 fn startLaunchCooldown(mode: GameLaunchMode) void {
-    const cooldown_ms: u64 = switch (mode) {
-        .efmi => EFMI_LAUNCH_COOLDOWN_MS,
-        .normal, .dx11 => LAUNCH_COOLDOWN_MS,
+    const cooldown: u64 = switch (mode) {
+        .efmi => EFMI_LAUNCH_COOLDOWN,
+        .normal, .dx11 => LAUNCH_COOLDOWN,
     };
-    g_launch_cooldown_until_tick = c.GetTickCount64() + cooldown_ms;
+    g_launch_cooldown_until_tick = c.GetTickCount64() + cooldown;
     updateLaunchButtonState();
 }
 
@@ -946,7 +946,7 @@ fn loaderWorkerMain(startup_target_pid: u32) void {
         if (should_stop) break;
 
         loaderWorkerTick(&state);
-        c.Sleep(@intCast(PROCESS_POLL_MS));
+        c.Sleep(@intCast(PROCESS_POLL));
     }
 }
 
