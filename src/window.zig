@@ -2735,6 +2735,11 @@ fn maybeRestoreAfterExit() void {
         bringWindowToFront();
     }
     appendStatus(strings.status_ready_for_injection_again, .{});
+    if (g_game_exe_path != null) {
+        appendStatus(strings.status_launch_here_or_external, .{});
+    } else {
+        appendStatus(strings.status_launch_externally, .{});
+    }
     g_minimized_by_toggle = false;
     g_stayed_open_by_toggle = false;
 }
