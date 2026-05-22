@@ -240,9 +240,36 @@ else
 
 const LoaderWorkerState = struct {
     tracked_pid: u32 = 0,
+    tracked_handle: ?c.HANDLE = null,
     last_failed_pid: u32 = 0,
     tracked_mode: TrackedProcessMode = .none,
     temp_dll_path: ?[]u8 = null,
+
+    fn closeTrackedHandle(self: *LoaderWorkerState) void {
+        if (self.tracked_handle) |handle| {
+            _ = c.CloseHandle(handle);
+            self.tracked_handle = null;
+        }
+    }
+
+    fn setTrackedProcess(self: *LoaderWorkerState, pid: u32, handle: c.HANDLE, mode: TrackedProcessMode) void {
+        self.closeTrackedHandle();
+        self.tracked_pid = pid;
+        self.tracked_handle = handle;
+        self.tracked_mode = mode;
+    }
+
+    fn trackProcess(self: *LoaderWorkerState, pid: u32, mode: TrackedProcessMode) bool {
+        const handle = c.OpenProcess(c.SYNCHRONIZE, c.FALSE, pid) orelse return false;
+        self.setTrackedProcess(pid, handle, mode);
+        return true;
+    }
+
+    fn clearTracking(self: *LoaderWorkerState) void {
+        self.closeTrackedHandle();
+        self.tracked_pid = 0;
+        self.tracked_mode = .none;
+    }
 
     fn cleanupTempDll(self: *LoaderWorkerState) void {
         if (self.temp_dll_path) |path| {
@@ -253,6 +280,7 @@ const LoaderWorkerState = struct {
     }
 
     fn deinit(self: *LoaderWorkerState) void {
+        self.clearTracking();
         self.cleanupTempDll();
         self.* = .{};
     }
@@ -870,17 +898,26 @@ fn ensureWorkerTempDll(state: *LoaderWorkerState) ![]const u8 {
     return path;
 }
 
+fn failLoaderInjection(state: *LoaderWorkerState, pid: u32, err: loader.InjectError) void {
+    queueLoaderReplaceLastStatus(strings.status_injection_failed_fmt, .{loader.describeInjectError(err)});
+    if (loader.injectErrorSuggestsElevation(err)) {
+        queueLoaderStatus(strings.status_try_run_admin, .{});
+    }
+    state.last_failed_pid = pid;
+}
+
 fn loaderWorkerTick(state: *LoaderWorkerState) void {
     if (state.tracked_pid != 0) {
-        if (!loader.isProcessAlive(state.tracked_pid)) {
+        const wait_result = if (state.tracked_handle) |handle| c.WaitForSingleObject(handle, 0) else c.WAIT_FAILED;
+        if (wait_result != c.WAIT_TIMEOUT) {
+            const tracked_mode = state.tracked_mode;
+            state.clearTracking();
             state.cleanupTempDll();
-            if (state.tracked_mode == .startup_blocked) {
+            if (tracked_mode == .startup_blocked) {
                 queueLoaderEvent(.{ .clear_status = {} });
             }
             queueLoaderStatus(strings.status_game_process_closed, .{});
-            state.tracked_pid = 0;
             state.last_failed_pid = 0;
-            state.tracked_mode = .none;
             setLoaderTargetRunning(false);
             queueLoaderEvent(.{ .process_closed = {} });
         } else {
@@ -911,32 +948,33 @@ fn loaderWorkerTick(state: *LoaderWorkerState) void {
     };
 
     queueLoaderStatus(strings.status_injecting_mod, .{});
+    const tracking_handle = c.OpenProcess(c.SYNCHRONIZE, c.FALSE, pid) orelse {
+        const err: loader.InjectError = error.OpenProcessFailed;
+        failLoaderInjection(state, pid, err);
+        return;
+    };
     if (loader.injectDll(pid, temp_path)) |_| {
+        state.setTrackedProcess(pid, tracking_handle, .injected);
         queueLoaderReplaceLastStatus(strings.status_injected_success, .{});
-        state.tracked_pid = pid;
         state.last_failed_pid = 0;
-        state.tracked_mode = .injected;
         switch (loaderPostInjectBehavior()) {
             .close => queueLoaderEvent(.{ .close_after_inject = {} }),
             .minimize => queueLoaderEvent(.{ .minimize_after_inject = {} }),
             .stay_open => queueLoaderEvent(.{ .stay_open_after_inject = {} }),
         }
     } else |err| {
-        queueLoaderReplaceLastStatus(strings.status_injection_failed_fmt, .{loader.describeInjectError(err)});
-        if (loader.injectErrorSuggestsElevation(err)) {
-            queueLoaderStatus(strings.status_try_run_admin, .{});
-        }
-        state.last_failed_pid = pid;
+        _ = c.CloseHandle(tracking_handle);
+        failLoaderInjection(state, pid, err);
     }
 }
 
 fn loaderWorkerMain(startup_target_pid: u32) void {
     var state = LoaderWorkerState{};
     defer state.deinit();
-    if (startup_target_pid != 0 and loader.isProcessAlive(startup_target_pid)) {
-        state.tracked_pid = startup_target_pid;
-        state.tracked_mode = .startup_blocked;
-        setLoaderTargetRunning(true);
+    if (startup_target_pid != 0) {
+        if (state.trackProcess(startup_target_pid, .startup_blocked)) {
+            setLoaderTargetRunning(true);
+        }
     }
 
     while (true) {
