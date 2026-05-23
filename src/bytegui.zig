@@ -4844,35 +4844,35 @@ fn textSelectionApplyCornerMorph(rounding: *[4]f32, corner_index: usize, coverag
     rounding[corner_index] = @min(rounding[corner_index], 1.0 - t);
 }
 
-fn textSelectionCornerRoundFromCurrentGeometry(rects: []const TextSelectionHighlightRect, index: usize, radius: f32) [4]f32 {
+fn textSelectionCornerRoundFromTargetGeometry(rects: []const TextSelectionHighlightRect, index: usize, radius: f32) [4]f32 {
     var rounding = [_]f32{ 1.0, 1.0, 1.0, 1.0 };
     const rect = rects[index];
-    if (@max(rect.alpha, rect.target_alpha) <= 0.01) return rounding;
+    if (rect.target_alpha <= 0.01) return rounding;
 
     const epsilon: f32 = 0.75;
     const span = @max(radius, 1.0);
     for (rects, 0..) |other, other_index| {
-        if (other_index == index or @max(other.alpha, other.target_alpha) <= 0.01) continue;
-        if (other.current_max.x <= other.current_min.x or other.current_max.y <= other.current_min.y) continue;
+        if (other_index == index or other.target_alpha <= 0.01) continue;
+        if (other.target_max.x <= other.target_min.x or other.target_max.y <= other.target_min.y) continue;
 
-        if (@abs(other.current_max.y - rect.current_min.y) <= epsilon) {
-            textSelectionApplyCornerMorph(&rounding, 0, textSelectionEdgeCoverageFromStart(rect.current_min.x, other.current_min.x, other.current_max.x, span, epsilon), span);
-            textSelectionApplyCornerMorph(&rounding, 1, textSelectionEdgeCoverageFromEnd(rect.current_max.x, other.current_min.x, other.current_max.x, span, epsilon), span);
+        if (@abs(other.target_max.y - rect.target_min.y) <= epsilon) {
+            textSelectionApplyCornerMorph(&rounding, 0, textSelectionEdgeCoverageFromStart(rect.target_min.x, other.target_min.x, other.target_max.x, span, epsilon), span);
+            textSelectionApplyCornerMorph(&rounding, 1, textSelectionEdgeCoverageFromEnd(rect.target_max.x, other.target_min.x, other.target_max.x, span, epsilon), span);
         }
 
-        if (@abs(other.current_min.y - rect.current_max.y) <= epsilon) {
-            textSelectionApplyCornerMorph(&rounding, 3, textSelectionEdgeCoverageFromStart(rect.current_min.x, other.current_min.x, other.current_max.x, span, epsilon), span);
-            textSelectionApplyCornerMorph(&rounding, 2, textSelectionEdgeCoverageFromEnd(rect.current_max.x, other.current_min.x, other.current_max.x, span, epsilon), span);
+        if (@abs(other.target_min.y - rect.target_max.y) <= epsilon) {
+            textSelectionApplyCornerMorph(&rounding, 3, textSelectionEdgeCoverageFromStart(rect.target_min.x, other.target_min.x, other.target_max.x, span, epsilon), span);
+            textSelectionApplyCornerMorph(&rounding, 2, textSelectionEdgeCoverageFromEnd(rect.target_max.x, other.target_min.x, other.target_max.x, span, epsilon), span);
         }
 
-        if (@abs(other.current_max.x - rect.current_min.x) <= epsilon) {
-            textSelectionApplyCornerMorph(&rounding, 0, textSelectionEdgeCoverageFromStart(rect.current_min.y, other.current_min.y, other.current_max.y, span, epsilon), span);
-            textSelectionApplyCornerMorph(&rounding, 3, textSelectionEdgeCoverageFromEnd(rect.current_max.y, other.current_min.y, other.current_max.y, span, epsilon), span);
+        if (@abs(other.target_max.x - rect.target_min.x) <= epsilon) {
+            textSelectionApplyCornerMorph(&rounding, 0, textSelectionEdgeCoverageFromStart(rect.target_min.y, other.target_min.y, other.target_max.y, span, epsilon), span);
+            textSelectionApplyCornerMorph(&rounding, 3, textSelectionEdgeCoverageFromEnd(rect.target_max.y, other.target_min.y, other.target_max.y, span, epsilon), span);
         }
 
-        if (@abs(other.current_min.x - rect.current_max.x) <= epsilon) {
-            textSelectionApplyCornerMorph(&rounding, 1, textSelectionEdgeCoverageFromStart(rect.current_min.y, other.current_min.y, other.current_max.y, span, epsilon), span);
-            textSelectionApplyCornerMorph(&rounding, 2, textSelectionEdgeCoverageFromEnd(rect.current_max.y, other.current_min.y, other.current_max.y, span, epsilon), span);
+        if (@abs(other.target_min.x - rect.target_max.x) <= epsilon) {
+            textSelectionApplyCornerMorph(&rounding, 1, textSelectionEdgeCoverageFromStart(rect.target_min.y, other.target_min.y, other.target_max.y, span, epsilon), span);
+            textSelectionApplyCornerMorph(&rounding, 2, textSelectionEdgeCoverageFromEnd(rect.target_max.y, other.target_min.y, other.target_max.y, span, epsilon), span);
         }
     }
     return rounding;
@@ -5000,7 +5000,7 @@ fn syncTextSelectionHighlightState(state: *TextSelectionHighlightState, selectio
 
     i = 0;
     while (i < state.rects.items.len) : (i += 1) {
-        const corner_target = textSelectionCornerRoundFromCurrentGeometry(state.rects.items, i, corner_radius);
+        const corner_target = textSelectionCornerRoundFromTargetGeometry(state.rects.items, i, corner_radius);
         var rect = &state.rects.items[i];
         rect.target_corner_round = corner_target;
         for (0..4) |corner_index| {
@@ -5294,6 +5294,157 @@ fn drawTextSelectionRectWithoutAlphaOverlap(draw: *ByteDrawList, covered: *std.A
     }
 }
 
+fn textSelectionRoundedCurrentRect(rect: TextSelectionHighlightRect) TextSelectionHighlightRect {
+    var out = rect;
+    out.current_min.x = roundToNearestPixel(out.current_min.x);
+    out.current_min.y = roundToNearestPixel(out.current_min.y);
+    out.current_max.x = roundToNearestPixel(out.current_max.x);
+    out.current_max.y = roundToNearestPixel(out.current_max.y);
+    return out;
+}
+
+fn textSelectionVisibleRect(rect: TextSelectionHighlightRect) bool {
+    return @max(rect.alpha, rect.target_alpha) > 0.01 and rect.current_max.x > rect.current_min.x and rect.current_max.y > rect.current_min.y;
+}
+
+fn textSelectionOverlapSpan(a0: f32, a1: f32, b0: f32, b1: f32) f32 {
+    return @max(0.0, @min(a1, b1) - @max(a0, b0));
+}
+
+fn textSelectionInnerCurveRadius(base_radius: f32, step: f32, height_a: f32, height_b: f32, t: f32) f32 {
+    const max_radius = @max(0.0, @min(step, @min(height_a, height_b)));
+    return @min(max_radius, base_radius * std.math.clamp(t, 0.0, 1.0));
+}
+
+fn drawTextSelectionInnerCornerFill(draw: *ByteDrawList, corner: ByteVec2, dir_x: f32, dir_y: f32, radius: f32, col: ByteU32) void {
+    if ((col & BYTEGUI_COL32_A_MASK) == 0 or radius <= 0.05) return;
+
+    const center = ByteVec2{ .x = corner.x + dir_x * radius, .y = corner.y + dir_y * radius };
+    const start_angle = if (dir_y > 0.0) -0.5 * kPi else 0.5 * kPi;
+    const end_angle = start_angle - dir_x * dir_y * 0.5 * kPi;
+    const segments = @max(@as(i32, 6), @divTrunc(calcCircleSegmentCount(radius), 4));
+
+    var arc: ByteVec2List = .empty;
+    defer arc.deinit(allocator);
+    appendArc(&arc, center, radius, start_angle, end_angle, segments);
+    if (arc.items.len < 2) return;
+
+    const uv = ByteVec2{ .x = 0.5, .y = 0.5 };
+    const idx_start = draw.IdxBuffer.items.len;
+    const base_idx: ByteDrawIdx = @intCast(draw.VtxBuffer.items.len);
+    draw.addVertex(corner, uv, col) catch return;
+    for (arc.items) |point| draw.addVertex(point, uv, col) catch return;
+
+    var i: usize = 1;
+    while (i < arc.items.len) : (i += 1) {
+        draw.addTriangleIndices(base_idx, base_idx + @as(ByteDrawIdx, @intCast(i)), base_idx + @as(ByteDrawIdx, @intCast(i + 1))) catch return;
+    }
+
+    draw.addPrimitive(draw.WhiteTexture, @intCast(draw.IdxBuffer.items.len - idx_start)) catch return;
+}
+
+fn drawTextSelectionInnerCornerAAFringe(draw: *ByteDrawList, corner: ByteVec2, dir_x: f32, dir_y: f32, radius: f32, col: ByteU32) void {
+    if ((col & BYTEGUI_COL32_A_MASK) == 0 or radius <= 1.0) return;
+
+    const aa_width: f32 = 1.15;
+    const inner_radius = @max(0.0, radius - aa_width);
+    const outer_radius = @max(inner_radius, radius - 0.02);
+    if (outer_radius <= inner_radius) return;
+
+    const center = ByteVec2{ .x = corner.x + dir_x * radius, .y = corner.y + dir_y * radius };
+    const start_angle = if (dir_y > 0.0) -0.5 * kPi else 0.5 * kPi;
+    const end_angle = start_angle - dir_x * dir_y * 0.5 * kPi;
+    const segments = @max(@as(i32, 6), @divTrunc(calcCircleSegmentCount(radius), 4));
+    const edge_col = textSelectionColorWithAlphaScale(col, 0.58);
+    const transparent = col & ~BYTEGUI_COL32_A_MASK;
+    const uv = ByteVec2{ .x = 0.5, .y = 0.5 };
+    const idx_start = draw.IdxBuffer.items.len;
+    const base_idx: ByteDrawIdx = @intCast(draw.VtxBuffer.items.len);
+
+    var i: i32 = 0;
+    while (i <= segments) : (i += 1) {
+        const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(segments));
+        const a = start_angle + (end_angle - start_angle) * t;
+        const dir = ByteVec2{ .x = @cos(a), .y = @sin(a) };
+        draw.addVertex(.{ .x = center.x + dir.x * inner_radius, .y = center.y + dir.y * inner_radius }, uv, transparent) catch return;
+        draw.addVertex(.{ .x = center.x + dir.x * outer_radius, .y = center.y + dir.y * outer_radius }, uv, edge_col) catch return;
+    }
+
+    i = 0;
+    while (i < segments) : (i += 1) {
+        const inner0 = base_idx + @as(ByteDrawIdx, @intCast(i * 2));
+        const outer0 = inner0 + 1;
+        const inner1 = base_idx + @as(ByteDrawIdx, @intCast((i + 1) * 2));
+        const outer1 = inner1 + 1;
+        draw.addTriangleIndices(inner0, inner1, outer0) catch return;
+        draw.addTriangleIndices(outer0, inner1, outer1) catch return;
+    }
+
+    draw.addPrimitive(draw.WhiteTexture, @intCast(draw.IdxBuffer.items.len - idx_start)) catch return;
+}
+
+fn drawTextSelectionInnerCorner(draw: *ByteDrawList, corner: ByteVec2, dir_x: f32, dir_y: f32, radius: f32, col: ByteU32) void {
+    drawTextSelectionInnerCornerFill(draw, corner, dir_x, dir_y, radius, col);
+    drawTextSelectionInnerCornerAAFringe(draw, corner, dir_x, dir_y, radius, col);
+}
+
+fn drawTextSelectionInnerCurve(draw: *ByteDrawList, params: TextSelectionHighlightParams, above: TextSelectionHighlightRect, below: TextSelectionHighlightRect, corner_index: usize, corner: ByteVec2, dir_x: f32, dir_y: f32, step: f32) void {
+    const curve_t = 1.0 - std.math.clamp(if (dir_y > 0.0) below.corner_round[corner_index] else above.corner_round[corner_index], 0.0, 1.0);
+    if (curve_t <= 0.01) return;
+
+    const radius = textSelectionInnerCurveRadius(
+        textSelectionEffectiveRadius(params.radius),
+        step,
+        above.current_max.y - above.current_min.y,
+        below.current_max.y - below.current_min.y,
+        curve_t,
+    );
+    if (radius <= 0.05) return;
+
+    const alpha = @min(std.math.clamp(above.alpha, 0.0, 1.0), std.math.clamp(below.alpha, 0.0, 1.0));
+    if (alpha <= 0.01) return;
+
+    const col = Ui.ColorToU32(Ui.ApplyOpacity(params.color, params.opacity * alpha));
+    drawTextSelectionInnerCorner(draw, corner, dir_x, dir_y, radius, col);
+}
+
+fn drawTextSelectionInnerCurvesBetween(draw: *ByteDrawList, params: TextSelectionHighlightParams, above: TextSelectionHighlightRect, below: TextSelectionHighlightRect) void {
+    const epsilon: f32 = 0.75;
+    if (@abs(above.current_max.y - below.current_min.y) > epsilon) return;
+    if (textSelectionOverlapSpan(above.current_min.x, above.current_max.x, below.current_min.x, below.current_max.x) <= epsilon) return;
+
+    if (above.current_max.x > below.current_max.x + epsilon and below.current_max.x > above.current_min.x + epsilon) {
+        drawTextSelectionInnerCurve(draw, params, above, below, 1, .{ .x = below.current_max.x, .y = below.current_min.y }, 1.0, 1.0, above.current_max.x - below.current_max.x);
+    }
+    if (above.current_min.x < below.current_min.x - epsilon and below.current_min.x < above.current_max.x - epsilon) {
+        drawTextSelectionInnerCurve(draw, params, above, below, 0, .{ .x = below.current_min.x, .y = below.current_min.y }, -1.0, 1.0, below.current_min.x - above.current_min.x);
+    }
+    if (below.current_max.x > above.current_max.x + epsilon and above.current_max.x > below.current_min.x + epsilon) {
+        drawTextSelectionInnerCurve(draw, params, above, below, 2, .{ .x = above.current_max.x, .y = above.current_max.y }, 1.0, -1.0, below.current_max.x - above.current_max.x);
+    }
+    if (below.current_min.x < above.current_min.x - epsilon and above.current_min.x < below.current_max.x - epsilon) {
+        drawTextSelectionInnerCurve(draw, params, above, below, 3, .{ .x = above.current_min.x, .y = above.current_max.y }, -1.0, -1.0, above.current_min.x - below.current_min.x);
+    }
+}
+
+fn drawTextSelectionInnerCurves(draw: *ByteDrawList, state: *const TextSelectionHighlightState, params: TextSelectionHighlightParams) void {
+    for (state.rects.items, 0..) |rect_a_raw, i| {
+        const rect_a = textSelectionRoundedCurrentRect(rect_a_raw);
+        if (!textSelectionVisibleRect(rect_a)) continue;
+
+        for (state.rects.items[i + 1 ..]) |rect_b_raw| {
+            const rect_b = textSelectionRoundedCurrentRect(rect_b_raw);
+            if (!textSelectionVisibleRect(rect_b)) continue;
+
+            if (rect_a.current_min.y <= rect_b.current_min.y) {
+                drawTextSelectionInnerCurvesBetween(draw, params, rect_a, rect_b);
+            } else {
+                drawTextSelectionInnerCurvesBetween(draw, params, rect_b, rect_a);
+            }
+        }
+    }
+}
+
 fn drawOneAnimatedTextSelectionRect(draw: *ByteDrawList, covered: *std.ArrayListUnmanaged(TextSelectionClipRect), params: TextSelectionHighlightParams, rect: TextSelectionHighlightRect) void {
     if (rect.alpha <= 0.01) return;
 
@@ -5338,6 +5489,7 @@ fn drawAnimatedTextSelectionRects(draw: *ByteDrawList, state: *const TextSelecti
         if (rect.matched) continue;
         drawOneAnimatedTextSelectionRect(draw, &covered, params, rect);
     }
+    drawTextSelectionInnerCurves(draw, state, params);
 }
 
 fn drawTextSelectionHighlight(draw: ?*ByteDrawList, state: *TextSelectionHighlightState, params: TextSelectionHighlightParams) void {
