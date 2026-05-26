@@ -5,12 +5,13 @@ const app = @import("build.efu.zon");
 const strings = @import("src/strings.zig");
 
 const parsed_version = parseAppVersion(app.version);
-const version_str = std.fmt.comptimePrint("v{d}.{d}.{d}.{d}", .{
+const version_str = std.fmt.comptimePrint("{d}.{d}.{d}.{d}", .{
     parsed_version[0],
     parsed_version[1],
     parsed_version[2],
     parsed_version[3],
 });
+const product_version_str = "v" ++ version_str;
 const file_version_rc = std.fmt.comptimePrint("{d},{d},{d},{d}", .{
     parsed_version[0],
     parsed_version[1],
@@ -147,7 +148,7 @@ fn addSubsetFont(
 }
 
 fn linkLoaderLibraries(module: *std.Build.Module) void {
-    inline for ([_][]const u8{ "user32", "gdi32", "opengl32", "glu32", "shell32", "dwmapi" }) |library_name| {
+    inline for ([_][]const u8{ "user32", "gdi32", "opengl32", "glu32", "shell32", "dwmapi", "ws2_32" }) |library_name| {
         module.linkSystemLibrary(library_name, .{});
     }
 }
@@ -255,10 +256,12 @@ fn addGeneratedVersionModule(
 fn addGeneratedVersionHeader(b: *std.Build, generated_files: anytype) void {
     _ = generated_files.add("version_generated.h", b.fmt(
         \\#define VERSION_STR "{s}"
+        \\#define PRODUCT_VERSION_STR "{s}"
         \\#define VERSION_FILEVERSION {s}
         \\
     , .{
         version_str,
+        product_version_str,
         file_version_rc,
     }));
 }
@@ -333,7 +336,7 @@ fn addGeneratedVersionResource(
         \\            VALUE "LegalCopyright",   "{s}\0"
         \\            VALUE "OriginalFilename", "{s}\0"
         \\            VALUE "ProductName",      "{s}\0"
-        \\            VALUE "ProductVersion",   VERSION_STR "\0"
+        \\            VALUE "ProductVersion",   PRODUCT_VERSION_STR "\0"
         \\            VALUE "Comments",         "{s}\0"
         \\        END
         \\    END

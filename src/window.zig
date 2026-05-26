@@ -6,6 +6,7 @@ const cli = @import("cli.zig");
 const loader = @import("loader.zig");
 const app_version = @import("version");
 const strings = @import("strings.zig");
+const update_checker = @import("update.zig");
 pub const c = @import("win32.zig");
 
 const allocator = std.heap.c_allocator;
@@ -152,6 +153,8 @@ const EFMI_LAUNCH_COOLDOWN: u64 = 10_000;
 const BUTTON_LABEL_HOVER_DELTA = 0.02;
 const BUTTON_LABEL_SUPERSAMPLE = 1.0;
 const BUTTON_LABEL_RENDER_SCALE = 1.25;
+const CONTROL_COLOR_ANIM_DURATION = 0.18;
+const CONTROL_COLOR_ANIM_MIN_DURATION = 0.075;
 const IDC_ARROW_ID: u16 = 32512;
 const IDC_IBEAM_ID: u16 = 32513;
 const IDC_HAND_ID: u16 = 32649;
@@ -237,6 +240,12 @@ else
         pub fn lock(_: *@This()) void {}
         pub fn unlock(_: *@This()) void {}
     };
+
+const UpdateCheckResult = struct {
+    ready: bool = false,
+    available: bool = false,
+    version: update_checker.VersionNumber = .{},
+};
 
 const LoaderWorkerState = struct {
     tracked_pid: u32 = 0,
@@ -398,8 +407,10 @@ var g_launch_cooldown_until_tick: u64 = 0;
 var g_version_display_buf: [64]u8 = undefined;
 var g_version_display: []const u8 = VERSION_STR;
 var g_loader_thread: ?std.Thread = null;
+var g_update_check_thread: ?std.Thread = null;
 var g_loader_control_mutex: ThreadMutex = .{};
 var g_loader_events_mutex: ThreadMutex = .{};
+var g_update_check_mutex: ThreadMutex = .{};
 var g_loader_should_stop = false;
 var g_loader_minimize_on_launch = false;
 var g_loader_allow_minimize = true;
@@ -407,6 +418,10 @@ var g_loader_target_running = false;
 var g_force_dx11 = false;
 var g_loader_pending_launch_mode: ?GameLaunchMode = null;
 var g_loader_events: std.ArrayListUnmanaged(LoaderUiEvent) = .empty;
+var g_update_check_result: UpdateCheckResult = .{};
+var g_update_available = false;
+var g_update_version: update_checker.VersionNumber = .{};
+var g_update_flash_seconds: f32 = 0.0;
 
 var g_hovered_button: ButtonId = .none;
 var g_pressed_button: ButtonId = .none;
@@ -486,6 +501,52 @@ fn lowWordU(value: c.LPARAM) u16 {
 fn highWordU(value: c.LPARAM) u16 {
     const bits: usize = @bitCast(value);
     return @truncate((bits >> 16) & 0xFFFF);
+}
+
+fn updateCheckWorkerMain() void {
+    var result = UpdateCheckResult{ .ready = true };
+    if (update_checker.latestAvailable()) |latest| {
+        result.available = true;
+        result.version = latest;
+    }
+
+    g_update_check_mutex.lock();
+    g_update_check_result = result;
+    g_update_check_mutex.unlock();
+}
+
+fn startUpdateCheckWorker() void {
+    g_update_check_mutex.lock();
+    g_update_check_result = .{};
+    g_update_check_mutex.unlock();
+    g_update_check_thread = std.Thread.spawn(.{}, updateCheckWorkerMain, .{}) catch null;
+}
+
+fn stopUpdateCheckWorker() void {
+    if (g_update_check_thread) |thread| {
+        thread.join();
+        g_update_check_thread = null;
+    }
+}
+
+fn takeUpdateCheckResult() ?UpdateCheckResult {
+    g_update_check_mutex.lock();
+    defer g_update_check_mutex.unlock();
+
+    if (!g_update_check_result.ready) return null;
+    const result = g_update_check_result;
+    g_update_check_result = .{};
+    return result;
+}
+
+fn setUpdateAvailable(version: update_checker.VersionNumber) void {
+    g_update_available = true;
+    g_update_version = version;
+}
+
+fn drainUpdateCheckResult() void {
+    const result = takeUpdateCheckResult() orelse return;
+    if (result.available) setUpdateAvailable(result.version);
 }
 
 fn darkerEfmiShadowColor(color: ByteVec4) ByteVec4 {
@@ -1342,11 +1403,40 @@ fn controlButtonColorIndex(id: ButtonId) ?usize {
 
 fn startButtonColorAnim(id: ButtonId, target: ByteVec4) void {
     const anim = &g_button_colors[controlButtonColorIndex(id) orelse return];
-    anim.start = anim.current;
+    startButtonColorAnimFrom(id, anim.current, target);
+}
+
+fn colorDistance(a: ByteVec4, b: ByteVec4) f32 {
+    return @max(@max(@abs(a.x - b.x), @abs(a.y - b.y)), @abs(a.z - b.z));
+}
+
+fn startButtonColorAnimFrom(id: ButtonId, from: ByteVec4, target: ByteVec4) void {
+    const anim = &g_button_colors[controlButtonColorIndex(id) orelse return];
+    const distance = colorDistance(from, target);
+    if (distance < 0.0001) {
+        anim.current = target;
+        anim.start = target;
+        anim.target = target;
+        anim.elapsed = 0.0;
+        anim.duration = 0.0;
+        anim.animating = false;
+        return;
+    }
+
+    const full_distance = @max(colorDistance(kControlIdleColor, target), 0.0001);
+    anim.current = from;
+    anim.start = from;
     anim.target = target;
     anim.elapsed = 0.0;
-    anim.duration = 0.12;
+    anim.duration = @max(CONTROL_COLOR_ANIM_MIN_DURATION, CONTROL_COLOR_ANIM_DURATION * std.math.clamp(distance / full_distance, 0.0, 1.0));
     anim.animating = true;
+}
+
+fn infoButtonColor() ByteVec4 {
+    const color = g_button_colors[3].current;
+    if (!g_update_available or g_hovered_button == .info) return color;
+    const wave = (std.math.sin(g_update_flash_seconds * std.math.tau) + 1.0) * 0.5;
+    return lerpColor(color, kControlHoverBlue, easeInOutCubic(wave));
 }
 
 fn initLayeredWindowOpacity() bool {
@@ -1476,6 +1566,12 @@ fn startWindowAnimation(typ: WindowAnimType) void {
 }
 
 fn updateAnimations(dt: f32) void {
+    if (g_update_available) {
+        g_update_flash_seconds += dt * 0.40;
+    } else {
+        g_update_flash_seconds = 0.0;
+    }
+
     var i: usize = 1;
     while (i <= 4) : (i += 1) {
         const anim = &g_button_colors[i];
@@ -2372,14 +2468,22 @@ fn applyHoveredButton(next_hover: ButtonId) void {
     const prev_hover = g_hovered_button;
     if (prev_hover == next_hover) return;
 
+    const info_visual = infoButtonColor();
     g_hovered_button = next_hover;
-    if (controlButtonColorIndex(prev_hover) != null) startButtonColorAnim(prev_hover, kControlIdleColor);
+    if (prev_hover == .info) {
+        startButtonColorAnimFrom(.info, info_visual, kControlIdleColor);
+    } else if (controlButtonColorIndex(prev_hover) != null) {
+        startButtonColorAnim(prev_hover, kControlIdleColor);
+    }
+
     if (g_hovered_button == .close) {
         startButtonColorAnim(.close, .{ .x = 1.0, .y = 127.0 / 255.0, .z = 80.0 / 255.0, .w = 1.0 });
     } else if (g_hovered_button == .minimize) {
         startButtonColorAnim(.minimize, .{ .x = 218.0 / 255.0, .y = 165.0 / 255.0, .z = 32.0 / 255.0, .w = 1.0 });
-    } else if (g_hovered_button == .info or g_hovered_button == .version) {
-        startButtonColorAnim(g_hovered_button, kControlHoverBlue);
+    } else if (g_hovered_button == .info) {
+        startButtonColorAnimFrom(.info, info_visual, kControlHoverBlue);
+    } else if (g_hovered_button == .version) {
+        startButtonColorAnim(.version, kControlHoverBlue);
     }
 
     const launch_group_hovered = g_hovered_button == .launch or g_hovered_button == .efmi;
@@ -2709,7 +2813,7 @@ fn drawUI(dt: f32) void {
 
     var info_glyph_style = INFO_GLYPH_STYLE;
     info_glyph_style.ring_thickness = scaleF(info_glyph_style.ring_thickness);
-    ByteGUI.DrawInfoGlyph(draw, scaleVec2(INFO_X, INFO_Y), scaleVec2(INFO_W, INFO_H), toU32(applyOpacity(g_button_colors[3].current, render_opacity)), info_glyph_style, std.math.clamp(scaleIF(72.0), 72, 160));
+    ByteGUI.DrawInfoGlyph(draw, scaleVec2(INFO_X, INFO_Y), scaleVec2(INFO_W, INFO_H), toU32(applyOpacity(infoButtonColor(), render_opacity)), info_glyph_style, std.math.clamp(scaleIF(72.0), 72, 160));
     if (g_allow_minimize) ByteGUI.DrawWindowControlGlyph(draw, scaleVec2(MIN_X, MIN_Y + MIN_Y_OFFSET), scaleVec2(MIN_W, MIN_H), toU32(applyOpacity(g_button_colors[2].current, render_opacity)), false, WINDOW_CONTROL_GLYPH_STYLE);
     ByteGUI.DrawWindowControlGlyph(draw, scaleVec2(CLOSE_X, CLOSE_Y + CLOSE_Y_OFFSET), scaleVec2(CLOSE_W, CLOSE_H), toU32(applyOpacity(g_button_colors[1].current, render_opacity)), true, WINDOW_CONTROL_GLYPH_STYLE);
     drawLogoVisual(draw, render_opacity);
@@ -2840,9 +2944,9 @@ fn openReadme() void {
     _ = c.ShellExecuteW(null, SHELL_OPEN_OPERATION, README_URL, null, null, c.SW_SHOWNORMAL);
 }
 
-fn openReleaseTag() void {
+fn openReleaseTagForVersion(version: []const u8) void {
     var version_buf: [32]u8 = undefined;
-    const normalized = app_version.normalizedTag(&version_buf, VERSION_STR) catch return;
+    const normalized = app_version.normalizedTag(&version_buf, version) catch return;
 
     var url_utf8_buf: [160]u8 = undefined;
     const url_utf8 = std.fmt.bufPrint(
@@ -2856,12 +2960,25 @@ fn openReleaseTag() void {
     _ = c.ShellExecuteW(null, SHELL_OPEN_OPERATION, url_utf16.ptr, null, null, c.SW_SHOWNORMAL);
 }
 
+fn openReleaseTag() void {
+    const version = update_checker.current();
+    openReleaseTagForVersion(version.slice());
+}
+
+fn openInfoTarget() void {
+    if (g_update_available) {
+        openReleaseTagForVersion(g_update_version.slice());
+    } else {
+        openReadme();
+    }
+}
+
 // Input and window procedure
 fn onButtonActivated(id: ButtonId) void {
     switch (id) {
         .close => if (g_window_anim.typ == .none) startWindowAnimation(.slide_out_close),
         .minimize => if (g_allow_minimize and g_window_anim.typ == .none) startWindowAnimation(.fade_out_minimize),
-        .info => openReadme(),
+        .info => openInfoTarget(),
         .version => openReleaseTag(),
         .launch => launchGameAction(defaultLaunchMode()),
         .toggle => setLoaderMinimizeOnLaunch(!g_minimize_on_launch),
@@ -3171,6 +3288,7 @@ fn initializeGUIState() void {
     refreshGamePathStatus();
     appendInitialStatusLines();
     if (!startLoaderWorker()) appendStatus(strings.status_monitor_failed, .{});
+    startUpdateCheckWorker();
     resetButtonColorAnimations();
     clearWindowHoverState();
 }
@@ -3241,6 +3359,7 @@ noinline fn initGUIApp(instance: ?c.HMODULE, debug_options: cli.DebugOptions) bo
 
 fn shutdownGUIApp() void {
     stopLoaderWorker();
+    stopUpdateCheckWorker();
     clearLoaderEvents();
     bytegui.ByteGUI_ImplOpenGL_Shutdown();
     bytegui.ByteGUI_ImplWin32_Shutdown();
@@ -3272,6 +3391,7 @@ fn runGUI(debug_options: cli.DebugOptions) !u8 {
         const io = ByteGUI.GetIO();
         const dt = @min(if (io.DeltaTime > 0.0) io.DeltaTime else 1.0 / 60.0, 1.0 / 30.0);
         drainLoaderEvents();
+        drainUpdateCheckResult();
         updateLaunchButtonState();
         updateHoverStates(dt);
         updateAnimations(dt);

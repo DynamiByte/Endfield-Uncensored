@@ -155,6 +155,7 @@ pub const cli = struct {
     pub const parse_oom = "Not enough memory to parse command line.";
 
     pub const header_fmt = "\n[EFU Loader {s}]\n\n";
+    pub const update_available_fmt = "Update available: {s}\n\n";
     pub const process_found_fmt = "Process found (PID: {d})\n";
     pub const process_path_fmt = "Process path: {s}\n";
     pub const process_path_warning = "Warning: Could not get process path\n";
@@ -239,7 +240,10 @@ pub fn computeVersionDisplay(out_buf: []u8, version_str: []const u8) ![]const u8
     }
 
     return switch (count) {
-        4 => try std.fmt.bufPrint(out_buf, version_preview_fmt, .{ parts[0], parts[1], parts[2], parts[3] }),
+        4 => if (std.mem.eql(u8, parts[3], "0"))
+            try std.fmt.bufPrint(out_buf, version_release_fmt, .{ parts[0], parts[1], parts[2] })
+        else
+            try std.fmt.bufPrint(out_buf, version_preview_fmt, .{ parts[0], parts[1], parts[2], parts[3] }),
         3 => try std.fmt.bufPrint(out_buf, version_release_fmt, .{ parts[0], parts[1], parts[2] }),
         else => version_str,
     };

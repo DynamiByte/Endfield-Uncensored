@@ -30,6 +30,7 @@ pub const SECURITY_ATTRIBUTES = windows.SECURITY_ATTRIBUTES;
 pub const STARTUPINFOW = windows.STARTUPINFOW;
 pub const ULONG_PTR = windows.ULONG_PTR;
 pub const UINT = windows.UINT;
+pub const UINT_PTR = usize;
 pub const WCHAR = windows.WCHAR;
 pub const WORD = windows.WORD;
 pub const LPARAM = windows.LPARAM;
@@ -134,6 +135,17 @@ pub const PROCESSENTRY32W = extern struct {
     pcPriClassBase: LONG,
     dwFlags: DWORD,
     szExeFile: [MAX_PATH]WCHAR,
+};
+
+pub const WSADATA = extern struct {
+    data: [512]u8,
+};
+
+pub const SOCKADDR_IN = extern struct {
+    sin_family: WORD,
+    sin_port: WORD,
+    sin_addr: DWORD,
+    sin_zero: [8]u8,
 };
 
 pub const KEY_EVENT_RECORD = extern struct {
@@ -262,6 +274,7 @@ pub const KEY_EVENT: WORD = 0x0001;
 pub const CF_UNICODETEXT: UINT = 13;
 pub const GMEM_MOVEABLE: UINT = 0x0002;
 
+pub const WM_USER: UINT = 0x0400;
 pub const WM_DESTROY: UINT = 0x0002;
 pub const WM_SIZE: UINT = 0x0005;
 pub const WM_SIZING: UINT = 0x0214;
@@ -292,6 +305,15 @@ pub const TME_LEAVE: DWORD = 0x00000002;
 pub const VK_CONTROL: INT = 0x11;
 pub const VK_A: WPARAM = 0x41;
 pub const VK_C: WPARAM = 0x43;
+
+pub const SOCKET = UINT_PTR;
+pub const INVALID_SOCKET: SOCKET = ~@as(SOCKET, 0);
+pub const SOCKET_ERROR: INT = -1;
+pub const AF_INET: INT = 2;
+pub const SOCK_DGRAM: INT = 2;
+pub const IPPROTO_UDP: INT = 17;
+pub const SOL_SOCKET: INT = 0xFFFF;
+pub const SO_RCVTIMEO: INT = 0x1006;
 
 pub const SW_SHOWNORMAL: INT = 1;
 pub const SW_SHOW: INT = 5;
@@ -412,6 +434,14 @@ pub extern "gdi32" fn DeleteObject(object: HANDLE) callconv(.winapi) BOOL;
 pub extern "gdi32" fn SwapBuffers(hdc: HDC) callconv(.winapi) BOOL;
 
 pub extern "shell32" fn ShellExecuteW(hwnd: ?HWND, operation: LPCWSTR, file: LPCWSTR, parameters: ?LPCWSTR, directory: ?LPCWSTR, show_cmd: INT) callconv(.winapi) HINSTANCE;
+
+pub extern "ws2_32" fn WSAStartup(wVersionRequested: WORD, lpWSAData: *WSADATA) callconv(.winapi) INT;
+pub extern "ws2_32" fn WSACleanup() callconv(.winapi) INT;
+pub extern "ws2_32" fn socket(af: INT, typ: INT, protocol: INT) callconv(.winapi) SOCKET;
+pub extern "ws2_32" fn closesocket(s: SOCKET) callconv(.winapi) INT;
+pub extern "ws2_32" fn setsockopt(s: SOCKET, level: INT, optname: INT, optval: ?*const anyopaque, optlen: INT) callconv(.winapi) INT;
+pub extern "ws2_32" fn sendto(s: SOCKET, buf: [*]const u8, len: INT, flags: INT, to: ?*const anyopaque, tolen: INT) callconv(.winapi) INT;
+pub extern "ws2_32" fn recvfrom(s: SOCKET, buf: [*]u8, len: INT, flags: INT, from: ?*anyopaque, fromlen: ?*INT) callconv(.winapi) INT;
 
 pub const MARGINS = extern struct {
     cxLeftWidth: INT = 0,

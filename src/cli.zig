@@ -4,6 +4,7 @@ const std = @import("std");
 const app_version = @import("version");
 const loader = @import("loader.zig");
 const strings = @import("strings.zig");
+const update_checker = @import("update.zig");
 const c = @import("win32.zig");
 
 const APP_TITLE = std.unicode.utf8ToUtf16LeStringLiteral(strings.app_title);
@@ -342,6 +343,11 @@ fn cliPrintHeader(io: std.Io) void {
     var version_buf: [64]u8 = undefined;
     const version_display = strings.computeVersionDisplay(&version_buf, VERSION_STR) catch VERSION_STR;
     cliPrint(io, strings.cli.header_fmt, .{version_display});
+    if (update_checker.latestAvailable()) |version| {
+        var tag_buf: [32]u8 = undefined;
+        const tag = app_version.normalizedTag(&tag_buf, version.slice()) catch version.slice();
+        cliPrint(io, strings.cli.update_available_fmt, .{tag});
+    }
 }
 
 fn getProcessPathWtf8(pid: u32, out_buf: []u8) !?[]const u8 {
