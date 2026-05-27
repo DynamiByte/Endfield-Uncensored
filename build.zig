@@ -5,12 +5,7 @@ const app = @import("build.efu.zon");
 const strings = @import("src/strings.zig");
 
 const parsed_version = parseAppVersion(app.version);
-const version_str = std.fmt.comptimePrint("{d}.{d}.{d}.{d}", .{
-    parsed_version[0],
-    parsed_version[1],
-    parsed_version[2],
-    parsed_version[3],
-});
+const version_str = trimVersionPrefix(app.version);
 const product_version_str = "v" ++ version_str;
 const file_version_rc = std.fmt.comptimePrint("{d},{d},{d},{d}", .{
     parsed_version[0],
@@ -25,7 +20,7 @@ const exe_artifact_name = stripRequiredSuffix(exe_output_name, ".exe", "build.ef
 
 comptime {
     const required_zig_version = std.SemanticVersion.parse(app.zig_version) catch {
-        @compileError("build.efu.zon zig_version must be a semantic version, like 0.16.0.");
+        @compileError("build.efu.zon zig_version must be a semantic version.");
     };
 
     if (builtin.zig_version.order(required_zig_version) != .eq) {
@@ -101,17 +96,21 @@ fn parseAppVersion(comptime raw_version: []const u8) [4]u32 {
 
     while (parts.next()) |part| : (count += 1) {
         if (count >= 4) {
-            @compileError("build.efu.zon version must be major.minor.patch.build, like 5.0.0.1.");
+            invalidAppVersion();
         }
 
         values[count] = parseUnsigned(part, "build.efu.zon version");
     }
 
-    if (count != 4) {
-        @compileError("build.efu.zon version must be major.minor.patch.build, like 5.0.0.1.");
+    if (count != 3 and count != 4) {
+        invalidAppVersion();
     }
 
     return values;
+}
+
+fn invalidAppVersion() noreturn {
+    @compileError("build.efu.zon version must be major.minor.patch or major.minor.patch.preview.");
 }
 
 fn parseUnsigned(comptime text: []const u8, comptime label: []const u8) u32 {
