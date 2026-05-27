@@ -17,6 +17,7 @@ Endfield Uncensored is a standalone Windows loader and runtime patch for *Arknig
 - Automatic game path detection from `Player.log` / GRYPHLINK data and common install paths
 - Can inject after launching from EFU or after you start the game elsewhere
 - Post-launch behavior toggle to minimize or stay open, then return to ready state after the game closes
+- Unobtrusive update check
 
 ---
 
@@ -49,7 +50,7 @@ If you keep EFU open, it returns to a ready state after the game closes so you c
 
 - The launch button is only enabled when EFU knows the game path and the game is not already running
 - The output log has smooth scrolling, scrollbar dragging, mouse selection, drag-selection autoscroll, `Ctrl+C`, and `Ctrl+A`
-- The info button opens this README, and the version text opens the matching GitHub release page
+- The info button opens this README, or when an update is available, pulses and opens the latest release page
 - Triple right click the `Launch Game` button to launch with the alternate graphics API
 - Starting EFU with `--DX11` makes the `Launch Game` button launch with DX11 by default, making Vulkan the alternate graphics API
 - If EFMI / XXMI is detected, the GUI can show an EFMI toggle attached to the launch button
