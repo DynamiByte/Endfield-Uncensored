@@ -1,5 +1,4 @@
 // ByteGUI - A minimal immediate mode GUI library for Endfield Uncensored, built on OpenGL.
-
 const builtin = @import("builtin");
 const std = @import("std");
 const w32 = @import("win32.zig");

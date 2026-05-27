@@ -89,6 +89,7 @@ const ArgKind = enum {
     debug,
 };
 
+// Argument parsing
 fn showErrorMessage(message: []const u8) void {
     var message_buf: [256]u16 = undefined;
     const message_utf16 = c.wtf8ToWtf16LeZ(message, &message_buf) catch return;
@@ -309,6 +310,7 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
     return config;
 }
 
+// Argument error descriptions
 pub fn describeParseArgsError(err: ParseArgsError) []const u8 {
     return strings.cli.describeParseArgsError(err);
 }
@@ -387,6 +389,7 @@ fn cliReadCommand() ?u8 {
     }
 }
 
+// EFMI launcher flow
 pub fn describeEfmiLaunchError(err: loader.LaunchError) []const u8 {
     return strings.describeEfmiLaunchError(err);
 }
@@ -511,6 +514,7 @@ fn cliWaitForTargetProcessOrCommand(io: std.Io, game_exe_path: ?[:0]const u16, d
     }
 }
 
+// Configured game launch helpers
 fn launchConfiguredGame(game_exe_path: [:0]const u16, dx11: bool) loader.LaunchError!void {
     if (dx11) {
         return loader.launchGameWithArgs(game_exe_path, loader.game_dx11_arg);

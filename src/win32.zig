@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const windows = std.os.windows;
 
+// Type aliases and structs
 pub const ATOM = windows.ATOM;
 pub const BYTE = windows.BYTE;
 pub const BOOL = windows.BOOL;
@@ -169,6 +170,7 @@ pub const INPUT_RECORD = extern struct {
     },
 };
 
+// Geometry, encoding, and path helpers
 pub fn makeRectL(x: f32, y: f32, w: f32, h: f32) RECT {
     return .{
         .left = @intFromFloat(@floor(x)),
@@ -246,6 +248,7 @@ fn winBool(value: bool) BOOL {
 pub const FALSE: BOOL = winBool(false);
 pub const TRUE: BOOL = winBool(true);
 
+// Win32 constants
 pub const PROCESS_CREATE_THREAD: DWORD = 0x0002;
 pub const PROCESS_VM_OPERATION: DWORD = 0x0008;
 pub const PROCESS_VM_READ: DWORD = 0x0010;
@@ -353,6 +356,7 @@ pub const SM_CYICON: INT = 12;
 pub const SM_CXSMICON: INT = 49;
 pub const SM_CYSMICON: INT = 50;
 
+// Kernel32, user32, shell, network, and graphics imports
 pub extern "kernel32" fn CreateToolhelp32Snapshot(dw_flags: DWORD, th32_process_id: DWORD) callconv(.winapi) HANDLE;
 pub extern "kernel32" fn Process32FirstW(h_snapshot: HANDLE, lppe: *PROCESSENTRY32W) callconv(.winapi) BOOL;
 pub extern "kernel32" fn Process32NextW(h_snapshot: HANDLE, lppe: *PROCESSENTRY32W) callconv(.winapi) BOOL;
@@ -456,6 +460,7 @@ pub extern "opengl32" fn wglDeleteContext(hglrc: HGLRC) callconv(.winapi) BOOL;
 pub extern "opengl32" fn wglMakeCurrent(hdc: ?HDC, hglrc: ?HGLRC) callconv(.winapi) BOOL;
 pub extern "opengl32" fn wglGetProcAddress(lpszProc: [*:0]const u8) callconv(.winapi) ?*const anyopaque;
 
+// Small wrapper helpers
 pub fn loadCursorResource(id: u16) ?HCURSOR {
     return LoadCursorW(null, @ptrFromInt(@as(usize, id)));
 }

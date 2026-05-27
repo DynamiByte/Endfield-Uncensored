@@ -1,8 +1,5 @@
 // User-facing text and GUI font subset inputs.
-// I may support multiple languages in the future,
-// likely by shipping separate binaries for each language.
-// If I do that, I'll add a build argument to define which locale to use,
-// with an ALL option or something similar.
+// Future localization can use build-selected string and font subset groups.
 const std = @import("std");
 
 // Application/window text

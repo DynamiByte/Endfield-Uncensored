@@ -8,6 +8,7 @@ pub const target_exe_name = "Endfield.exe";
 pub const temp_dll_name_prefix = "EFU-";
 pub const game_dx11_arg = "-force-d3d11";
 
+// Public error surface
 pub const TempDllError = std.mem.Allocator.Error || error{
     TempPathUnavailable,
     TempFileCreateFailed,
@@ -46,6 +47,7 @@ const process_rights =
 const max_path_bytes = std.Io.Dir.max_path_bytes;
 const file_attribute_directory: c.DWORD = 0x10;
 
+// Error descriptions and classification
 pub fn describeTempDllError(err: TempDllError) []const u8 {
     return strings.describeTempDllError(err);
 }
@@ -78,6 +80,7 @@ fn classifyCreateProcessError() LaunchError {
     };
 }
 
+// Process handle helpers
 pub fn createProcessWide(application_name: ?c.LPCWSTR, command_line: ?c.LPWSTR) LaunchError!c.PROCESS_INFORMATION {
     var startup_info: c.STARTUPINFOW = undefined;
     var process_info: c.PROCESS_INFORMATION = undefined;
@@ -290,6 +293,7 @@ pub fn findTargetProcess() u32 {
     return 0;
 }
 
+// Process state checks and temporary DLL staging
 pub fn isProcessAlive(pid: u32) bool {
     if (pid == 0) return false;
     const handle = c.OpenProcess(c.SYNCHRONIZE, c.FALSE, pid) orelse return false;

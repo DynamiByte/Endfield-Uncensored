@@ -24,6 +24,7 @@ const POLL: DWORD = 25;
 const JUMP_SIZE: usize = 12;
 const MAX_STOLEN_BYTES: usize = 32;
 
+// Win32 and IL2CPP surface
 extern "kernel32" fn GetModuleHandleA(lpModuleName: ?[*:0]const u8) callconv(.winapi) ?HMODULE;
 extern "kernel32" fn GetProcAddress(hModule: HMODULE, lpProcName: [*:0]const u8) callconv(.winapi) ?*anyopaque;
 extern "kernel32" fn Sleep(dwMilliseconds: DWORD) callconv(.winapi) void;
@@ -74,6 +75,7 @@ var g_enabled = true;
 var g_force_clear_method: ?*Il2CppMethodInfo = null;
 var g_camera_hook = Hook{};
 
+// Hotkey and host process helpers
 fn winBool(value: bool) BOOL {
     return switch (@typeInfo(BOOL)) {
         .int => if (value) 1 else 0,
@@ -110,6 +112,7 @@ fn waitForModule(module_name: [*:0]const u8) HMODULE {
     return handle.?;
 }
 
+// x64 instruction decoding
 fn readU32(bytes: [*]const u8, index: usize) u32 {
     return @as(u32, bytes[index]) |
         (@as(u32, bytes[index + 1]) << 8) |
@@ -210,6 +213,7 @@ fn instructionLen(bytes: [*]const u8, start: usize) ?usize {
     return len;
 }
 
+// Inline hook installation
 fn patchLen(target: *const u8) ?usize {
     const bytes: [*]const u8 = @ptrCast(target);
     var len: usize = 0;
@@ -257,6 +261,7 @@ fn installJumpHook(hook: *Hook, target: *u8, replacement_addr: usize) bool {
     return true;
 }
 
+// Patch target resolution and runtime toggle
 fn resolvePatchTargets() ?PatchTargets {
     const game_assembly = waitForModule("GameAssembly.dll");
 
@@ -307,6 +312,7 @@ fn patchThread(_: ?*anyopaque) callconv(.winapi) DWORD {
     return 0;
 }
 
+// DLL entry point
 pub export fn DllMain(hInstance: HINSTANCE, ul_reason_for_call: DWORD, _: ?LPVOID) callconv(.winapi) BOOL {
     if (ul_reason_for_call == DLL_PROCESS_ATTACH) {
         _ = DisableThreadLibraryCalls(@ptrCast(hInstance));

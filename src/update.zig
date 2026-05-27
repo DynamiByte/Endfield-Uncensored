@@ -1,3 +1,4 @@
+// DNS TXT update checker
 const std = @import("std");
 
 const app_version = @import("version");
@@ -12,6 +13,7 @@ const UPDATE_DNS_SERVERS = [_][4]u8{
 const DNS_TYPE_TXT: u16 = 16;
 const DNS_CLASS_IN: u16 = 1;
 
+// Version parsing and comparison
 pub const VersionNumber = struct {
     parts: [4]u32 = .{ 0, 0, 0, 0 },
     part_count: u8 = 0,
@@ -89,6 +91,7 @@ fn versionIsGreater(a: VersionNumber, b: VersionNumber) bool {
     return false;
 }
 
+// Minimal DNS packet helpers
 fn ip4AddressValue(server_ip: [4]u8) c.DWORD {
     return @as(c.DWORD, server_ip[0]) |
         (@as(c.DWORD, server_ip[1]) << 8) |
@@ -211,6 +214,7 @@ fn parseDnsTxtResponse(packet: []const u8, query_id: u16, expected_part_count: u
     return null;
 }
 
+// DNS TXT lookup
 fn queryLatestVersionFromDnsServer(name: []const u8, expected_part_count: u8, server_ip: [4]u8) ?VersionNumber {
     var wsa_data: c.WSADATA = undefined;
     if (c.WSAStartup(0x0202, &wsa_data) != 0) return null;
