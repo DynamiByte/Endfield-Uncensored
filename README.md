@@ -2,7 +2,7 @@
 
 Endfield Uncensored is a standalone Windows loader and runtime patch for *Arknights: Endfield* that removes the transparency-based censorship filter.
 
-![Version](https://img.shields.io/badge/version-5.0.0.4-orange)
+![Version](https://img.shields.io/badge/version-5.0.0-blue)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-green)
 
 ## Highlights
