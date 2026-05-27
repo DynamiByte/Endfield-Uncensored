@@ -4809,25 +4809,6 @@ fn textSelectionGrowthAnchorFromNeighbors(target: TextSelectionHighlightTarget, 
     return target.min;
 }
 
-fn textSelectionCollapseAnchorFromTargets(rect: TextSelectionHighlightRect, targets: []const TextSelectionHighlightTarget) ByteVec2 {
-    if (targets.len == 0) return rect.grow_anchor_target;
-
-    var closest = targets[0];
-    var closest_line_delta: usize = if (rect.line_index > closest.line_index) rect.line_index - closest.line_index else closest.line_index - rect.line_index;
-    for (targets[1..]) |target| {
-        const line_delta = if (rect.line_index > target.line_index) rect.line_index - target.line_index else target.line_index - rect.line_index;
-        if (line_delta < closest_line_delta) {
-            closest_line_delta = line_delta;
-            closest = target;
-        }
-    }
-
-    if (rect.line_index > closest.line_index) return rect.target_min;
-    if (rect.line_index < closest.line_index) return rect.target_max;
-
-    return rect.grow_anchor_target;
-}
-
 fn textSelectionEdgeCoverageFromStart(edge: f32, other_min: f32, other_max: f32, span: f32, epsilon: f32) f32 {
     if (other_min > edge + epsilon or other_max < edge - epsilon) return 0.0;
     return @max(0.0, @min(other_max, edge + span) - edge);
@@ -4924,9 +4905,23 @@ fn syncTextSelectionStableRangeTargets(state: *TextSelectionHighlightState, targ
     }
 }
 
+fn fadeTextSelectionRectInPlace(rect: *TextSelectionHighlightRect) void {
+    rect.target_min = rect.current_min;
+    rect.target_max = rect.current_max;
+    rect.target_alpha = 0.0;
+    rect.target_scale_y = 1.0;
+    rect.target_corner_round = rect.corner_round;
+    rect.grow_anchor_target = textSelectionRectCenter(rect.current_min, rect.current_max);
+}
+
 fn syncTextSelectionHighlightState(state: *TextSelectionHighlightState, selection: ?TextSelectionRange, targets: []const TextSelectionHighlightTarget, dt: f32, corner_radius: f32) void {
     const same_selection = textSelectionStateHasSameRange(state, selection);
-    if (same_selection) {
+    if (selection == null) {
+        for (state.rects.items) |*rect| {
+            rect.matched = false;
+            fadeTextSelectionRectInPlace(rect);
+        }
+    } else if (same_selection) {
         syncTextSelectionStableRangeTargets(state, targets);
     } else {
         for (state.rects.items) |*rect| rect.matched = false;
@@ -4966,22 +4961,14 @@ fn syncTextSelectionHighlightState(state: *TextSelectionHighlightState, selectio
 
         for (state.rects.items) |*rect| {
             if (!rect.matched) {
-                const collapse_point = textSelectionCollapseAnchorFromTargets(rect.*, targets);
-                var collapse_min: ByteVec2 = .{};
-                var collapse_max: ByteVec2 = .{};
-                textSelectionEdgeRectFromAnchor(rect.target_min, rect.target_max, collapse_point, &collapse_min, &collapse_max);
-                rect.target_min = collapse_min;
-                rect.target_max = collapse_max;
-                rect.target_alpha = 0.0;
-                rect.target_scale_y = 1.0;
-                rect.target_corner_round = [_]f32{ 1.0, 1.0, 1.0, 1.0 };
-                rect.grow_anchor_target = textSelectionRectCenter(rect.target_min, rect.target_max);
+                fadeTextSelectionRectInPlace(rect);
             }
         }
     }
 
     const move_t = textSelectionSmoothFactor(dt, 24.0);
-    const alpha_t = textSelectionSmoothFactor(dt, 14.0);
+    const alpha_in_t = textSelectionSmoothFactor(dt, 14.0);
+    const alpha_out_t = textSelectionSmoothFactor(dt, 34.0);
     const stretch_t = textSelectionSmoothFactor(dt, 18.0);
     const corner_t = textSelectionSmoothFactor(dt, 28.0);
 
@@ -4994,15 +4981,18 @@ fn syncTextSelectionHighlightState(state: *TextSelectionHighlightState, selectio
         rect.current_max.y = textSelectionApproach(rect.current_max.y, rect.target_max.y, move_t);
         rect.grow_anchor_current.x = textSelectionApproach(rect.grow_anchor_current.x, rect.grow_anchor_target.x, move_t);
         rect.grow_anchor_current.y = textSelectionApproach(rect.grow_anchor_current.y, rect.grow_anchor_target.y, move_t);
+        const alpha_t = if (rect.target_alpha < rect.alpha) alpha_out_t else alpha_in_t;
         rect.alpha = textSelectionApproach(rect.alpha, rect.target_alpha, alpha_t);
         rect.scale_y = textSelectionApproach(rect.scale_y, rect.target_scale_y, stretch_t);
     }
 
     i = 0;
     while (i < state.rects.items.len) : (i += 1) {
-        const corner_target = textSelectionCornerRoundFromTargetGeometry(state.rects.items, i, corner_radius);
         var rect = &state.rects.items[i];
-        rect.target_corner_round = corner_target;
+        rect.target_corner_round = if (rect.target_alpha <= 0.01)
+            rect.corner_round
+        else
+            textSelectionCornerRoundFromTargetGeometry(state.rects.items, i, corner_radius);
         for (0..4) |corner_index| {
             rect.corner_round[corner_index] = textSelectionApproach(rect.corner_round[corner_index], rect.target_corner_round[corner_index], corner_t);
         }
