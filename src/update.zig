@@ -14,6 +14,18 @@ const DNS_TYPE_TXT: u16 = 16;
 const DNS_CLASS_IN: u16 = 1;
 
 // Version parsing and comparison
+const VersionTextKind = enum {
+    release,
+    preview_feed,
+
+    fn accepts(self: VersionTextKind, part_count: u8) bool {
+        return switch (self) {
+            .release => part_count == 3,
+            .preview_feed => part_count == 3 or part_count == 4,
+        };
+    }
+};
+
 pub const VersionNumber = struct {
     parts: [4]u32 = .{ 0, 0, 0, 0 },
     part_count: u8 = 0,
@@ -25,7 +37,7 @@ pub const VersionNumber = struct {
     }
 };
 
-fn parseVersionText(raw: []const u8, expected_part_count: u8) ?VersionNumber {
+fn parseVersionText(raw: []const u8, kind: VersionTextKind) ?VersionNumber {
     var text = std.mem.trim(u8, raw, " \t\r\n");
     text = app_version.trimVersionPrefix(text);
     if (text.len == 0 or text.len > 32) return null;
@@ -52,7 +64,7 @@ fn parseVersionText(raw: []const u8, expected_part_count: u8) ?VersionNumber {
         start = end + 1;
     }
 
-    if (count != expected_part_count) return null;
+    if (!kind.accepts(count)) return null;
     if (count == 4 and version.parts[2] != 0) return null;
     version.part_count = count;
     @memcpy(version.text[0..text.len], text);
@@ -66,6 +78,10 @@ fn currentBuildIsPreview() bool {
 
 fn currentVersionPartCount() u8 {
     return if (currentBuildIsPreview()) 4 else 3;
+}
+
+fn currentVersionTextKind() VersionTextKind {
+    return if (currentBuildIsPreview()) .preview_feed else .release;
 }
 
 pub fn current() VersionNumber {
@@ -82,12 +98,19 @@ pub fn current() VersionNumber {
 }
 
 fn versionIsGreater(a: VersionNumber, b: VersionNumber) bool {
-    const count = @max(a.part_count, b.part_count);
     var i: usize = 0;
-    while (i < count) : (i += 1) {
+    while (i < 3) : (i += 1) {
         if (a.parts[i] > b.parts[i]) return true;
         if (a.parts[i] < b.parts[i]) return false;
     }
+
+    if (a.part_count == 3 and b.part_count == 4) return true;
+    if (a.part_count == 4 and b.part_count == 3) return false;
+    if (a.part_count == 4 and b.part_count == 4) {
+        if (a.parts[3] > b.parts[3]) return true;
+        if (a.parts[3] < b.parts[3]) return false;
+    }
+
     return false;
 }
 
@@ -165,20 +188,20 @@ fn skipDnsName(packet: []const u8, start: usize) ?usize {
     }
 }
 
-fn parseDnsTxtRdata(packet: []const u8, start: usize, end: usize, expected_part_count: u8) ?VersionNumber {
+fn parseDnsTxtRdata(packet: []const u8, start: usize, end: usize, kind: VersionTextKind) ?VersionNumber {
     var offset = start;
     while (offset < end) {
         const len = packet[offset];
         offset += 1;
         const text_end = offset + len;
         if (text_end > end) return null;
-        if (parseVersionText(packet[offset..text_end], expected_part_count)) |version| return version;
+        if (parseVersionText(packet[offset..text_end], kind)) |version| return version;
         offset = text_end;
     }
     return null;
 }
 
-fn parseDnsTxtResponse(packet: []const u8, query_id: u16, expected_part_count: u8) ?VersionNumber {
+fn parseDnsTxtResponse(packet: []const u8, query_id: u16, kind: VersionTextKind) ?VersionNumber {
     if (packet.len < 12) return null;
     if ((readDnsU16(packet, 0) orelse return null) != query_id) return null;
     const flags = readDnsU16(packet, 2) orelse return null;
@@ -206,7 +229,7 @@ fn parseDnsTxtResponse(packet: []const u8, query_id: u16, expected_part_count: u
         const rdata_end = rdata_start + rdlength;
         if (rdata_end > packet.len) return null;
         if (record_type == DNS_TYPE_TXT and record_class == DNS_CLASS_IN) {
-            if (parseDnsTxtRdata(packet, rdata_start, rdata_end, expected_part_count)) |version| return version;
+            if (parseDnsTxtRdata(packet, rdata_start, rdata_end, kind)) |version| return version;
         }
         offset = rdata_end;
     }
@@ -215,7 +238,7 @@ fn parseDnsTxtResponse(packet: []const u8, query_id: u16, expected_part_count: u
 }
 
 // DNS TXT lookup
-fn queryLatestVersionFromDnsServer(name: []const u8, expected_part_count: u8, server_ip: [4]u8) ?VersionNumber {
+fn queryLatestVersionFromDnsServer(name: []const u8, kind: VersionTextKind, server_ip: [4]u8) ?VersionNumber {
     var wsa_data: c.WSADATA = undefined;
     if (c.WSAStartup(0x0202, &wsa_data) != 0) return null;
     defer _ = c.WSACleanup();
@@ -246,13 +269,14 @@ fn queryLatestVersionFromDnsServer(name: []const u8, expected_part_count: u8, se
 
     const received = c.recvfrom(sock, &response_packet, response_packet.len, 0, null, null);
     if (received <= 0) return null;
-    return parseDnsTxtResponse(response_packet[0..@intCast(received)], query_id, expected_part_count);
+    return parseDnsTxtResponse(response_packet[0..@intCast(received)], query_id, kind);
 }
 
-fn queryLatestVersionFromDns(expected_part_count: u8) ?VersionNumber {
+fn queryLatestVersionFromDns() ?VersionNumber {
     const name = if (currentBuildIsPreview()) UPDATE_DNS_PREVIEW else UPDATE_DNS_RELEASE;
+    const kind = currentVersionTextKind();
     for (UPDATE_DNS_SERVERS) |server_ip| {
-        if (queryLatestVersionFromDnsServer(name, expected_part_count, server_ip)) |version| return version;
+        if (queryLatestVersionFromDnsServer(name, kind, server_ip)) |version| return version;
     }
 
     return null;
@@ -260,6 +284,6 @@ fn queryLatestVersionFromDns(expected_part_count: u8) ?VersionNumber {
 
 pub fn latestAvailable() ?VersionNumber {
     const current_version = current();
-    const latest = queryLatestVersionFromDns(current_version.part_count) orelse return null;
+    const latest = queryLatestVersionFromDns() orelse return null;
     return if (versionIsGreater(latest, current_version)) latest else null;
 }
