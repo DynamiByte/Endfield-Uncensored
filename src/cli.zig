@@ -71,7 +71,7 @@ pub const LaunchConfig = struct {
     efmi_search_enabled: bool = true,
     efmi_launcher_path: ?[]u8 = null,
     game_exe_override_path: ?[]u8 = null,
-    transparent_corners_override: ?BoolOverride = null,
+    rounded_corners_override: ?BoolOverride = null,
     window_animations_override: ?BoolOverride = null,
     allow_minimize_override: ?BoolOverride = null,
     debug: DebugOptions = .{},
@@ -95,7 +95,7 @@ const ArgKind = enum {
     silent,
     auto_yes,
     dx11,
-    transparent_corners,
+    rounded_corners,
     window_animations,
     allow_minimize,
     efmi,
@@ -129,7 +129,7 @@ fn classifyArg(arg: []const u8) ArgKind {
     if (std.ascii.eqlIgnoreCase(body, "s") or std.ascii.eqlIgnoreCase(body, "silent")) return .silent;
     if (std.ascii.eqlIgnoreCase(body, "y") or std.ascii.eqlIgnoreCase(body, "yes")) return .auto_yes;
     if (std.ascii.eqlIgnoreCase(body, "dx11")) return .dx11;
-    if (std.ascii.eqlIgnoreCase(body, "tc") or std.ascii.eqlIgnoreCase(body, "transparent-corners")) return .transparent_corners;
+    if (std.ascii.eqlIgnoreCase(body, "rc") or std.ascii.eqlIgnoreCase(body, "rounded-corners")) return .rounded_corners;
     if (std.ascii.eqlIgnoreCase(body, "wa") or std.ascii.eqlIgnoreCase(body, "window-animations")) return .window_animations;
     if (std.ascii.eqlIgnoreCase(body, "am") or std.ascii.eqlIgnoreCase(body, "allow-minimize")) return .allow_minimize;
     if (std.ascii.eqlIgnoreCase(body, "efmi")) return .efmi;
@@ -279,8 +279,8 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
                 config.dx11 = true;
                 continue;
             },
-            .transparent_corners => {
-                applyBoolOverride(&config.transparent_corners_override, nextBoolOverride(&args_it, &pending_arg));
+            .rounded_corners => {
+                applyBoolOverride(&config.rounded_corners_override, nextBoolOverride(&args_it, &pending_arg));
                 continue;
             },
             .window_animations => {

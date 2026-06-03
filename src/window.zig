@@ -348,7 +348,7 @@ const LogoBounds = struct {
 var g_hwnd: ?c.HWND = null;
 var g_running = true;
 var g_window_opacity: f32 = 0.0;
-var g_transparent_corners = true;
+var g_rounded_corners = true;
 var g_window_animations = true;
 var g_allow_minimize = true;
 var g_startup_target_pid: u32 = 0;
@@ -581,7 +581,7 @@ fn fromByteGUIRect(rect: bgc.RECT) c.RECT {
 }
 
 const UiFeatures = struct {
-    transparent_corners: bool,
+    rounded_corners: bool,
     window_animations: bool,
     allow_minimize: bool,
 };
@@ -592,8 +592,8 @@ fn isRunningUnderWine() bool {
 }
 
 fn defaultUiFeatures() UiFeatures {
-    if (!isRunningUnderWine()) return .{ .transparent_corners = true, .window_animations = true, .allow_minimize = true };
-    return .{ .transparent_corners = false, .window_animations = true, .allow_minimize = true };
+    if (!isRunningUnderWine()) return .{ .rounded_corners = true, .window_animations = true, .allow_minimize = true };
+    return .{ .rounded_corners = false, .window_animations = true, .allow_minimize = true };
 }
 
 fn resolveBoolOverride(default_value: bool, override: ?cli.BoolOverride) bool {
@@ -606,7 +606,7 @@ fn resolveBoolOverride(default_value: bool, override: ?cli.BoolOverride) bool {
 fn resolveUiFeatures(config: cli.LaunchConfig) UiFeatures {
     const defaults = defaultUiFeatures();
     return .{
-        .transparent_corners = resolveBoolOverride(defaults.transparent_corners, config.transparent_corners_override),
+        .rounded_corners = resolveBoolOverride(defaults.rounded_corners, config.rounded_corners_override),
         .window_animations = resolveBoolOverride(defaults.window_animations, config.window_animations_override),
         .allow_minimize = resolveBoolOverride(defaults.allow_minimize, config.allow_minimize_override),
     };
@@ -1315,19 +1315,19 @@ fn cleanupRenderResources() void {
 }
 
 fn windowUsesLayeredOpacity() bool {
-    return g_transparent_corners or g_window_animations;
+    return g_rounded_corners or g_window_animations;
 }
 
-fn windowHasTransparentCorners() bool {
-    return g_transparent_corners;
+fn windowHasRoundedCorners() bool {
+    return g_rounded_corners;
 }
 
 fn windowCornerRadiusPx() f32 {
-    return bytegui.ByteGUI_ImplWin32_CornerRadiusPx(CORNER_RADIUS, windowHasTransparentCorners());
+    return bytegui.ByteGUI_ImplWin32_CornerRadiusPx(CORNER_RADIUS, windowHasRoundedCorners());
 }
 
 fn applyWindowShape() void {
-    bytegui.ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShapeLogical(CORNER_RADIUS, windowHasTransparentCorners());
+    bytegui.ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShapeLogical(CORNER_RADIUS, windowHasRoundedCorners());
 }
 
 fn applyBaseStyle() void {
@@ -3202,17 +3202,17 @@ fn wndProc(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) call
             if (result != -1) return result;
         },
         c.WM_SIZING => {
-            bytegui.ByteGUI_ImplWin32_PrepareCornerOnlyRoundedWindowResize(CORNER_RADIUS, windowHasTransparentCorners(), msg, l_param);
+            bytegui.ByteGUI_ImplWin32_PrepareCornerOnlyRoundedWindowResize(CORNER_RADIUS, windowHasRoundedCorners(), msg, l_param);
             return 1;
         },
         c.WM_WINDOWPOSCHANGING => {
-            bytegui.ByteGUI_ImplWin32_PrepareCornerOnlyRoundedWindowResize(CORNER_RADIUS, windowHasTransparentCorners(), msg, l_param);
+            bytegui.ByteGUI_ImplWin32_PrepareCornerOnlyRoundedWindowResize(CORNER_RADIUS, windowHasRoundedCorners(), msg, l_param);
         },
         c.WM_SIZE => {
             if (w_param == c.SIZE_MINIMIZED) {
                 g_was_minimized = true;
             } else {
-                _ = bytegui.ByteGUI_ImplWin32_HandleCornerOnlyRoundedWindowSize(CORNER_RADIUS, windowHasTransparentCorners(), w_param, l_param);
+                _ = bytegui.ByteGUI_ImplWin32_HandleCornerOnlyRoundedWindowSize(CORNER_RADIUS, windowHasRoundedCorners(), w_param, l_param);
                 if (w_param == c.SIZE_RESTORED and g_was_minimized) {
                     g_was_minimized = false;
                     startWindowAnimation(.fade_in_restore);
@@ -3236,7 +3236,7 @@ fn wndProc(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) call
             }
 
             _ = suggested_rect;
-            bytegui.ByteGUI_ImplWin32_ApplyCornerOnlyRoundedDpiWindowPos(CORNER_RADIUS, windowHasTransparentCorners(), l_param);
+            bytegui.ByteGUI_ImplWin32_ApplyCornerOnlyRoundedDpiWindowPos(CORNER_RADIUS, windowHasRoundedCorners(), l_param);
             return 0;
         },
         c.WM_ERASEBKGND => return 1,
@@ -3455,7 +3455,7 @@ pub fn main(init: std.process.Init.Minimal) void {
     g_game_scan = config.debug.gameScan();
     if (!config.cli) {
         const features = resolveUiFeatures(config);
-        g_transparent_corners = features.transparent_corners;
+        g_rounded_corners = features.rounded_corners;
         g_window_animations = features.window_animations;
         g_allow_minimize = features.allow_minimize;
     }

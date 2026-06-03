@@ -80,7 +80,7 @@ Arguments are case-insensitive. Prefixes `-`, `--`, and `/` are accepted. Some a
 - `-y` / `--yes`: auto-confirm prompts used by the EFMI CLI flow
 - `--EFMI [PATH_TO_XXMI Launcher.exe]`: launch EFMI through XXMI, optionally using an explicit launcher path
 - `--EFMI false`: prevent EFU from auto-detecting XXMI and showing the EFMI button in the GUI
-- `--tc` / `--transparent-corners [true|false]`: toggle transparent corners, or add a boolean value to force a state
+- `--rc` / `--rounded-corners [true|false]`: toggle rounded corners, or add a boolean value to force a state
 - `--wa` / `--window-animations [true|false]`: toggle window animations, or add a boolean value to force a state
 - `--am` / `--allow-minimize [true|false]`: toggle minimize support, or add a boolean value to force a state
 
