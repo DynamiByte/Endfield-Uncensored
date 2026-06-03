@@ -400,6 +400,7 @@ var g_efmi_detected_launcher_path: ?[]u8 = null;
 var g_minimized_by_toggle = false;
 var g_stayed_open_by_toggle = false;
 var g_game_exe_path: ?[:0]u16 = null;
+var g_game_scan: loader.GameScan = .{};
 var g_game_exe_override_path: ?[]const u8 = null;
 var g_environ: std.process.Environ = .empty;
 var g_launch_btn_enabled = false;
@@ -2836,7 +2837,7 @@ fn refreshGamePathStatus() void {
         return;
     }
     if (g_game_exe_path) |path| allocator.free(path);
-    g_game_exe_path = loader.resolveGameExe(g_game_exe_override_path, g_environ, allocator) catch null;
+    g_game_exe_path = loader.resolveGameExeWithScan(g_game_exe_override_path, g_environ, allocator, g_game_scan) catch null;
     g_startup_target_pid = loader.findTargetProcess();
     setLoaderTargetRunning(g_startup_target_pid != 0);
     syncLaunchButtonStateImmediate();
@@ -3445,6 +3446,7 @@ pub fn main(init: std.process.Init.Minimal) void {
     g_efmi_launcher_path = config.efmi_launcher_path;
     g_efmi_on_launch = config.efmi_requested and config.efmi_search_enabled;
     g_force_dx11 = config.dx11;
+    g_game_scan = config.debug.gameScan();
     g_wine_mode = if (config.cli) false else resolveWineMode(config);
     g_allow_minimize = if (config.cli) true else resolveAllowMinimize(config, g_wine_mode);
     const code = if (config.cli)

@@ -5,6 +5,7 @@ const strings = @import("strings.zig");
 pub const c = @import("win32.zig");
 
 pub const target_exe_name = "Endfield.exe";
+const target_data_dir_name = "Endfield_Data";
 pub const temp_dll_name_prefix = "EFU-";
 pub const game_dx11_arg = "-force-d3d11";
 
@@ -46,6 +47,12 @@ const process_rights =
 
 const max_path_bytes = std.Io.Dir.max_path_bytes;
 const file_attribute_directory: c.DWORD = 0x10;
+
+pub const GameScan = struct {
+    registry: bool = true,
+    player_log: bool = true,
+    known_paths: bool = true,
+};
 
 // Error descriptions and classification
 pub fn describeTempDllError(err: TempDllError) []const u8 {
@@ -137,6 +144,33 @@ fn indexOfIgnoreCase(haystack: []const u8, needle: []const u8) ?usize {
     return null;
 }
 
+fn indexOfAsciiWideIgnoreCase(haystack: []const u16, needle: []const u8) ?usize {
+    if (needle.len == 0 or haystack.len < needle.len) return null;
+
+    var i: usize = 0;
+    while (i + needle.len <= haystack.len) : (i += 1) {
+        var matched = true;
+        for (needle, 0..) |needle_ch, j| {
+            const hay_ch = haystack[i + j];
+            if (hay_ch > 0x7F or std.ascii.toLower(@as(u8, @intCast(hay_ch))) != std.ascii.toLower(needle_ch)) {
+                matched = false;
+                break;
+            }
+        }
+        if (matched) return i;
+    }
+
+    return null;
+}
+
+fn isAsciiWideAlphabetic(ch: u16) bool {
+    return (ch >= 'A' and ch <= 'Z') or (ch >= 'a' and ch <= 'z');
+}
+
+fn isAsciiWidePathSeparator(ch: u16) bool {
+    return ch == '\\' or ch == '/';
+}
+
 fn trimRightPathNoise(path: []const u8) []const u8 {
     var end = path.len;
     while (end > 0) : (end -= 1) {
@@ -153,8 +187,68 @@ fn pathExistsWtf8(io: std.Io, wtf8_path: []const u8) bool {
     return true;
 }
 
-fn extractInstallDirFromLine(line: []const u8) ?[]const u8 {
-    const endfield_idx = indexOfIgnoreCase(line, "EndField") orelse return null;
+fn fileModifiedTimeWtf8(wtf8_path: []const u8) u64 {
+    var path_buf: [max_path_bytes]u16 = undefined;
+    const path_w = c.wtf8ToWtf16LeZ(wtf8_path, &path_buf) catch return 0;
+
+    var data: c.WIN32_FILE_ATTRIBUTE_DATA = undefined;
+    if (c.GetFileAttributesExW(path_w.ptr, c.GetFileExInfoStandard, &data) == c.FALSE) return 0;
+
+    return (@as(u64, data.ftLastWriteTime.dwHighDateTime) << 32) | @as(u64, data.ftLastWriteTime.dwLowDateTime);
+}
+
+fn basenameAnySeparator(path: []const u8) []const u8 {
+    var start: usize = 0;
+    for (path, 0..) |ch, i| {
+        if (ch == '\\' or ch == '/') start = i + 1;
+    }
+    return path[start..];
+}
+
+const GameCandidate = struct {
+    path: []u8,
+    modified_time: u64,
+};
+
+fn freeGameCandidates(candidates: *std.ArrayListUnmanaged(GameCandidate), allocator: std.mem.Allocator) void {
+    for (candidates.items) |candidate| allocator.free(candidate.path);
+    candidates.deinit(allocator);
+}
+
+fn hasCandidate(candidates: []const GameCandidate, path: []const u8) bool {
+    for (candidates) |candidate| {
+        if (std.ascii.eqlIgnoreCase(candidate.path, path)) return true;
+    }
+    return false;
+}
+
+fn addCandidate(io: std.Io, candidates: *std.ArrayListUnmanaged(GameCandidate), allocator: std.mem.Allocator, path: []const u8) !void {
+    const trimmed = trimRightPathNoise(path);
+    if (trimmed.len == 0) return;
+    if (!std.ascii.eqlIgnoreCase(basenameAnySeparator(trimmed), target_exe_name)) return;
+    if (hasCandidate(candidates.items, trimmed)) return;
+    if (!pathExistsWtf8(io, trimmed)) return;
+
+    const owned = try allocator.dupe(u8, trimmed);
+    errdefer allocator.free(owned);
+
+    try candidates.append(allocator, .{
+        .path = owned,
+        .modified_time = fileModifiedTimeWtf8(trimmed),
+    });
+}
+
+fn addInstallCandidate(io: std.Io, candidates: *std.ArrayListUnmanaged(GameCandidate), allocator: std.mem.Allocator, install_dir: []const u8) !void {
+    var exe_buf: [max_path_bytes]u8 = undefined;
+    const exe_utf8 = c.appendNormalizedPath(&exe_buf, install_dir, target_exe_name) catch return;
+    try addCandidate(io, candidates, allocator, exe_utf8);
+}
+
+fn lineInstallDir(line: []const u8) ?[]const u8 {
+    const endfield_idx = indexOfIgnoreCase(line, target_data_dir_name) orelse
+        indexOfIgnoreCase(line, target_exe_name) orelse
+        indexOfIgnoreCase(line, "Endfield") orelse
+        return null;
 
     var start: ?usize = null;
     var i: usize = 0;
@@ -167,8 +261,10 @@ fn extractInstallDirFromLine(line: []const u8) ?[]const u8 {
     const path_start = start orelse return null;
 
     var path_end = trimRightPathNoise(line[path_start..]).len + path_start;
-    if (indexOfIgnoreCase(line[path_start..path_end], "EndField_Data")) |data_idx| {
+    if (indexOfIgnoreCase(line[path_start..path_end], target_data_dir_name)) |data_idx| {
         path_end = path_start + data_idx;
+    } else if (indexOfIgnoreCase(line[path_start..path_end], target_exe_name)) |exe_idx| {
+        path_end = path_start + exe_idx;
     }
 
     while (path_end > path_start and (line[path_end - 1] == '\\' or line[path_end - 1] == '/')) : (path_end -= 1) {}
@@ -176,7 +272,7 @@ fn extractInstallDirFromLine(line: []const u8) ?[]const u8 {
     return line[path_start..path_end];
 }
 
-fn readWholeFileWtf8(io: std.Io, allocator: std.mem.Allocator, wtf8_path: []const u8) !?[]u8 {
+fn readFile(io: std.Io, allocator: std.mem.Allocator, wtf8_path: []const u8) !?[]u8 {
     var file = std.Io.Dir.openFileAbsolute(io, wtf8_path, .{ .allow_directory = false }) catch return null;
     defer file.close(io);
 
@@ -187,60 +283,120 @@ fn readWholeFileWtf8(io: std.Io, allocator: std.mem.Allocator, wtf8_path: []cons
     return try file_reader.interface.readAlloc(allocator, @intCast(stat.size));
 }
 
-fn detectGameExeFromPlayerLog(io: std.Io, environ: std.process.Environ, allocator: std.mem.Allocator) !?[:0]u16 {
+const RegSource = struct {
+    root: c.HKEY,
+    subkey: c.LPCWSTR,
+};
+
+fn scanRegistryValue(io: std.Io, candidates: *std.ArrayListUnmanaged(GameCandidate), allocator: std.mem.Allocator, value_name: []const u16) !void {
+    const exe_idx = indexOfAsciiWideIgnoreCase(value_name, target_exe_name) orelse return;
+
+    var start: ?usize = null;
+    var i: usize = 0;
+    while (i + 2 < value_name.len and i <= exe_idx) : (i += 1) {
+        if (isAsciiWideAlphabetic(value_name[i]) and value_name[i + 1] == ':' and isAsciiWidePathSeparator(value_name[i + 2])) {
+            start = i;
+        }
+    }
+
+    const path_start = start orelse return;
+    const path_end = exe_idx + target_exe_name.len;
+    if (path_end <= path_start or path_end > value_name.len) return;
+
+    var path_buf: [max_path_bytes]u8 = undefined;
+    const exe_path = c.wtf16LeToWtf8Slice(value_name[path_start..path_end], &path_buf) catch return;
+    try addCandidate(io, candidates, allocator, exe_path);
+}
+
+fn scanRegistry(io: std.Io, candidates: *std.ArrayListUnmanaged(GameCandidate), allocator: std.mem.Allocator) !void {
+    const reg_sources = [_]RegSource{
+        .{ .root = c.HKEY_CLASSES_ROOT, .subkey = std.unicode.utf8ToUtf16LeStringLiteral("Local Settings\\Software\\Microsoft\\Windows\\Shell\\MuiCache") },
+        .{ .root = c.HKEY_CURRENT_USER, .subkey = std.unicode.utf8ToUtf16LeStringLiteral("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FeatureUsage\\AppSwitched") },
+        .{ .root = c.HKEY_CURRENT_USER, .subkey = std.unicode.utf8ToUtf16LeStringLiteral("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FeatureUsage\\ShowJumpView") },
+    };
+
+    for (reg_sources) |source| {
+        var key: c.HKEY = undefined;
+        if (c.RegOpenKeyExW(source.root, source.subkey, 0, c.KEY_READ, &key) != c.ERROR_SUCCESS) continue;
+        defer _ = c.RegCloseKey(key);
+
+        var index: c.DWORD = 0;
+        while (true) : (index += 1) {
+            var value_buf: [max_path_bytes]u16 = undefined;
+            var value_len: c.DWORD = value_buf.len;
+            const result = c.RegEnumValueW(key, index, &value_buf, &value_len, null, null, null, null);
+            if (result == c.ERROR_NO_MORE_ITEMS) break;
+            if (result != c.ERROR_SUCCESS) continue;
+
+            try scanRegistryValue(io, candidates, allocator, value_buf[0..value_len]);
+        }
+    }
+}
+
+fn scanPlayerLog(io: std.Io, environ: std.process.Environ, allocator: std.mem.Allocator, candidates: *std.ArrayListUnmanaged(GameCandidate)) !void {
     var appdata_buf: [max_path_bytes]u8 = undefined;
-    const appdata = c.getEnvironmentVariableWtf8(environ, "APPDATA", &appdata_buf) orelse return null;
-    const roaming_parent = std.fs.path.dirname(appdata) orelse return null;
+    const appdata = c.getEnvironmentVariableWtf8(environ, "APPDATA", &appdata_buf) orelse return;
+    const roaming_parent = std.fs.path.dirname(appdata) orelse return;
 
-    var player_log_buf: [max_path_bytes]u8 = undefined;
-    const player_log = try c.appendNormalizedPath(&player_log_buf, roaming_parent, "LocalLow\\Gryphline\\Endfield\\Player.log");
+    var log_buf: [max_path_bytes]u8 = undefined;
+    const log_path = try c.appendNormalizedPath(&log_buf, roaming_parent, "LocalLow\\Gryphline\\Endfield\\Player.log");
 
-    const contents = try readWholeFileWtf8(io, allocator, player_log) orelse return null;
+    const contents = try readFile(io, allocator, log_path) orelse return;
     defer allocator.free(contents);
 
     var lines = std.mem.splitScalar(u8, contents, '\n');
     while (lines.next()) |line| {
-        const install_dir = extractInstallDirFromLine(line) orelse continue;
-        var exe_buf: [max_path_bytes]u8 = undefined;
-        const exe_utf8 = try c.appendNormalizedPath(&exe_buf, install_dir, target_exe_name);
-
-        if (pathExistsWtf8(io, exe_utf8)) {
-            return try std.unicode.wtf8ToWtf16LeAllocZ(allocator, exe_utf8);
-        }
+        const install_dir = lineInstallDir(line) orelse continue;
+        try addInstallCandidate(io, candidates, allocator, install_dir);
     }
-
-    return null;
 }
 
-fn detectGameExeFromKnownPaths(io: std.Io, allocator: std.mem.Allocator) !?[:0]u16 {
-    const fallback_drive_letters = "CDE";
-    const fallback_relative_paths = [_][]const u8{
-        "Program Files\\GRYPHLINK\\games\\EndField Game\\Endfield.exe",
-        "GRYPHLINK\\games\\EndField Game\\Endfield.exe",
+fn scanKnownPaths(io: std.Io, allocator: std.mem.Allocator, candidates: *std.ArrayListUnmanaged(GameCandidate)) !void {
+    const drives = "CDE";
+    const parents = [_][]const u8{
+        "Program Files\\GRYPHLINK\\games",
+        "GRYPHLINK\\games",
+    };
+    const folders = [_][]const u8{
+        "Arknights Endfield",
+        "EndField Game",
     };
 
     var buf: [max_path_bytes]u8 = undefined;
 
-    for (fallback_drive_letters) |drive| {
-        for (fallback_relative_paths) |relative_path| {
-            const candidate = std.fmt.bufPrint(&buf, "{c}:\\{s}", .{ drive, relative_path }) catch unreachable;
-
-            if (pathExistsWtf8(io, candidate)) {
-                return try std.unicode.wtf8ToWtf16LeAllocZ(allocator, candidate);
+    for (drives) |drive| {
+        for (parents) |parent| {
+            for (folders) |folder| {
+                const candidate = std.fmt.bufPrint(&buf, "{c}:\\{s}\\{s}\\{s}", .{ drive, parent, folder, target_exe_name }) catch continue;
+                try addCandidate(io, candidates, allocator, candidate);
             }
         }
     }
-
-    return null;
 }
 
-pub fn detectGameExe(environ: std.process.Environ, allocator: std.mem.Allocator) !?[:0]u16 {
+fn newerGameCandidate(_: void, a: GameCandidate, b: GameCandidate) bool {
+    return a.modified_time > b.modified_time;
+}
+
+pub fn detectGameExeWithScan(environ: std.process.Environ, allocator: std.mem.Allocator, scan: GameScan) !?[:0]u16 {
     var threaded: std.Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
 
-    if (try detectGameExeFromPlayerLog(io, environ, allocator)) |path| return path;
-    return try detectGameExeFromKnownPaths(io, allocator);
+    var candidates: std.ArrayListUnmanaged(GameCandidate) = .empty;
+    defer freeGameCandidates(&candidates, allocator);
+
+    if (scan.player_log) try scanPlayerLog(io, environ, allocator, &candidates);
+    if (scan.known_paths) try scanKnownPaths(io, allocator, &candidates);
+    if (scan.registry) try scanRegistry(io, &candidates, allocator);
+
+    if (candidates.items.len == 0) return null;
+    std.sort.block(GameCandidate, candidates.items, {}, newerGameCandidate);
+    return try std.unicode.wtf8ToWtf16LeAllocZ(allocator, candidates.items[0].path);
+}
+
+pub fn detectGameExe(environ: std.process.Environ, allocator: std.mem.Allocator) !?[:0]u16 {
+    return detectGameExeWithScan(environ, allocator, .{});
 }
 
 pub fn validateGameExeOverridePath(wtf8_path: []const u8) bool {
@@ -262,13 +418,17 @@ pub fn duplicateGameExePath(allocator: std.mem.Allocator, wtf8_path: []const u8)
     return try std.unicode.wtf8ToWtf16LeAllocZ(allocator, trimRightPathNoise(wtf8_path));
 }
 
-pub fn resolveGameExe(game_exe_override_path: ?[]const u8, environ: std.process.Environ, allocator: std.mem.Allocator) !?[:0]u16 {
+pub fn resolveGameExeWithScan(game_exe_override_path: ?[]const u8, environ: std.process.Environ, allocator: std.mem.Allocator, scan: GameScan) !?[:0]u16 {
     if (game_exe_override_path) |path| {
         if (!validateGameExeOverridePath(path)) return null;
         return try duplicateGameExePath(allocator, path);
     }
 
-    return try detectGameExe(environ, allocator);
+    return try detectGameExeWithScan(environ, allocator, scan);
+}
+
+pub fn resolveGameExe(game_exe_override_path: ?[]const u8, environ: std.process.Environ, allocator: std.mem.Allocator) !?[:0]u16 {
+    return resolveGameExeWithScan(game_exe_override_path, environ, allocator, .{});
 }
 
 // Injection and launch

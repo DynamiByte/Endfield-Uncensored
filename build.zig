@@ -147,7 +147,7 @@ fn addSubsetFont(
 }
 
 fn linkLoaderLibraries(module: *std.Build.Module) void {
-    inline for ([_][]const u8{ "user32", "gdi32", "opengl32", "glu32", "shell32", "dwmapi", "ws2_32" }) |library_name| {
+    inline for ([_][]const u8{ "user32", "gdi32", "opengl32", "glu32", "shell32", "dwmapi", "ws2_32", "advapi32" }) |library_name| {
         module.linkSystemLibrary(library_name, .{});
     }
 }

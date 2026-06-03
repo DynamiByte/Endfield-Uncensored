@@ -16,10 +16,16 @@ const EFMI_DEFAULT_SUBPATH = "XXMI Launcher\\Resources\\Bin\\XXMI Launcher.exe";
 const EFMI_MISSING_PATH_MESSAGE = strings.cli.efmi_missing_path_cli_message;
 const EFMI_COMMAND_LINE_FMT = "\"{s}\" --nogui --xxmi EFMI";
 const CLI_BLANK_LINE = "\n";
-const DEBUG_VALUE_BOXES = "boxes";
-const DEBUG_VALUE_BOXES_SHORT = "b";
-const DEBUG_VALUE_AUTOSCROLL = "autoscroll";
-const DEBUG_VALUE_AUTOSCROLL_SHORT = "as";
+const DEBUG_BOXES = "boxes";
+const DEBUG_BOXES_ALIAS = "b";
+const DEBUG_AUTOSCROLL = "autoscroll";
+const DEBUG_AUTOSCROLL_ALIAS = "as";
+const DEBUG_NO_REGISTRY = "no-registry";
+const DEBUG_NO_REGISTRY_ALIAS = "nr";
+const DEBUG_NO_PLAYER_LOG = "no-player-log";
+const DEBUG_NO_PLAYER_LOG_ALIAS = "npl";
+const DEBUG_NO_KNOWN_PATHS = "no-known-paths";
+const DEBUG_NO_KNOWN_PATHS_ALIAS = "nkp";
 
 pub const BoolOverride = enum {
     auto,
@@ -35,9 +41,20 @@ pub const Mode = enum {
 pub const DebugOptions = struct {
     boxes: bool = false,
     autoscroll: bool = false,
+    no_registry: bool = false,
+    no_player_log: bool = false,
+    no_known_paths: bool = false,
 
     pub fn any(self: DebugOptions) bool {
-        return self.boxes or self.autoscroll;
+        return self.boxes or self.autoscroll or self.no_registry or self.no_player_log or self.no_known_paths;
+    }
+
+    pub fn gameScan(self: DebugOptions) loader.GameScan {
+        return .{
+            .registry = !self.no_registry,
+            .player_log = !self.no_player_log,
+            .known_paths = !self.no_known_paths,
+        };
     }
 };
 
@@ -156,13 +173,32 @@ fn parseDebugValueInto(options: *DebugOptions, value: []const u8) bool {
     while (parts.next()) |raw_part| {
         const part = std.mem.trim(u8, raw_part, " \t\r\n");
         if (part.len == 0) return false;
-        if (std.ascii.eqlIgnoreCase(part, DEBUG_VALUE_BOXES) or std.ascii.eqlIgnoreCase(part, DEBUG_VALUE_BOXES_SHORT)) {
+        if (std.ascii.eqlIgnoreCase(part, DEBUG_BOXES) or std.ascii.eqlIgnoreCase(part, DEBUG_BOXES_ALIAS)) {
             options.boxes = true;
             parsed_any = true;
             continue;
         }
-        if (std.ascii.eqlIgnoreCase(part, DEBUG_VALUE_AUTOSCROLL) or std.ascii.eqlIgnoreCase(part, DEBUG_VALUE_AUTOSCROLL_SHORT)) {
+        if (std.ascii.eqlIgnoreCase(part, DEBUG_AUTOSCROLL) or std.ascii.eqlIgnoreCase(part, DEBUG_AUTOSCROLL_ALIAS)) {
             options.autoscroll = true;
+            parsed_any = true;
+            continue;
+        }
+        if (std.ascii.eqlIgnoreCase(part, DEBUG_NO_REGISTRY) or std.ascii.eqlIgnoreCase(part, DEBUG_NO_REGISTRY_ALIAS)) {
+            options.no_registry = true;
+            parsed_any = true;
+            continue;
+        }
+        if (std.ascii.eqlIgnoreCase(part, DEBUG_NO_PLAYER_LOG) or
+            std.ascii.eqlIgnoreCase(part, DEBUG_NO_PLAYER_LOG_ALIAS))
+        {
+            options.no_player_log = true;
+            parsed_any = true;
+            continue;
+        }
+        if (std.ascii.eqlIgnoreCase(part, DEBUG_NO_KNOWN_PATHS) or
+            std.ascii.eqlIgnoreCase(part, DEBUG_NO_KNOWN_PATHS_ALIAS))
+        {
+            options.no_known_paths = true;
             parsed_any = true;
             continue;
         }
@@ -543,8 +579,8 @@ fn cliWaitForEfmiLaunchOrQuit(auto_yes: bool) bool {
 }
 
 // Run modes
-fn runSilentCli(allocator: std.mem.Allocator, environ: std.process.Environ, embedded_dll: []const u8, game_exe_override_path: ?[]const u8, dx11: bool) !u8 {
-    const game_exe_path = loader.resolveGameExe(game_exe_override_path, environ, allocator) catch null;
+fn runSilentCli(allocator: std.mem.Allocator, environ: std.process.Environ, embedded_dll: []const u8, game_exe_override_path: ?[]const u8, game_scan: loader.GameScan, dx11: bool) !u8 {
+    const game_exe_path = loader.resolveGameExeWithScan(game_exe_override_path, environ, allocator, game_scan) catch null;
     defer if (game_exe_path) |path| allocator.free(path);
 
     const startup_pid = loader.findTargetProcess();
@@ -692,7 +728,9 @@ pub fn run(allocator: std.mem.Allocator, environ: std.process.Environ, mode: Mod
     defer threaded.deinit();
     const io = threaded.io();
 
-    if (mode == .silent) return runSilentCli(allocator, environ, embedded_dll, config.game_exe_override_path, config.dx11);
+    const game_scan = config.debug.gameScan();
+
+    if (mode == .silent) return runSilentCli(allocator, environ, embedded_dll, config.game_exe_override_path, game_scan, config.dx11);
 
     ensureCliConsole();
     cliPrintHeader(io);
@@ -708,7 +746,7 @@ pub fn run(allocator: std.mem.Allocator, environ: std.process.Environ, mode: Mod
         allocator.free(temp_dll_path);
     }
 
-    const game_exe_path = loader.resolveGameExe(config.game_exe_override_path, environ, allocator) catch null;
+    const game_exe_path = loader.resolveGameExeWithScan(config.game_exe_override_path, environ, allocator, game_scan) catch null;
     defer if (game_exe_path) |path| allocator.free(path);
 
     const startup_pid = loader.findTargetProcess();

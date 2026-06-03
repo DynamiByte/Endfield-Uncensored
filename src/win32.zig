@@ -9,6 +9,7 @@ pub const BYTE = windows.BYTE;
 pub const BOOL = windows.BOOL;
 pub const DWORD = windows.DWORD;
 pub const HANDLE = windows.HANDLE;
+pub const HKEY = *opaque {};
 pub const HBRUSH = windows.HBRUSH;
 pub const HCURSOR = windows.HCURSOR;
 pub const HDC = windows.HDC;
@@ -40,6 +41,7 @@ pub const PROCESS_INFORMATION = windows.PROCESS.INFORMATION;
 
 pub const WPARAM = usize;
 pub const LRESULT = isize;
+pub const LSTATUS = LONG;
 pub const WNDPROC = *const fn (hwnd: HWND, msg: UINT, w_param: WPARAM, l_param: LPARAM) callconv(.winapi) LRESULT;
 
 pub const POINT = extern struct {
@@ -52,6 +54,20 @@ pub const RECT = extern struct {
     top: LONG,
     right: LONG,
     bottom: LONG,
+};
+
+pub const FILETIME = extern struct {
+    dwLowDateTime: DWORD,
+    dwHighDateTime: DWORD,
+};
+
+pub const WIN32_FILE_ATTRIBUTE_DATA = extern struct {
+    dwFileAttributes: DWORD,
+    ftCreationTime: FILETIME,
+    ftLastAccessTime: FILETIME,
+    ftLastWriteTime: FILETIME,
+    nFileSizeHigh: DWORD,
+    nFileSizeLow: DWORD,
 };
 
 pub const WINDOWPOS = extern struct {
@@ -267,12 +283,15 @@ pub const MEM_COMMIT: DWORD = 0x00001000;
 pub const MEM_RESERVE: DWORD = 0x00002000;
 pub const MEM_RELEASE: DWORD = 0x00008000;
 pub const PAGE_READWRITE: DWORD = 0x00000004;
+pub const KEY_READ: DWORD = 0x00020019;
 
+pub const ERROR_SUCCESS: LSTATUS = 0;
 pub const ERROR_FILE_NOT_FOUND: DWORD = 2;
 pub const ERROR_PATH_NOT_FOUND: DWORD = 3;
 pub const ERROR_ACCESS_DENIED: DWORD = 5;
 pub const ERROR_INVALID_PARAMETER: DWORD = 87;
 pub const ERROR_INVALID_NAME: DWORD = 123;
+pub const ERROR_NO_MORE_ITEMS: LSTATUS = 259;
 pub const KEY_EVENT: WORD = 0x0001;
 pub const CF_UNICODETEXT: UINT = 13;
 pub const GMEM_MOVEABLE: UINT = 0x0002;
@@ -356,6 +375,16 @@ pub const SM_CYICON: INT = 12;
 pub const SM_CXSMICON: INT = 49;
 pub const SM_CYSMICON: INT = 50;
 
+pub const GET_FILEEX_INFO_LEVELS = INT;
+pub const GetFileExInfoStandard: GET_FILEEX_INFO_LEVELS = 0;
+
+fn predefinedHkey(comptime value: u32) HKEY {
+    return @ptrFromInt(@as(usize, @bitCast(@as(isize, @as(i32, @bitCast(value))))));
+}
+
+pub const HKEY_CLASSES_ROOT: HKEY = predefinedHkey(0x80000000);
+pub const HKEY_CURRENT_USER: HKEY = predefinedHkey(0x80000001);
+
 // Kernel32, user32, shell, network, and graphics imports
 pub extern "kernel32" fn CreateToolhelp32Snapshot(dw_flags: DWORD, th32_process_id: DWORD) callconv(.winapi) HANDLE;
 pub extern "kernel32" fn Process32FirstW(h_snapshot: HANDLE, lppe: *PROCESSENTRY32W) callconv(.winapi) BOOL;
@@ -379,6 +408,7 @@ pub extern "kernel32" fn WriteProcessMemory(h_process: HANDLE, lp_base_address: 
 pub extern "kernel32" fn GetModuleHandleA(lp_module_name: ?[*:0]const u8) callconv(.winapi) ?HMODULE;
 pub extern "kernel32" fn GetProcAddress(h_module: HMODULE, lp_proc_name: [*:0]const u8) callconv(.winapi) ?*anyopaque;
 pub extern "kernel32" fn GetFileAttributesW(lp_file_name: LPCWSTR) callconv(.winapi) DWORD;
+pub extern "kernel32" fn GetFileAttributesExW(lp_file_name: LPCWSTR, f_info_level_id: GET_FILEEX_INFO_LEVELS, lp_file_information: *WIN32_FILE_ATTRIBUTE_DATA) callconv(.winapi) BOOL;
 pub extern "kernel32" fn CreateRemoteThread(h_process: HANDLE, lp_thread_attributes: ?*SECURITY_ATTRIBUTES, dw_stack_size: usize, lp_start_address: *const fn (?*anyopaque) callconv(.winapi) DWORD, lp_parameter: ?*anyopaque, dw_creation_flags: DWORD, lp_thread_id: ?*DWORD) callconv(.winapi) ?HANDLE;
 pub extern "kernel32" fn GetExitCodeThread(h_thread: HANDLE, lp_exit_code: *DWORD) callconv(.winapi) BOOL;
 pub extern "kernel32" fn QueryFullProcessImageNameW(h_process: HANDLE, dw_flags: DWORD, lp_exe_name: [*]WCHAR, lpdw_size: *DWORD) callconv(.winapi) BOOL;
@@ -438,6 +468,10 @@ pub extern "gdi32" fn DeleteObject(object: HANDLE) callconv(.winapi) BOOL;
 pub extern "gdi32" fn SwapBuffers(hdc: HDC) callconv(.winapi) BOOL;
 
 pub extern "shell32" fn ShellExecuteW(hwnd: ?HWND, operation: LPCWSTR, file: LPCWSTR, parameters: ?LPCWSTR, directory: ?LPCWSTR, show_cmd: INT) callconv(.winapi) HINSTANCE;
+
+pub extern "advapi32" fn RegOpenKeyExW(h_key: HKEY, lp_sub_key: LPCWSTR, ul_options: DWORD, sam_desired: DWORD, phk_result: *HKEY) callconv(.winapi) LSTATUS;
+pub extern "advapi32" fn RegEnumValueW(h_key: HKEY, dw_index: DWORD, lp_value_name: [*]WCHAR, lpcch_value_name: *DWORD, lp_reserved: ?*DWORD, lp_type: ?*DWORD, lp_data: ?[*]BYTE, lpcb_data: ?*DWORD) callconv(.winapi) LSTATUS;
+pub extern "advapi32" fn RegCloseKey(h_key: HKEY) callconv(.winapi) LSTATUS;
 
 pub extern "ws2_32" fn WSAStartup(wVersionRequested: WORD, lpWSAData: *WSADATA) callconv(.winapi) INT;
 pub extern "ws2_32" fn WSACleanup() callconv(.winapi) INT;
