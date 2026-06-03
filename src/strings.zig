@@ -136,14 +136,7 @@ pub const cli = struct {
     pub const parse_missing_game_path_value = "Missing value for --game-path. Pass a path to Endfield.exe.";
     pub const parse_invalid_game_path_value = "Invalid value for --game-path. It must point to an existing .exe file.";
     pub const parse_invalid_efmi_path_value = "Invalid value for --EFMI. It must point to an existing .exe file.";
-    pub const parse_missing_debug_value = "Missing value for -d/--debug. Use one or more values, like: -d boxes or --debug no-registry";
-    pub const parse_invalid_debug_value = "Invalid value for -d/--debug. Supported values: boxes/b, autoscroll/as, no-registry/nr, no-player-log/npl, no-known-paths/nkp";
-    pub const parse_missing_bool_value = "Missing boolean value. Use true or false.";
-    pub const parse_invalid_bool_value = "Invalid boolean value. Use true or false.";
-    pub const parse_mutually_exclusive_dx11_and_efmi = "--DX11 is mutually exclusive with --EFMI.";
     pub const parse_mutually_exclusive_game_path_and_efmi = "--game-path is mutually exclusive with --EFMI.";
-    pub const parse_mutually_exclusive_auto_yes_and_gui = "-y and --yes are mutually exclusive with GUI mode.";
-    pub const parse_mutually_exclusive_cli_and_gui_args = "CLI arguments are mutually exclusive with GUI-only arguments.";
     pub const parse_unknown = "Unknown argument error.";
     pub const parse_oom = "Not enough memory to parse command line.";
 
@@ -186,14 +179,7 @@ pub const cli = struct {
             error.MissingGamePathValue => parse_missing_game_path_value,
             error.InvalidGamePathValue => parse_invalid_game_path_value,
             error.InvalidEfmiPathValue => parse_invalid_efmi_path_value,
-            error.MissingDebugValue => parse_missing_debug_value,
-            error.InvalidDebugValue => parse_invalid_debug_value,
-            error.MissingBoolValue => parse_missing_bool_value,
-            error.InvalidBoolValue => parse_invalid_bool_value,
-            error.MutuallyExclusiveDx11AndEfmi => parse_mutually_exclusive_dx11_and_efmi,
             error.MutuallyExclusiveGamePathAndEfmi => parse_mutually_exclusive_game_path_and_efmi,
-            error.MutuallyExclusiveAutoYesAndGUI => parse_mutually_exclusive_auto_yes_and_gui,
-            error.MutuallyExclusiveCliAndGUIArgs => parse_mutually_exclusive_cli_and_gui_args,
             else => parse_unknown,
         };
     }

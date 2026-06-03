@@ -71,7 +71,7 @@ EFU includes an Alt+F12 in-game toggle.
 
 ### Common arguments
 
-Arguments are case-insensitive. Prefixes `-`, `--`, and `/` are accepted. Boolean values are case-insensitive; use `true|false` in examples, but `on|off`, `yes|no`, `y|n`, and `t|f` also work.
+Arguments are case-insensitive. Prefixes `-`, `--`, and `/` are accepted. Some arguments are toggleable, with optional boolean values. Boolean values are case-insensitive; `true|false`, `on|off`, `yes|no`, `y|n`, and `t|f` work.
 
 - `-c` / `--cli`: interactive console mode
 - `-s` / `--silent`: one-shot launch and inject flow with error popups instead of an interactive console
@@ -80,16 +80,19 @@ Arguments are case-insensitive. Prefixes `-`, `--`, and `/` are accepted. Boolea
 - `-y` / `--yes`: auto-confirm prompts used by the EFMI CLI flow
 - `--EFMI [PATH_TO_XXMI Launcher.exe]`: launch EFMI through XXMI, optionally using an explicit launcher path
 - `--EFMI false`: prevent EFU from auto-detecting XXMI and showing the EFMI button in the GUI
-- `--tc` / `--transparent-corners [true|false]`: override transparent corners
-- `--wa` / `--window-animations [true|false]`: override window animations
-- `--am` / `--allow-minimize [true|false]`: override minimize support
+- `--tc` / `--transparent-corners [true|false]`: toggle transparent corners, or add a boolean value to force a state
+- `--wa` / `--window-animations [true|false]`: toggle window animations, or add a boolean value to force a state
+- `--am` / `--allow-minimize [true|false]`: toggle minimize support, or add a boolean value to force a state
 
 ### Debug arguments
 
 `-d` / `--debug` accepts one or more comma-separated values:
 
 - `boxes` / `b`: show GUI development overlays
-- `autoscroll` / `as`: disable game launching 
+- `autoscroll` / `as`: test textbox autoscroll behavior
+- `no-registry` / `nr`: skip registry game detection
+- `no-player-log` / `npl`: skip Player.log game detection
+- `no-known-paths` / `nkp`: skip known-path game detection
 
 ### EFMI / XXMI integration
 

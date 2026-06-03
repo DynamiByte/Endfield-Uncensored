@@ -32,6 +32,11 @@ pub const BoolValue = enum {
     off,
 };
 
+pub const BoolOverride = union(enum) {
+    value: bool,
+    toggle: void,
+};
+
 pub const Mode = enum {
     visible,
     silent,
@@ -66,9 +71,9 @@ pub const LaunchConfig = struct {
     efmi_search_enabled: bool = true,
     efmi_launcher_path: ?[]u8 = null,
     game_exe_override_path: ?[]u8 = null,
-    transparent_corners_override: ?bool = null,
-    window_animations_override: ?bool = null,
-    allow_minimize_override: ?bool = null,
+    transparent_corners_override: ?BoolOverride = null,
+    window_animations_override: ?BoolOverride = null,
+    allow_minimize_override: ?BoolOverride = null,
     debug: DebugOptions = .{},
 };
 
@@ -76,14 +81,7 @@ pub const ParseArgsError = error{
     MissingGamePathValue,
     InvalidGamePathValue,
     InvalidEfmiPathValue,
-    MissingDebugValue,
-    InvalidDebugValue,
-    MissingBoolValue,
-    InvalidBoolValue,
-    MutuallyExclusiveDx11AndEfmi,
     MutuallyExclusiveGamePathAndEfmi,
-    MutuallyExclusiveAutoYesAndGUI,
-    MutuallyExclusiveCliAndGUIArgs,
 };
 
 const CliWaitResult = union(enum) {
@@ -164,17 +162,37 @@ fn parseBoolValue(arg: []const u8) ?BoolValue {
     return null;
 }
 
-fn parseArgBoolValue(value: []const u8) !bool {
-    return switch (parseBoolValue(value) orelse return error.InvalidBoolValue) {
+fn boolValue(value: BoolValue) bool {
+    return switch (value) {
         .on => true,
         .off => false,
     };
 }
 
-fn nextBoolArgValue(args_it: *std.process.Args.Iterator) !bool {
-    const value = args_it.next() orelse return error.MissingBoolValue;
-    if (isKnownArg(value)) return error.MissingBoolValue;
-    return try parseArgBoolValue(value);
+fn applyBoolOverride(out: *?BoolOverride, value: BoolOverride) void {
+    switch (value) {
+        .value => out.* = value,
+        .toggle => {
+            if (out.*) |old| {
+                out.* = switch (old) {
+                    .value => |old_value| .{ .value = !old_value },
+                    .toggle => null,
+                };
+            } else {
+                out.* = .{ .toggle = {} };
+            }
+        },
+    }
+}
+
+fn nextBoolOverride(args_it: *std.process.Args.Iterator, pending_arg: *?[]const u8) BoolOverride {
+    const value = args_it.next() orelse return .{ .toggle = {} };
+    if (isKnownArg(value)) {
+        pending_arg.* = value;
+        return .{ .toggle = {} };
+    }
+    if (parseBoolValue(value)) |parsed| return .{ .value = boolValue(parsed) };
+    return .{ .toggle = {} };
 }
 
 fn parseDebugValueInto(options: *DebugOptions, value: []const u8) bool {
@@ -262,15 +280,15 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
                 continue;
             },
             .transparent_corners => {
-                config.transparent_corners_override = try nextBoolArgValue(&args_it);
+                applyBoolOverride(&config.transparent_corners_override, nextBoolOverride(&args_it, &pending_arg));
                 continue;
             },
             .window_animations => {
-                config.window_animations_override = try nextBoolArgValue(&args_it);
+                applyBoolOverride(&config.window_animations_override, nextBoolOverride(&args_it, &pending_arg));
                 continue;
             },
             .allow_minimize => {
-                config.allow_minimize_override = try nextBoolArgValue(&args_it);
+                applyBoolOverride(&config.allow_minimize_override, nextBoolOverride(&args_it, &pending_arg));
                 continue;
             },
             .game_path => {
@@ -311,16 +329,13 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
                 }
             },
             .debug => {
-                var parsed_any = false;
                 while (args_it.next()) |value| {
                     if (isKnownArg(value)) {
                         pending_arg = value;
                         break;
                     }
-                    if (!parseDebugValueInto(&config.debug, value)) return error.InvalidDebugValue;
-                    parsed_any = true;
+                    _ = parseDebugValueInto(&config.debug, value);
                 }
-                if (!parsed_any) return error.MissingDebugValue;
                 continue;
             },
             .unknown => {},
@@ -331,16 +346,13 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
         config.cli = true;
     }
     if (config.cli and config.dx11 and config.efmi_requested) {
-        return error.MutuallyExclusiveDx11AndEfmi;
+        config.dx11 = false;
     }
     if (config.cli and config.efmi_requested and config.game_exe_override_path != null) {
         return error.MutuallyExclusiveGamePathAndEfmi;
     }
     if (config.auto_yes and !config.cli) {
-        return error.MutuallyExclusiveAutoYesAndGUI;
-    }
-    if (config.cli and (config.transparent_corners_override != null or config.window_animations_override != null or config.allow_minimize_override != null)) {
-        return error.MutuallyExclusiveCliAndGUIArgs;
+        config.auto_yes = false;
     }
 
     return config;

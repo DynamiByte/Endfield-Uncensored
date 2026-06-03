@@ -596,12 +596,20 @@ fn defaultUiFeatures() UiFeatures {
     return .{ .transparent_corners = false, .window_animations = true, .allow_minimize = true };
 }
 
+fn resolveBoolOverride(default_value: bool, override: ?cli.BoolOverride) bool {
+    return if (override) |value| switch (value) {
+        .value => |set_value| set_value,
+        .toggle => !default_value,
+    } else default_value;
+}
+
 fn resolveUiFeatures(config: cli.LaunchConfig) UiFeatures {
-    var features = defaultUiFeatures();
-    if (config.transparent_corners_override) |value| features.transparent_corners = value;
-    if (config.window_animations_override) |value| features.window_animations = value;
-    if (config.allow_minimize_override) |value| features.allow_minimize = value;
-    return features;
+    const defaults = defaultUiFeatures();
+    return .{
+        .transparent_corners = resolveBoolOverride(defaults.transparent_corners, config.transparent_corners_override),
+        .window_animations = resolveBoolOverride(defaults.window_animations, config.window_animations_override),
+        .allow_minimize = resolveBoolOverride(defaults.allow_minimize, config.allow_minimize_override),
+    };
 }
 
 fn resolvePostInjectBehavior(toggle_enabled: bool, allow_minimize: bool) PostInjectBehavior {
@@ -3431,14 +3439,7 @@ pub fn main(init: std.process.Init.Minimal) void {
             error.MissingGamePathValue => cli.showArgumentError(cli.describeParseArgsError(error.MissingGamePathValue)),
             error.InvalidGamePathValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidGamePathValue)),
             error.InvalidEfmiPathValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidEfmiPathValue)),
-            error.MissingDebugValue => cli.showArgumentError(cli.describeParseArgsError(error.MissingDebugValue)),
-            error.InvalidDebugValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidDebugValue)),
-            error.MissingBoolValue => cli.showArgumentError(cli.describeParseArgsError(error.MissingBoolValue)),
-            error.InvalidBoolValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidBoolValue)),
-            error.MutuallyExclusiveDx11AndEfmi => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveDx11AndEfmi)),
             error.MutuallyExclusiveGamePathAndEfmi => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveGamePathAndEfmi)),
-            error.MutuallyExclusiveAutoYesAndGUI => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveAutoYesAndGUI)),
-            error.MutuallyExclusiveCliAndGUIArgs => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveCliAndGUIArgs)),
         }
         std.process.exit(1);
     };
