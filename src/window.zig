@@ -295,7 +295,6 @@ const LoaderWorkerState = struct {
     }
 };
 
-const BoolOverride = cli.BoolOverride;
 
 const PostInjectBehavior = enum {
     close,
@@ -349,7 +348,8 @@ const LogoBounds = struct {
 var g_hwnd: ?c.HWND = null;
 var g_running = true;
 var g_window_opacity: f32 = 0.0;
-var g_wine_mode = false;
+var g_transparent_corners = true;
+var g_window_animations = true;
 var g_allow_minimize = true;
 var g_startup_target_pid: u32 = 0;
 
@@ -580,25 +580,28 @@ fn fromByteGUIRect(rect: bgc.RECT) c.RECT {
     };
 }
 
+const UiFeatures = struct {
+    transparent_corners: bool,
+    window_animations: bool,
+    allow_minimize: bool,
+};
+
 fn isRunningUnderWine() bool {
     const ntdll = c.GetModuleHandleA("ntdll.dll") orelse return false;
     return c.GetProcAddress(ntdll, "wine_get_version") != null;
 }
 
-fn resolveWineMode(config: cli.LaunchConfig) bool {
-    return switch (config.wine_mode_override) {
-        .auto => isRunningUnderWine(),
-        .on => true,
-        .off => false,
-    };
+fn defaultUiFeatures() UiFeatures {
+    if (!isRunningUnderWine()) return .{ .transparent_corners = true, .window_animations = true, .allow_minimize = true };
+    return .{ .transparent_corners = false, .window_animations = true, .allow_minimize = true };
 }
 
-fn resolveAllowMinimize(config: cli.LaunchConfig, wine_mode: bool) bool {
-    return switch (config.allow_minimize_override) {
-        .auto => !wine_mode,
-        .on => true,
-        .off => false,
-    };
+fn resolveUiFeatures(config: cli.LaunchConfig) UiFeatures {
+    var features = defaultUiFeatures();
+    if (config.transparent_corners_override) |value| features.transparent_corners = value;
+    if (config.window_animations_override) |value| features.window_animations = value;
+    if (config.allow_minimize_override) |value| features.allow_minimize = value;
+    return features;
 }
 
 fn resolvePostInjectBehavior(toggle_enabled: bool, allow_minimize: bool) PostInjectBehavior {
@@ -1304,15 +1307,19 @@ fn cleanupRenderResources() void {
 }
 
 fn windowUsesLayeredOpacity() bool {
-    return !g_wine_mode;
+    return g_transparent_corners or g_window_animations;
+}
+
+fn windowHasTransparentCorners() bool {
+    return g_transparent_corners;
 }
 
 fn windowCornerRadiusPx() f32 {
-    return bytegui.ByteGUI_ImplWin32_CornerRadiusPx(CORNER_RADIUS, windowUsesLayeredOpacity());
+    return bytegui.ByteGUI_ImplWin32_CornerRadiusPx(CORNER_RADIUS, windowHasTransparentCorners());
 }
 
 fn applyWindowShape() void {
-    bytegui.ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShapeLogical(CORNER_RADIUS, windowUsesLayeredOpacity());
+    bytegui.ByteGUI_ImplWin32_ApplyCornerOnlyRoundedWindowShapeLogical(CORNER_RADIUS, windowHasTransparentCorners());
 }
 
 fn applyBaseStyle() void {
@@ -1487,7 +1494,7 @@ fn bringWindowToFront() void {
 
 fn showStartupWindow() void {
     const hwnd = g_hwnd orelse return;
-    if (g_wine_mode) {
+    if (!g_window_animations) {
         _ = c.ShowWindow(hwnd, c.SW_SHOW);
         bringWindowToFront();
         _ = c.UpdateWindow(hwnd);
@@ -1508,7 +1515,7 @@ fn startWindowAnimation(typ: WindowAnimType) void {
     _ = c.GetWindowRect(hwnd, &rc);
 
     cancelCloseCountdown();
-    if (g_wine_mode) {
+    if (!g_window_animations) {
         g_window_anim = .{};
         switch (typ) {
             .slide_in, .fade_in_restore => {
@@ -3187,17 +3194,17 @@ fn wndProc(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) call
             if (result != -1) return result;
         },
         c.WM_SIZING => {
-            bytegui.ByteGUI_ImplWin32_PrepareCornerOnlyRoundedWindowResize(CORNER_RADIUS, windowUsesLayeredOpacity(), msg, l_param);
+            bytegui.ByteGUI_ImplWin32_PrepareCornerOnlyRoundedWindowResize(CORNER_RADIUS, windowHasTransparentCorners(), msg, l_param);
             return 1;
         },
         c.WM_WINDOWPOSCHANGING => {
-            bytegui.ByteGUI_ImplWin32_PrepareCornerOnlyRoundedWindowResize(CORNER_RADIUS, windowUsesLayeredOpacity(), msg, l_param);
+            bytegui.ByteGUI_ImplWin32_PrepareCornerOnlyRoundedWindowResize(CORNER_RADIUS, windowHasTransparentCorners(), msg, l_param);
         },
         c.WM_SIZE => {
             if (w_param == c.SIZE_MINIMIZED) {
                 g_was_minimized = true;
             } else {
-                _ = bytegui.ByteGUI_ImplWin32_HandleCornerOnlyRoundedWindowSize(CORNER_RADIUS, windowUsesLayeredOpacity(), w_param, l_param);
+                _ = bytegui.ByteGUI_ImplWin32_HandleCornerOnlyRoundedWindowSize(CORNER_RADIUS, windowHasTransparentCorners(), w_param, l_param);
                 if (w_param == c.SIZE_RESTORED and g_was_minimized) {
                     g_was_minimized = false;
                     startWindowAnimation(.fade_in_restore);
@@ -3221,7 +3228,7 @@ fn wndProc(hwnd: c.HWND, msg: c.UINT, w_param: c.WPARAM, l_param: c.LPARAM) call
             }
 
             _ = suggested_rect;
-            bytegui.ByteGUI_ImplWin32_ApplyCornerOnlyRoundedDpiWindowPos(CORNER_RADIUS, windowUsesLayeredOpacity(), l_param);
+            bytegui.ByteGUI_ImplWin32_ApplyCornerOnlyRoundedDpiWindowPos(CORNER_RADIUS, windowHasTransparentCorners(), l_param);
             return 0;
         },
         c.WM_ERASEBKGND => return 1,
@@ -3421,15 +3428,13 @@ pub fn main(init: std.process.Init.Minimal) void {
     const config = cli.parseLaunchConfig(allocator, init.environ, init.args) catch |err| {
         switch (err) {
             error.OutOfMemory => cli.showArgumentError(strings.cli.parse_oom),
-            error.MissingForceWineModeValue => cli.showArgumentError(cli.describeParseArgsError(error.MissingForceWineModeValue)),
-            error.InvalidForceWineModeValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidForceWineModeValue)),
-            error.MissingAllowMinimizeValue => cli.showArgumentError(cli.describeParseArgsError(error.MissingAllowMinimizeValue)),
-            error.InvalidAllowMinimizeValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidAllowMinimizeValue)),
             error.MissingGamePathValue => cli.showArgumentError(cli.describeParseArgsError(error.MissingGamePathValue)),
             error.InvalidGamePathValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidGamePathValue)),
             error.InvalidEfmiPathValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidEfmiPathValue)),
             error.MissingDebugValue => cli.showArgumentError(cli.describeParseArgsError(error.MissingDebugValue)),
             error.InvalidDebugValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidDebugValue)),
+            error.MissingBoolValue => cli.showArgumentError(cli.describeParseArgsError(error.MissingBoolValue)),
+            error.InvalidBoolValue => cli.showArgumentError(cli.describeParseArgsError(error.InvalidBoolValue)),
             error.MutuallyExclusiveDx11AndEfmi => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveDx11AndEfmi)),
             error.MutuallyExclusiveGamePathAndEfmi => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveGamePathAndEfmi)),
             error.MutuallyExclusiveAutoYesAndGUI => cli.showArgumentError(cli.describeParseArgsError(error.MutuallyExclusiveAutoYesAndGUI)),
@@ -3447,8 +3452,12 @@ pub fn main(init: std.process.Init.Minimal) void {
     g_efmi_on_launch = config.efmi_requested and config.efmi_search_enabled;
     g_force_dx11 = config.dx11;
     g_game_scan = config.debug.gameScan();
-    g_wine_mode = if (config.cli) false else resolveWineMode(config);
-    g_allow_minimize = if (config.cli) true else resolveAllowMinimize(config, g_wine_mode);
+    if (!config.cli) {
+        const features = resolveUiFeatures(config);
+        g_transparent_corners = features.transparent_corners;
+        g_window_animations = features.window_animations;
+        g_allow_minimize = features.allow_minimize;
+    }
     const code = if (config.cli)
         cli.run(allocator, init.environ, if (config.silent) .silent else .visible, embedded_dll, config) catch 1
     else blk: {

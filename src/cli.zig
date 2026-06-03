@@ -27,8 +27,7 @@ const DEBUG_NO_PLAYER_LOG_ALIAS = "npl";
 const DEBUG_NO_KNOWN_PATHS = "no-known-paths";
 const DEBUG_NO_KNOWN_PATHS_ALIAS = "nkp";
 
-pub const BoolOverride = enum {
-    auto,
+pub const BoolValue = enum {
     on,
     off,
 };
@@ -67,21 +66,20 @@ pub const LaunchConfig = struct {
     efmi_search_enabled: bool = true,
     efmi_launcher_path: ?[]u8 = null,
     game_exe_override_path: ?[]u8 = null,
-    wine_mode_override: BoolOverride = .auto,
-    allow_minimize_override: BoolOverride = .auto,
+    transparent_corners_override: ?bool = null,
+    window_animations_override: ?bool = null,
+    allow_minimize_override: ?bool = null,
     debug: DebugOptions = .{},
 };
 
 pub const ParseArgsError = error{
-    MissingForceWineModeValue,
-    InvalidForceWineModeValue,
-    MissingAllowMinimizeValue,
-    InvalidAllowMinimizeValue,
     MissingGamePathValue,
     InvalidGamePathValue,
     InvalidEfmiPathValue,
     MissingDebugValue,
     InvalidDebugValue,
+    MissingBoolValue,
+    InvalidBoolValue,
     MutuallyExclusiveDx11AndEfmi,
     MutuallyExclusiveGamePathAndEfmi,
     MutuallyExclusiveAutoYesAndGUI,
@@ -99,7 +97,8 @@ const ArgKind = enum {
     silent,
     auto_yes,
     dx11,
-    force_wine_mode,
+    transparent_corners,
+    window_animations,
     allow_minimize,
     efmi,
     game_path,
@@ -132,10 +131,8 @@ fn classifyArg(arg: []const u8) ArgKind {
     if (std.ascii.eqlIgnoreCase(body, "s") or std.ascii.eqlIgnoreCase(body, "silent")) return .silent;
     if (std.ascii.eqlIgnoreCase(body, "y") or std.ascii.eqlIgnoreCase(body, "yes")) return .auto_yes;
     if (std.ascii.eqlIgnoreCase(body, "dx11")) return .dx11;
-    if (std.ascii.eqlIgnoreCase(body, "wm") or
-        std.ascii.eqlIgnoreCase(body, "fwm") or
-        std.ascii.eqlIgnoreCase(body, "force-wine-mode"))
-        return .force_wine_mode;
+    if (std.ascii.eqlIgnoreCase(body, "tc") or std.ascii.eqlIgnoreCase(body, "transparent-corners")) return .transparent_corners;
+    if (std.ascii.eqlIgnoreCase(body, "wa") or std.ascii.eqlIgnoreCase(body, "window-animations")) return .window_animations;
     if (std.ascii.eqlIgnoreCase(body, "am") or std.ascii.eqlIgnoreCase(body, "allow-minimize")) return .allow_minimize;
     if (std.ascii.eqlIgnoreCase(body, "efmi")) return .efmi;
     if (std.ascii.eqlIgnoreCase(body, "gp") or std.ascii.eqlIgnoreCase(body, "game-path")) return .game_path;
@@ -147,7 +144,7 @@ fn isKnownArg(arg: []const u8) bool {
     return classifyArg(arg) != .unknown;
 }
 
-fn parseBoolOverrideValue(arg: []const u8) ?BoolOverride {
+fn parseBoolValue(arg: []const u8) ?BoolValue {
     if (std.ascii.eqlIgnoreCase(arg, "on") or
         std.ascii.eqlIgnoreCase(arg, "yes") or
         std.ascii.eqlIgnoreCase(arg, "true") or
@@ -165,6 +162,19 @@ fn parseBoolOverrideValue(arg: []const u8) ?BoolOverride {
         return .off;
     }
     return null;
+}
+
+fn parseArgBoolValue(value: []const u8) !bool {
+    return switch (parseBoolValue(value) orelse return error.InvalidBoolValue) {
+        .on => true,
+        .off => false,
+    };
+}
+
+fn nextBoolArgValue(args_it: *std.process.Args.Iterator) !bool {
+    const value = args_it.next() orelse return error.MissingBoolValue;
+    if (isKnownArg(value)) return error.MissingBoolValue;
+    return try parseArgBoolValue(value);
 }
 
 fn parseDebugValueInto(options: *DebugOptions, value: []const u8) bool {
@@ -251,25 +261,16 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
                 config.dx11 = true;
                 continue;
             },
-            .force_wine_mode => {
-                const value = args_it.next() orelse return error.MissingForceWineModeValue;
-                switch (classifyArg(value)) {
-                    .cli => {
-                        config.cli = true;
-                        continue;
-                    },
-                    .silent => {
-                        config.silent = true;
-                        continue;
-                    },
-                    else => {},
-                }
-                config.wine_mode_override = parseBoolOverrideValue(value) orelse return error.InvalidForceWineModeValue;
+            .transparent_corners => {
+                config.transparent_corners_override = try nextBoolArgValue(&args_it);
+                continue;
+            },
+            .window_animations => {
+                config.window_animations_override = try nextBoolArgValue(&args_it);
                 continue;
             },
             .allow_minimize => {
-                const value = args_it.next() orelse return error.MissingAllowMinimizeValue;
-                config.allow_minimize_override = parseBoolOverrideValue(value) orelse return error.InvalidAllowMinimizeValue;
+                config.allow_minimize_override = try nextBoolArgValue(&args_it);
                 continue;
             },
             .game_path => {
@@ -291,7 +292,7 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
                     if (isKnownArg(value)) {
                         pending_arg = value;
                         config.efmi_launcher_path = try resolveDefaultEfmiLauncherPath(allocator, environ);
-                    } else if (parseBoolOverrideValue(value)) |enabled| {
+                    } else if (parseBoolValue(value)) |enabled| {
                         switch (enabled) {
                             .on => {
                                 config.efmi_launcher_path = try resolveDefaultEfmiLauncherPath(allocator, environ);
@@ -300,7 +301,6 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
                                 config.efmi_requested = false;
                                 config.efmi_search_enabled = false;
                             },
-                            .auto => unreachable,
                         }
                     } else {
                         if (!loader.validateExecutablePath(value)) return error.InvalidEfmiPathValue;
@@ -339,7 +339,7 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
     if (config.auto_yes and !config.cli) {
         return error.MutuallyExclusiveAutoYesAndGUI;
     }
-    if (config.cli and (config.wine_mode_override != .auto or config.allow_minimize_override != .auto)) {
+    if (config.cli and (config.transparent_corners_override != null or config.window_animations_override != null or config.allow_minimize_override != null)) {
         return error.MutuallyExclusiveCliAndGUIArgs;
     }
 

@@ -71,7 +71,7 @@ EFU includes an Alt+F12 in-game toggle.
 
 ### Common arguments
 
-Arguments are case-insensitive. Prefixes `-`, `--`, and `/` are accepted. Boolean values are also case-insensitive; use `true|false` in examples, but `on|off`, `yes|no`, `y|n`, and `t|f` also work.
+Arguments are case-insensitive. Prefixes `-`, `--`, and `/` are accepted. Boolean values are case-insensitive; use `true|false` in examples, but `on|off`, `yes|no`, `y|n`, and `t|f` also work.
 
 - `-c` / `--cli`: interactive console mode
 - `-s` / `--silent`: one-shot launch and inject flow with error popups instead of an interactive console
@@ -80,8 +80,9 @@ Arguments are case-insensitive. Prefixes `-`, `--`, and `/` are accepted. Boolea
 - `-y` / `--yes`: auto-confirm prompts used by the EFMI CLI flow
 - `--EFMI [PATH_TO_XXMI Launcher.exe]`: launch EFMI through XXMI, optionally using an explicit launcher path
 - `--EFMI false`: prevent EFU from auto-detecting XXMI and showing the EFMI button in the GUI
-- `--wm` / `--fwm` / `--force-wine-mode true|false`: GUI-only override for Wine detection
-- `--am` / `--allow-minimize true|false`: GUI-only override for minimize behavior
+- `--tc` / `--transparent-corners [true|false]`: override transparent corners
+- `--wa` / `--window-animations [true|false]`: override window animations
+- `--am` / `--allow-minimize [true|false]`: override minimize support
 
 ### Debug arguments
 
