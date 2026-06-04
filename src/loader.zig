@@ -54,6 +54,12 @@ pub const GameScan = struct {
     known_paths: bool = true,
 };
 
+pub const GameScanSource = enum {
+    player_log,
+    known_paths,
+    registry,
+};
+
 // Error descriptions and classification
 pub fn describeTempDllError(err: TempDllError) []const u8 {
     return strings.describeTempDllError(err);
@@ -214,6 +220,20 @@ fn freeGameCandidates(candidates: *std.ArrayListUnmanaged(GameCandidate), alloca
     for (candidates.items) |candidate| allocator.free(candidate.path);
     candidates.deinit(allocator);
 }
+
+pub const GameScanPaths = struct {
+    paths: std.ArrayListUnmanaged([]u8) = .empty,
+
+    pub fn deinit(self: *GameScanPaths, allocator: std.mem.Allocator) void {
+        for (self.paths.items) |path| allocator.free(path);
+        self.paths.deinit(allocator);
+        self.* = .{};
+    }
+
+    pub fn first(self: GameScanPaths) ?[]const u8 {
+        return if (self.paths.items.len == 0) null else self.paths.items[0];
+    }
+};
 
 fn hasCandidate(candidates: []const GameCandidate, path: []const u8) bool {
     for (candidates) |candidate| {
@@ -378,7 +398,7 @@ fn newerGameCandidate(_: void, a: GameCandidate, b: GameCandidate) bool {
     return a.modified_time > b.modified_time;
 }
 
-pub fn detectGameExeWithScan(environ: std.process.Environ, allocator: std.mem.Allocator, scan: GameScan) !?[:0]u16 {
+pub fn scanGameSourcePaths(environ: std.process.Environ, allocator: std.mem.Allocator, source: GameScanSource) !GameScanPaths {
     var threaded: std.Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
@@ -386,13 +406,44 @@ pub fn detectGameExeWithScan(environ: std.process.Environ, allocator: std.mem.Al
     var candidates: std.ArrayListUnmanaged(GameCandidate) = .empty;
     defer freeGameCandidates(&candidates, allocator);
 
-    if (scan.player_log) try scanPlayerLog(io, environ, allocator, &candidates);
-    if (scan.known_paths) try scanKnownPaths(io, allocator, &candidates);
-    if (scan.registry) try scanRegistry(io, &candidates, allocator);
+    switch (source) {
+        .player_log => try scanPlayerLog(io, environ, allocator, &candidates),
+        .known_paths => try scanKnownPaths(io, allocator, &candidates),
+        .registry => try scanRegistry(io, &candidates, allocator),
+    }
 
-    if (candidates.items.len == 0) return null;
     std.sort.block(GameCandidate, candidates.items, {}, newerGameCandidate);
-    return try std.unicode.wtf8ToWtf16LeAllocZ(allocator, candidates.items[0].path);
+
+    var paths = GameScanPaths{};
+    errdefer paths.deinit(allocator);
+    for (candidates.items) |candidate| {
+        const path = try allocator.dupe(u8, candidate.path);
+        paths.paths.append(allocator, path) catch |err| {
+            allocator.free(path);
+            return err;
+        };
+    }
+    return paths;
+}
+
+fn firstGamePathFromSource(environ: std.process.Environ, allocator: std.mem.Allocator, source: GameScanSource) !?[:0]u16 {
+    var paths = try scanGameSourcePaths(environ, allocator, source);
+    defer paths.deinit(allocator);
+    const path = paths.first() orelse return null;
+    return try std.unicode.wtf8ToWtf16LeAllocZ(allocator, path);
+}
+
+pub fn detectGameExeWithScan(environ: std.process.Environ, allocator: std.mem.Allocator, scan: GameScan) !?[:0]u16 {
+    if (scan.player_log) {
+        if (try firstGamePathFromSource(environ, allocator, .player_log)) |path| return path;
+    }
+    if (scan.known_paths) {
+        if (try firstGamePathFromSource(environ, allocator, .known_paths)) |path| return path;
+    }
+    if (scan.registry) {
+        if (try firstGamePathFromSource(environ, allocator, .registry)) |path| return path;
+    }
+    return null;
 }
 
 pub fn detectGameExe(environ: std.process.Environ, allocator: std.mem.Allocator) !?[:0]u16 {

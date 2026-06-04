@@ -9,6 +9,7 @@ const c = @import("win32.zig");
 
 const APP_TITLE = std.unicode.utf8ToUtf16LeStringLiteral(strings.app_title);
 const VERSION_STR = app_version.version_str;
+const report_text = strings.detection_report;
 const CLI_CONSOLE_TITLE = std.unicode.utf8ToUtf16LeStringLiteral(strings.cli.console_title);
 const GAME_SILENT_TIMEOUT: u64 = 10_000;
 const EFMI_SILENT_TIMEOUT: u64 = 15_000;
@@ -26,6 +27,8 @@ const DEBUG_NO_PLAYER_LOG = "no-player-log";
 const DEBUG_NO_PLAYER_LOG_ALIAS = "npl";
 const DEBUG_NO_KNOWN_PATHS = "no-known-paths";
 const DEBUG_NO_KNOWN_PATHS_ALIAS = "nkp";
+const DEBUG_DETECTION_REPORT = "detection-report";
+const DEBUG_DETECTION_REPORT_ALIAS = "dr";
 
 pub const BoolValue = enum {
     on,
@@ -42,15 +45,22 @@ pub const Mode = enum {
     silent,
 };
 
+pub const EfmiPathSource = enum {
+    none,
+    known_path,
+    override,
+};
+
 pub const DebugOptions = struct {
     boxes: bool = false,
     autoscroll: bool = false,
     no_registry: bool = false,
     no_player_log: bool = false,
     no_known_paths: bool = false,
+    detection_report: bool = false,
 
     pub fn any(self: DebugOptions) bool {
-        return self.boxes or self.autoscroll or self.no_registry or self.no_player_log or self.no_known_paths;
+        return self.boxes or self.autoscroll or self.no_registry or self.no_player_log or self.no_known_paths or self.detection_report;
     }
 
     pub fn gameScan(self: DebugOptions) loader.GameScan {
@@ -69,7 +79,9 @@ pub const LaunchConfig = struct {
     dx11: bool = false,
     efmi_requested: bool = false,
     efmi_search_enabled: bool = true,
+    efmi_override_disabled: bool = false,
     efmi_launcher_path: ?[]u8 = null,
+    efmi_launcher_source: EfmiPathSource = .none,
     game_exe_override_path: ?[]u8 = null,
     rounded_corners_override: ?BoolOverride = null,
     window_animations_override: ?BoolOverride = null,
@@ -230,6 +242,13 @@ fn parseDebugValueInto(options: *DebugOptions, value: []const u8) bool {
             parsed_any = true;
             continue;
         }
+        if (std.ascii.eqlIgnoreCase(part, DEBUG_DETECTION_REPORT) or
+            std.ascii.eqlIgnoreCase(part, DEBUG_DETECTION_REPORT_ALIAS))
+        {
+            options.detection_report = true;
+            parsed_any = true;
+            continue;
+        }
         return false;
     }
     return parsed_any;
@@ -244,6 +263,143 @@ pub fn resolveDefaultEfmiLauncherPath(allocator: std.mem.Allocator, environ: std
     if (!loader.validateExecutablePath(path)) return null;
 
     return try allocator.dupe(u8, path);
+}
+
+pub const DetectionReportTarget = enum {
+    cli,
+    gui,
+};
+
+pub const DetectionReport = struct {
+    lines: std.ArrayListUnmanaged([]u8) = .empty,
+
+    pub fn deinit(self: *DetectionReport, allocator: std.mem.Allocator) void {
+        for (self.lines.items) |line| allocator.free(line);
+        self.lines.deinit(allocator);
+        self.* = .{};
+    }
+};
+
+fn addReportLine(report: *DetectionReport, allocator: std.mem.Allocator, comptime fmt: []const u8, args: anytype) !void {
+    const line = try std.fmt.allocPrint(allocator, fmt, args);
+    errdefer allocator.free(line);
+    try report.lines.append(allocator, line);
+}
+
+fn addReportField(report: *DetectionReport, allocator: std.mem.Allocator, label: []const u8, value: []const u8) !void {
+    try addReportLine(report, allocator, "  {s}:", .{label});
+    try addReportLine(report, allocator, "    {s}", .{value});
+}
+
+fn reportPath(target: DetectionReportTarget, path: []const u8) []const u8 {
+    return switch (target) {
+        .cli => path,
+        .gui => report_text.found,
+    };
+}
+
+fn addReportPath(report: *DetectionReport, allocator: std.mem.Allocator, target: DetectionReportTarget, label: []const u8, path: []const u8) !void {
+    try addReportField(report, allocator, label, reportPath(target, path));
+}
+
+fn addReportPaths(report: *DetectionReport, allocator: std.mem.Allocator, target: DetectionReportTarget, label: []const u8, paths: []const []u8) !void {
+    try addReportLine(report, allocator, "  {s}:", .{label});
+    switch (target) {
+        .cli => for (paths) |path| try addReportLine(report, allocator, "    {s}", .{path}),
+        .gui => try addReportLine(report, allocator, "    {s}", .{report_text.found}),
+    }
+}
+
+fn addEfmiReport(report: *DetectionReport, allocator: std.mem.Allocator, environ: std.process.Environ, config: LaunchConfig, target: DetectionReportTarget) !void {
+    try addReportLine(report, allocator, "{s}:", .{report_text.efmi});
+    if (config.efmi_override_disabled) {
+        try addReportField(report, allocator, report_text.known_path, report_text.na);
+        try addReportField(report, allocator, report_text.path_override, report_text.disabled);
+        return;
+    }
+    if (config.efmi_launcher_path) |path| {
+        switch (config.efmi_launcher_source) {
+            .override => {
+                try addReportField(report, allocator, report_text.known_path, report_text.na);
+                try addReportPath(report, allocator, target, report_text.path_override, path);
+                return;
+            },
+            .known_path => {
+                try addReportPath(report, allocator, target, report_text.known_path, path);
+                try addReportField(report, allocator, report_text.path_override, report_text.none);
+                return;
+            },
+            .none => {},
+        }
+    }
+    if (!config.efmi_search_enabled) {
+        try addReportField(report, allocator, report_text.known_path, report_text.disabled);
+        try addReportField(report, allocator, report_text.path_override, report_text.none);
+        return;
+    }
+    const path = try resolveDefaultEfmiLauncherPath(allocator, environ);
+    defer if (path) |value| allocator.free(value);
+    if (path) |value| {
+        try addReportPath(report, allocator, target, report_text.known_path, value);
+    } else {
+        try addReportField(report, allocator, report_text.known_path, report_text.not_found);
+    }
+    try addReportField(report, allocator, report_text.path_override, report_text.none);
+}
+
+fn addGameSourceReport(report: *DetectionReport, allocator: std.mem.Allocator, environ: std.process.Environ, target: DetectionReportTarget, label: []const u8, enabled: bool, source: loader.GameScanSource, found: *bool) !void {
+    if (found.*) {
+        try addReportField(report, allocator, label, report_text.na);
+        return;
+    }
+    if (!enabled) {
+        try addReportField(report, allocator, label, report_text.disabled);
+        return;
+    }
+    var paths = try loader.scanGameSourcePaths(environ, allocator, source);
+    defer paths.deinit(allocator);
+    if (paths.paths.items.len == 0) {
+        try addReportField(report, allocator, label, report_text.not_found);
+        return;
+    }
+    try addReportPaths(report, allocator, target, label, paths.paths.items);
+    found.* = true;
+}
+
+fn addGameReport(report: *DetectionReport, allocator: std.mem.Allocator, environ: std.process.Environ, config: LaunchConfig, target: DetectionReportTarget) !void {
+    try addReportLine(report, allocator, "{s}:", .{report_text.game});
+    if (config.game_exe_override_path) |path| {
+        try addReportField(report, allocator, report_text.player_log, report_text.na);
+        try addReportField(report, allocator, report_text.known_paths, report_text.na);
+        try addReportField(report, allocator, report_text.registry, report_text.na);
+        try addReportPath(report, allocator, target, report_text.path_override, path);
+        return;
+    }
+    var found = false;
+    const scan = config.debug.gameScan();
+    try addGameSourceReport(report, allocator, environ, target, report_text.player_log, scan.player_log, .player_log, &found);
+    try addGameSourceReport(report, allocator, environ, target, report_text.known_paths, scan.known_paths, .known_paths, &found);
+    try addGameSourceReport(report, allocator, environ, target, report_text.registry, scan.registry, .registry, &found);
+    try addReportField(report, allocator, report_text.path_override, report_text.none);
+}
+
+pub fn buildDetectionReport(allocator: std.mem.Allocator, environ: std.process.Environ, config: LaunchConfig, target: DetectionReportTarget) !DetectionReport {
+    var report = DetectionReport{};
+    errdefer report.deinit(allocator);
+
+    var version_buf: [64]u8 = undefined;
+    const version_display = strings.computeVersionDisplay(&version_buf, VERSION_STR) catch VERSION_STR;
+
+    try addReportLine(&report, allocator, "{s}", .{report_text.title});
+    try addReportLine(&report, allocator, "{s}:", .{report_text.current_version});
+    try addReportLine(&report, allocator, "  {s}", .{version_display});
+    try addReportLine(&report, allocator, "", .{});
+    try addEfmiReport(&report, allocator, environ, config, target);
+    try addReportLine(&report, allocator, "", .{});
+    try addGameReport(&report, allocator, environ, config, target);
+    try addReportLine(&report, allocator, "", .{});
+
+    return report;
 }
 
 pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Environ, args: std.process.Args) !LaunchConfig {
@@ -302,6 +458,8 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
             .efmi => {
                 if (config.efmi_launcher_path) |old_path| allocator.free(old_path);
                 config.efmi_launcher_path = null;
+                config.efmi_launcher_source = .none;
+                config.efmi_override_disabled = false;
                 config.efmi_requested = true;
                 config.efmi_search_enabled = true;
 
@@ -310,22 +468,27 @@ pub fn parseLaunchConfig(allocator: std.mem.Allocator, environ: std.process.Envi
                     if (isKnownArg(value)) {
                         pending_arg = value;
                         config.efmi_launcher_path = try resolveDefaultEfmiLauncherPath(allocator, environ);
+                        if (config.efmi_launcher_path != null) config.efmi_launcher_source = .known_path;
                     } else if (parseBoolValue(value)) |enabled| {
                         switch (enabled) {
                             .on => {
                                 config.efmi_launcher_path = try resolveDefaultEfmiLauncherPath(allocator, environ);
+                                if (config.efmi_launcher_path != null) config.efmi_launcher_source = .known_path;
                             },
                             .off => {
                                 config.efmi_requested = false;
                                 config.efmi_search_enabled = false;
+                                config.efmi_override_disabled = true;
                             },
                         }
                     } else {
                         if (!loader.validateExecutablePath(value)) return error.InvalidEfmiPathValue;
                         config.efmi_launcher_path = try allocator.dupe(u8, loader.trimExecutablePath(value));
+                        config.efmi_launcher_source = .override;
                     }
                 } else {
                     config.efmi_launcher_path = try resolveDefaultEfmiLauncherPath(allocator, environ);
+                    if (config.efmi_launcher_path != null) config.efmi_launcher_source = .known_path;
                 }
             },
             .debug => {
@@ -398,6 +561,13 @@ fn cliPrintHeader(io: std.Io) void {
         const tag = app_version.normalizedTag(&tag_buf, version.slice()) catch version.slice();
         cliPrint(io, strings.cli.update_available_fmt, .{tag});
     }
+}
+
+fn cliPrintDetectionReport(io: std.Io, allocator: std.mem.Allocator, environ: std.process.Environ, config: LaunchConfig) void {
+    var report = buildDetectionReport(allocator, environ, config, .cli) catch return;
+    defer report.deinit(allocator);
+    for (report.lines.items) |line| cliPrint(io, "{s}\n", .{line});
+    cliPrint(io, CLI_BLANK_LINE, .{});
 }
 
 fn getProcessPathWtf8(pid: u32, out_buf: []u8) !?[]const u8 {
@@ -662,13 +832,14 @@ fn runSilentEfmiCli(allocator: std.mem.Allocator, embedded_dll: []const u8, efmi
     return 0;
 }
 
-fn runEfmiCli(allocator: std.mem.Allocator, embedded_dll: []const u8, efmi_launcher_path: []const u8, auto_yes: bool) !u8 {
+fn runEfmiCli(allocator: std.mem.Allocator, environ: std.process.Environ, embedded_dll: []const u8, efmi_launcher_path: []const u8, auto_yes: bool, config: LaunchConfig) !u8 {
     var threaded: std.Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
 
     ensureCliConsole();
     cliPrintHeader(io);
+    if (config.debug.detection_report) cliPrintDetectionReport(io, allocator, environ, config);
 
     const startup_pid = loader.findTargetProcess();
     if (startup_pid != 0) {
@@ -714,9 +885,18 @@ fn runEfmiCli(allocator: std.mem.Allocator, embedded_dll: []const u8, efmi_launc
 }
 
 pub fn run(allocator: std.mem.Allocator, environ: std.process.Environ, mode: Mode, embedded_dll: []const u8, config: LaunchConfig) !u8 {
+    if (mode == .silent and config.debug.detection_report) {
+        var threaded_report: std.Io.Threaded = .init(allocator, .{});
+        defer threaded_report.deinit();
+        const report_io = threaded_report.io();
+        ensureCliConsole();
+        cliPrintHeader(report_io);
+        cliPrintDetectionReport(report_io, allocator, environ, config);
+    }
+
     if (config.efmi_requested) {
         if (config.efmi_launcher_path) |path| {
-            return if (mode == .silent) runSilentEfmiCli(allocator, embedded_dll, path) else runEfmiCli(allocator, embedded_dll, path, config.auto_yes);
+            return if (mode == .silent) runSilentEfmiCli(allocator, embedded_dll, path) else runEfmiCli(allocator, environ, embedded_dll, path, config.auto_yes, config);
         }
 
         if (mode == .silent) {
@@ -729,6 +909,7 @@ pub fn run(allocator: std.mem.Allocator, environ: std.process.Environ, mode: Mod
 
         ensureCliConsole();
         cliPrintHeader(efmi_io);
+        if (config.debug.detection_report) cliPrintDetectionReport(efmi_io, allocator, environ, config);
         cliPrint(efmi_io, strings.cli.xxmi_not_found_default_line, .{});
         cliPrint(efmi_io, EFMI_MISSING_PATH_MESSAGE ++ "\n", .{});
         cliPrint(efmi_io, strings.cli.closing_in_5_seconds, .{});
@@ -746,6 +927,7 @@ pub fn run(allocator: std.mem.Allocator, environ: std.process.Environ, mode: Mod
 
     ensureCliConsole();
     cliPrintHeader(io);
+    if (config.debug.detection_report) cliPrintDetectionReport(io, allocator, environ, config);
 
     const temp_dll_path = loader.writeEmbeddedDllToTemp(allocator, embedded_dll) catch |err| {
         cliPrint(io, strings.cli.error_line_fmt, .{loader.describeTempDllError(err)});

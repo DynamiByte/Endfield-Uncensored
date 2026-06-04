@@ -93,6 +93,7 @@ Arguments are case-insensitive. Prefixes `-`, `--`, and `/` are accepted. Some a
 - `no-registry` / `nr`: skip registry game detection
 - `no-player-log` / `npl`: skip Player.log game detection
 - `no-known-paths` / `nkp`: skip known-path game detection
+- `detection-report` / `dr`: report version, EFMI, and game detection results
 
 ### EFMI / XXMI integration
 

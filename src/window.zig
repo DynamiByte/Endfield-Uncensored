@@ -808,6 +808,12 @@ fn debugAutoscrollCallbacks() bytegui.DebugAutoscrollCallbacks {
     };
 }
 
+fn appendDetectionReport(config: cli.LaunchConfig) void {
+    var report = cli.buildDetectionReport(allocator, g_environ, config, .gui) catch return;
+    defer report.deinit(allocator);
+    for (report.lines.items) |line| appendStatus("{s}", .{line});
+}
+
 fn enterDebugAutoscrollMode() void {
     if (g_game_exe_path) |path| {
         allocator.free(path);
@@ -1988,6 +1994,7 @@ fn layoutOutputText(text: []const u8) ?OutputTextLayout {
         .text = text,
         .viewport = outputViewportSizeFromRect(rect),
         .scrollbar_reserved_width = scaleF(OUTPUT_SCROLLBAR_W + OUTPUT_SCROLLBAR_PAD * 2.0),
+        .preserve_leading_whitespace = true,
     });
 }
 
@@ -3293,7 +3300,7 @@ fn initGUIResources(platform_hwnd: ?bgc.HWND) void {
     _ = bytegui.ByteGUI_ImplWin32_Init(platform_hwnd);
 }
 
-fn initializeGUIState() void {
+fn initializeGUIState(config: cli.LaunchConfig) void {
     refreshEfmiAvailability();
     if (debugAutoscrollMode()) {
         enterDebugAutoscrollMode();
@@ -3302,6 +3309,7 @@ fn initializeGUIState() void {
         return;
     }
     refreshGamePathStatus();
+    if (config.debug.detection_report) appendDetectionReport(config);
     appendInitialStatusLines();
     if (!startLoaderWorker()) appendStatus(strings.status_monitor_failed, .{});
     startUpdateCheckWorker();
@@ -3324,11 +3332,11 @@ fn prewarmVisibleTextCaches() void {
     }
 }
 
-noinline fn initGUIApp(instance: ?c.HMODULE, debug_options: cli.DebugOptions) bool {
+noinline fn initGUIApp(instance: ?c.HMODULE, config: cli.LaunchConfig) bool {
     bytegui.BYTEGUI_CHECKVERSION();
     _ = ByteGUI.CreateContext() orelse return false;
-    ByteGUI.DebugSetBoxesEnabled(debug_options.boxes);
-    ByteGUI.DebugSetAutoscrollEnabled(debug_options.autoscroll);
+    ByteGUI.DebugSetBoxesEnabled(config.debug.boxes);
+    ByteGUI.DebugSetAutoscrollEnabled(config.debug.autoscroll);
 
     var window_config = ByteGUIPlatformWindowConfig{};
     window_config.Instance = if (instance) |handle| @ptrFromInt(@intFromPtr(handle)) else null;
@@ -3356,7 +3364,7 @@ noinline fn initGUIApp(instance: ?c.HMODULE, debug_options: cli.DebugOptions) bo
 
     const window_size = platformWindowSize();
     if (!bytegui.ByteGUI_ImplOpenGL_Init(platform_hwnd, @intFromFloat(window_size.x), @intFromFloat(window_size.y))) return false;
-    initializeGUIState();
+    initializeGUIState(config);
     if (asset_thread) |thread| {
         thread.join();
         asset_thread = null;
@@ -3387,14 +3395,13 @@ fn shutdownGUIApp() void {
     clearStatusLines();
 }
 
-fn runGUI(debug_options: cli.DebugOptions) !u8 {
+fn runGUI(config: cli.LaunchConfig) !u8 {
     g_version_display = try computeVersionDisplay(&g_version_display_buf);
-    if (!initGUIApp(c.GetModuleHandleA(null), debug_options)) {
+    if (!initGUIApp(c.GetModuleHandleA(null), config)) {
         shutdownGUIApp();
         return 1;
     }
     defer shutdownGUIApp();
-
     var msg = std.mem.zeroes(c.MSG);
     while (g_running) {
         while (c.PeekMessageW(&msg, null, 0, 0, c.PM_REMOVE) != c.FALSE) {
@@ -3462,7 +3469,7 @@ pub fn main(init: std.process.Init.Minimal) void {
     const code = if (config.cli)
         cli.run(allocator, init.environ, if (config.silent) .silent else .visible, embedded_dll, config) catch 1
     else blk: {
-        break :blk runGUI(config.debug) catch 1;
+        break :blk runGUI(config) catch 1;
     };
     std.process.exit(code);
 }

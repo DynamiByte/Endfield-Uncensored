@@ -1483,7 +1483,7 @@ pub const ByteGUI = struct {
 
     pub fn LayoutText(font: ?*ByteFont, font_size: f32, text: []const u8, wrap_width: f32) ?TextLayoutResult {
         const active_font = font orelse return null;
-        return layoutText(active_font, font_size, text, wrap_width);
+        return layoutText(active_font, font_size, text, wrap_width, false);
     }
 
     pub fn LayoutScrollableText(params: ScrollableTextLayoutParams) ?ScrollableTextLayoutResult {
@@ -4298,7 +4298,7 @@ fn calcTextLayoutScrollHeight(layout: *const TextLayoutResult) f32 {
 fn layoutScrollableText(params: ScrollableTextLayoutParams) ?ScrollableTextLayoutResult {
     const font = params.font orelse return null;
     var wrap_width = @max(1.0, params.viewport.x);
-    var layout = layoutText(font, params.font_size, params.text, wrap_width) orelse return null;
+    var layout = layoutText(font, params.font_size, params.text, wrap_width, params.preserve_leading_whitespace) orelse return null;
     var content_height = calcTextLayoutScrollHeight(&layout);
     var overflow = content_height > params.viewport.y + 0.5;
 
@@ -4307,7 +4307,7 @@ fn layoutScrollableText(params: ScrollableTextLayoutParams) ?ScrollableTextLayou
         if (reduced_wrap_width < wrap_width) {
             layout.deinit();
             wrap_width = reduced_wrap_width;
-            layout = layoutText(font, params.font_size, params.text, wrap_width) orelse return null;
+            layout = layoutText(font, params.font_size, params.text, wrap_width, params.preserve_leading_whitespace) orelse return null;
             content_height = calcTextLayoutScrollHeight(&layout);
             overflow = content_height > params.viewport.y + 0.5;
         }
@@ -4457,7 +4457,11 @@ fn drawTextLayoutClipped(draw: ?*ByteDrawList, params: TextLayoutDrawParams) voi
     for (params.layout.lines.items, 0..) |line, line_index| {
         const y = params.base_pos.y + @as(f32, @floatFromInt(line_index)) * line_height - params.scroll_y;
         if (y + line_height < params.base_pos.y or y > bottom) continue;
-        active_draw.AddTextSubpixel(font, params.font_size, .{ .x = params.base_pos.x, .y = y }, params.color, params.text[line.start..line.end], null);
+        const line_text = params.text[line.start..line.end];
+        var visible_start: usize = 0;
+        while (visible_start < line_text.len and isWrapWhitespaceByte(line_text[visible_start])) : (visible_start += 1) {}
+        const leading_width = if (visible_start > 0) computeTextBounds(font, params.font_size, line_text[0..visible_start]).Width else 0.0;
+        active_draw.AddTextSubpixel(font, params.font_size, .{ .x = params.base_pos.x + leading_width, .y = y }, params.color, line_text[visible_start..], null);
     }
 }
 
@@ -4548,6 +4552,7 @@ pub const ScrollableTextLayoutParams = struct {
     text: []const u8,
     viewport: ByteVec2,
     scrollbar_reserved_width: f32 = 0.0,
+    preserve_leading_whitespace: bool = false,
 };
 
 pub const ScrollableTextLayoutResult = struct {
@@ -5905,7 +5910,7 @@ fn appendTextLine(result: *TextLayoutResult, session: *TextMeasureSession, text:
 
     const line_index = result.lines.items.len - 1;
     const line_y = @as(f32, @floatFromInt(line_index)) * result.line_height;
-    result.width = @max(result.width, bounds.Width);
+    result.width = @max(result.width, @max(line_width, bounds.Width));
     result.height = @max(result.height, line_y + result.line_height);
 }
 
@@ -5921,7 +5926,7 @@ fn fitTextChunk(session: *TextMeasureSession, text: []const u8, start: usize, en
     return if (chunk_end > start) chunk_end else nextCodepointEnd(text, start);
 }
 
-fn layoutText(font: *const ByteFont, size_pixels: f32, text: []const u8, wrap_width: f32) ?TextLayoutResult {
+fn layoutText(font: *const ByteFont, size_pixels: f32, text: []const u8, wrap_width: f32, preserve_leading_whitespace: bool) ?TextLayoutResult {
     if (text.len == 0) return TextLayoutResult{};
 
     var session = TextMeasureSession.init(font, size_pixels) orelse return null;
@@ -5950,7 +5955,7 @@ fn layoutText(font: *const ByteFont, size_pixels: f32, text: []const u8, wrap_wi
             continue;
         }
 
-        if (!have_line and isWrapWhitespaceByte(ch)) {
+        if (!preserve_leading_whitespace and !have_line and isWrapWhitespaceByte(ch)) {
             while (i < text.len and isWrapWhitespaceByte(text[i])) : (i += 1) {}
             continue;
         }
@@ -6020,7 +6025,7 @@ fn layoutText(font: *const ByteFont, size_pixels: f32, text: []const u8, wrap_wi
 
 fn measureTextWithRasterizer(font: *const ByteFont, size_pixels: f32, text: []const u8, wrap_width: f32) ByteVec2 {
     const supersample = textSupersampleForFont(font);
-    var layout = layoutText(font, size_pixels * supersample, text, if (wrap_width > 0.0) wrap_width * supersample else 0.0) orelse return .{};
+    var layout = layoutText(font, size_pixels * supersample, text, if (wrap_width > 0.0) wrap_width * supersample else 0.0, false) orelse return .{};
     defer layout.deinit();
     return .{ .x = layout.width / supersample, .y = layout.height / supersample };
 }
@@ -6157,7 +6162,7 @@ fn rasterizeTextImageFromFont(font: *const ByteFont, size_pixels: f32, text: []c
     if (size_pixels <= 0.0 or text.len == 0) return null;
     const raster_size = size_pixels * supersample;
     const effective_wrap = if (wrap_width > 0.0) wrap_width * supersample else 0.0;
-    var layout = layoutText(font, raster_size, text, effective_wrap) orelse return null;
+    var layout = layoutText(font, raster_size, text, effective_wrap, false) orelse return null;
     defer layout.deinit();
 
     const align_to = @max(1, @as(i32, @intFromFloat(@round(supersample))));

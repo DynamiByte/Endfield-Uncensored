@@ -128,6 +128,23 @@ pub fn describeEfmiLaunchError(err: anyerror) []const u8 {
     };
 }
 
+pub const detection_report = struct {
+    pub const title = "Detection report";
+    pub const current_version = "Current version";
+    pub const efmi = "EFMI";
+    pub const game = "Game";
+    pub const known_path = "Known path";
+    pub const path_override = "Override";
+    pub const player_log = "Player.log";
+    pub const known_paths = "Known paths";
+    pub const registry = "Registry";
+    pub const na = "n/a";
+    pub const none = "none";
+    pub const disabled = "disabled";
+    pub const not_found = "not found";
+    pub const found = "found";
+};
+
 // CLI user-facing text
 pub const cli = struct {
     pub const console_title = "Endfield Uncensored CLI";
@@ -188,6 +205,16 @@ pub const cli = struct {
 fn appendLine(list: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, line: []const u8) !void {
     try list.appendSlice(allocator, line);
     try list.append(allocator, '\n');
+}
+
+fn appendSubsetReportLabel(list: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, label: []const u8) !void {
+    var line_buf: [64]u8 = undefined;
+    try appendLine(list, allocator, try std.fmt.bufPrint(&line_buf, "{s}:", .{label}));
+}
+
+fn appendSubsetReportValue(list: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, value: []const u8) !void {
+    var line_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    try appendLine(list, allocator, try std.fmt.bufPrint(&line_buf, "    {s}", .{value}));
 }
 
 fn appendSubsetLabel(list: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, label: []const u8) !void {
@@ -307,6 +334,21 @@ pub fn buildTextboxSubsetText(allocator: std.mem.Allocator) ![]u8 {
     try appendLine(&lines, allocator, describeEfmiLaunchError(error.AccessDenied));
     try appendLine(&lines, allocator, describeEfmiLaunchError(error.InvalidExecutablePath));
     try appendLine(&lines, allocator, describeEfmiLaunchError(error.CreateProcessFailed));
+
+    try appendLine(&lines, allocator, detection_report.title);
+    try appendSubsetReportLabel(&lines, allocator, detection_report.current_version);
+    try appendSubsetReportLabel(&lines, allocator, detection_report.efmi);
+    try appendSubsetReportLabel(&lines, allocator, detection_report.game);
+    try appendSubsetReportLabel(&lines, allocator, detection_report.known_path);
+    try appendSubsetReportLabel(&lines, allocator, detection_report.path_override);
+    try appendSubsetReportLabel(&lines, allocator, detection_report.player_log);
+    try appendSubsetReportLabel(&lines, allocator, detection_report.known_paths);
+    try appendSubsetReportLabel(&lines, allocator, detection_report.registry);
+    try appendSubsetReportValue(&lines, allocator, detection_report.na);
+    try appendSubsetReportValue(&lines, allocator, detection_report.none);
+    try appendSubsetReportValue(&lines, allocator, detection_report.disabled);
+    try appendSubsetReportValue(&lines, allocator, detection_report.not_found);
+    try appendSubsetReportValue(&lines, allocator, detection_report.found);
 
     try lines.appendSlice(allocator, "0123456789-");
     return try lines.toOwnedSlice(allocator);
