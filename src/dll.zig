@@ -53,6 +53,7 @@ const Il2CppAssemblyGetImageFn = *const fn (?*anyopaque) callconv(.c) ?*anyopaqu
 const Il2CppClassFromNameFn = *const fn (?*anyopaque, [*:0]const u8, [*:0]const u8) callconv(.c) ?*anyopaque;
 const Il2CppClassGetMethodFromNameFn = *const fn (?*anyopaque, [*:0]const u8, c_int) callconv(.c) ?*Il2CppMethodInfo;
 const InstanceVoidMethod = *const fn (?*anyopaque, ?*Il2CppMethodInfo) callconv(.c) void;
+const SetEntityDitherMethod = *const fn (?*anyopaque, f32, i32, ?*Il2CppMethodInfo) callconv(.c) void;
 
 const Il2CppMethodInfo = extern struct {
     address: usize,
@@ -61,6 +62,7 @@ const Il2CppMethodInfo = extern struct {
 const PatchTargets = struct {
     evaluate: *Il2CppMethodInfo,
     force_clear: *Il2CppMethodInfo,
+    set_entity_dither: ?*Il2CppMethodInfo,
 };
 
 const Hook = struct {
@@ -73,6 +75,7 @@ const Hook = struct {
 var g_enabled = true;
 var g_force_clear_method: ?*Il2CppMethodInfo = null;
 var g_camera_hook = Hook{};
+var g_entity_dither_hook = Hook{};
 
 fn winBool(value: bool) BOOL {
     return switch (@typeInfo(BOOL)) {
@@ -270,11 +273,13 @@ fn resolvePatchTargets() ?PatchTargets {
     const assembly = assembly_open(domain, "Gameplay.Beyond.dll") orelse return null;
     const image = assembly_get_image(assembly) orelse return null;
     const camera_class = class_from_name(image, "Beyond.Gameplay.View", "CameraMono") orelse return null;
+    const view_utils_class = class_from_name(image, "Beyond.Gameplay.View", "ViewUtils");
     const evaluate = method_from_name(camera_class, "EvaluateAllTouchedEntities", 0) orelse return null;
     const force_clear = method_from_name(camera_class, "ForceClearDither", 0) orelse return null;
+    const set_entity_dither = if (view_utils_class) |klass| method_from_name(klass, "SetEntityDither", 3) else null;
 
     if (evaluate.address == 0 or force_clear.address == 0) return null;
-    return .{ .evaluate = evaluate, .force_clear = force_clear };
+    return .{ .evaluate = evaluate, .force_clear = force_clear, .set_entity_dither = set_entity_dither };
 }
 
 fn cameraEvaluateHook(instance: ?*anyopaque, method_info: ?*Il2CppMethodInfo) callconv(.c) void {
@@ -288,10 +293,19 @@ fn cameraEvaluateHook(instance: ?*anyopaque, method_info: ?*Il2CppMethodInfo) ca
     force_clear(instance, method);
 }
 
+fn setEntityDitherHook(entity: ?*anyopaque, alpha: f32, source: i32, method_info: ?*Il2CppMethodInfo) callconv(.c) void {
+    const trampoline = g_entity_dither_hook.trampoline orelse return;
+    const original: SetEntityDitherMethod = @ptrCast(trampoline);
+    original(entity, if (@atomicLoad(bool, &g_enabled, .acquire)) 1.0 else alpha, source, method_info);
+}
+
 fn patchThread(_: ?*anyopaque) callconv(.winapi) DWORD {
     const targets = resolvePatchTargets() orelse return 0;
     g_force_clear_method = targets.force_clear;
     if (!installJumpHook(&g_camera_hook, @ptrFromInt(targets.evaluate.address), @intFromPtr(&cameraEvaluateHook))) return 0;
+    if (targets.set_entity_dither) |method| {
+        if (method.address != 0 and !installJumpHook(&g_entity_dither_hook, @ptrFromInt(method.address), @intFromPtr(&setEntityDitherHook))) return 0;
+    }
 
     var was_combo_down = altDown() and keyDown(VK_F12);
     while (true) {
