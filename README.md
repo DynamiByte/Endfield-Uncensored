@@ -38,7 +38,7 @@ If your antivirus flags the build, report it in GitHub issues. I try to avoid fl
 
 ## Quick Start
 
-1. Download the latest `EFU.exe` from the [Releases](https://dynamibyte.com/Endfield-Uncensored/releases) page
+1. Download the `EFU.exe` from the [latest release](https://dynamibyte.com/Endfield-Uncensored/releases/latest)
 2. Run `EFU.exe` as Administrator
 3. If EFU finds the game path, press `Launch Game`
 4. If EFU does not find the path, or you prefer not to launch from the app, start the game normally and EFU will inject when `Endfield.exe` appears
@@ -245,7 +245,9 @@ The bundled fonts are not covered by the project license. They remain under thei
 
 ## Links
 
-- Releases: [GitHub Releases](https://dynamibyte.com/Endfield-Uncensored/releases)
-- GameBanana: [Endfield Uncensored](https://gb.dynamibyte.com/efu)
-- Issues: [GitHub Issues](https://dynamibyte.com/Endfield-Uncensored/issues)
-- Discord: [`dynamicbyte`](https://discord.dynamibyte.com/)
+- [GitHub Releases](https://github.com/DynamiByte/Endfield-Uncensored/releases)
+- [ByteDepot Releases](https://git.dynamibyte.com/DynamiByte/Endfield-Uncensored/releases)
+- [Endfield Uncensored](https://gb.dynamibyte.com/efu)
+- [GitHub Issues](https://github.com/DynamiByte/Endfield-Uncensored/issues)
+- [ByteDepot Issues](https://git.dynamibyte.com/DynamiByte/Endfield-Uncensored/issues)
+- [`dynamicbyte`](https://dynamibyte.com/discord)
