@@ -1,3 +1,11 @@
-/*/
+/*
+
+!/.forgejo/
 !/fonts/
 !/src/
+
+!/.gitignore
+!/build.zig
+!/build.efu.zon
+!/LICENSE.txt
+!/README.md
