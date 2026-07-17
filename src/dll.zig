@@ -60,7 +60,7 @@ const Il2CppMethodInfo = extern struct {
 };
 
 const PatchTargets = struct {
-    evaluate: *Il2CppMethodInfo,
+    process_pitch: *Il2CppMethodInfo,
     force_clear: *Il2CppMethodInfo,
 };
 
@@ -73,7 +73,7 @@ const Hook = struct {
 
 var g_enabled = true;
 var g_force_clear_method: ?*Il2CppMethodInfo = null;
-var g_camera_hook = Hook{};
+var g_pitch_hook = Hook{};
 
 // Hotkey and host process helpers
 fn winBool(value: bool) BOOL {
@@ -275,15 +275,15 @@ fn resolvePatchTargets() ?PatchTargets {
     const assembly = assembly_open(domain, "Gameplay.Beyond.dll") orelse return null;
     const image = assembly_get_image(assembly) orelse return null;
     const camera_class = class_from_name(image, "Beyond.Gameplay.View", "CameraMono") orelse return null;
-    const evaluate = method_from_name(camera_class, "EvaluateAllTouchedEntities", 0) orelse return null;
+    const process_pitch = method_from_name(camera_class, "_ProcessDitherByPitch", 0) orelse return null;
     const force_clear = method_from_name(camera_class, "ForceClearDither", 0) orelse return null;
 
-    if (evaluate.address == 0 or force_clear.address == 0) return null;
-    return .{ .evaluate = evaluate, .force_clear = force_clear };
+    if (process_pitch.address == 0 or force_clear.address == 0) return null;
+    return .{ .process_pitch = process_pitch, .force_clear = force_clear };
 }
 
-fn cameraEvaluateHook(instance: ?*anyopaque, method_info: ?*Il2CppMethodInfo) callconv(.c) void {
-    const trampoline = g_camera_hook.trampoline orelse return;
+fn cameraPitchHook(instance: ?*anyopaque, method_info: ?*Il2CppMethodInfo) callconv(.c) void {
+    const trampoline = g_pitch_hook.trampoline orelse return;
     const original: InstanceVoidMethod = @ptrCast(trampoline);
     original(instance, method_info);
 
@@ -296,7 +296,7 @@ fn cameraEvaluateHook(instance: ?*anyopaque, method_info: ?*Il2CppMethodInfo) ca
 fn patchThread(_: ?*anyopaque) callconv(.winapi) DWORD {
     const targets = resolvePatchTargets() orelse return 0;
     g_force_clear_method = targets.force_clear;
-    if (!installJumpHook(&g_camera_hook, @ptrFromInt(targets.evaluate.address), @intFromPtr(&cameraEvaluateHook))) return 0;
+    if (!installJumpHook(&g_pitch_hook, @ptrFromInt(targets.process_pitch.address), @intFromPtr(&cameraPitchHook))) return 0;
 
     var was_combo_down = altDown() and keyDown(VK_F12);
     while (true) {
