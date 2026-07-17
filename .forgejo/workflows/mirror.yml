@@ -1,0 +1,345 @@
+name: Mirror to GitHub
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: zig-0.16-alpine
+    timeout-minutes: 60
+
+    env:
+      GITHUB_MIRROR_REPOSITORY: DynamiByte/Endfield-Uncensored
+      GH_MIRROR_TOKEN: ${{ secrets.GH_MIRROR_TOKEN }}
+
+    steps:
+      - name: Mirror Git repository
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          : "${FORGEJO_REPOSITORY:?FORGEJO_REPOSITORY is missing}"
+          : "${GITHUB_MIRROR_REPOSITORY:?GITHUB_MIRROR_REPOSITORY is missing}"
+          : "${GH_MIRROR_TOKEN:?GH_MIRROR_TOKEN is missing}"
+
+          source_url="https://git.dynamibyte.com/${FORGEJO_REPOSITORY}.git"
+          destination_url="https://github.com/${GITHUB_MIRROR_REPOSITORY}.git"
+          github_basic_auth="$({ printf 'x-access-token:%s' "$GH_MIRROR_TOKEN"; } | base64 | tr -d '\n')"
+
+          rm -rf repository.git
+
+          git clone --mirror "$source_url" repository.git
+          git -C repository.git remote add github "$destination_url"
+
+          git -C repository.git \
+            -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $github_basic_auth" \
+            push --prune github \
+            '+refs/heads/*:refs/heads/*' \
+            '+refs/tags/*:refs/tags/*'
+
+          git -C repository.git lfs fetch --all origin
+
+          git -C repository.git \
+            -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $github_basic_auth" \
+            lfs push --all github
+
+      - name: Mirror releases
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          : "${FORGEJO_REPOSITORY:?FORGEJO_REPOSITORY is missing}"
+          : "${GITHUB_MIRROR_REPOSITORY:?GITHUB_MIRROR_REPOSITORY is missing}"
+          : "${GH_MIRROR_TOKEN:?GH_MIRROR_TOKEN is missing}"
+
+          forgejo_api="https://git.dynamibyte.com/api/v1/repos/$FORGEJO_REPOSITORY"
+          github_api="https://api.github.com/repos/$GITHUB_MIRROR_REPOSITORY"
+          github_uploads="https://uploads.github.com/repos/$GITHUB_MIRROR_REPOSITORY"
+
+          work="$(mktemp -d)"
+
+          cleanup() {
+            rm -rf "$work"
+          }
+
+          trap cleanup EXIT
+
+          forgejo_headers=(
+            --header 'Accept: application/json'
+          )
+
+          if [ -n "${FORGEJO_TOKEN:-}" ]; then
+            forgejo_headers+=(
+              --header "Authorization: token $FORGEJO_TOKEN"
+            )
+          fi
+
+          github_headers=(
+            --header "Authorization: Bearer $GH_MIRROR_TOKEN"
+            --header 'Accept: application/vnd.github+json'
+            --header 'X-GitHub-Api-Version: 2026-03-10'
+          )
+
+          forgejo_request() {
+            curl \
+              --silent \
+              --show-error \
+              --fail-with-body \
+              "${forgejo_headers[@]}" \
+              "$@"
+          }
+
+          github_request() {
+            curl \
+              --silent \
+              --show-error \
+              --fail-with-body \
+              "${github_headers[@]}" \
+              "$@"
+          }
+
+          source_releases="$work/source-releases.json"
+          github_releases="$work/github-releases.json"
+
+          printf '[]\n' > "$source_releases"
+
+          page=1
+          while true; do
+            page_file="$work/forgejo-page-$page.json"
+
+            forgejo_request \
+              "$forgejo_api/releases?limit=50&page=$page" \
+              > "$page_file"
+
+            count="$(jq -er 'length' "$page_file")"
+
+            jq -s '.[0] + .[1]' \
+              "$source_releases" \
+              "$page_file" \
+              > "$work/source-releases.next.json"
+
+            mv \
+              "$work/source-releases.next.json" \
+              "$source_releases"
+
+            if [ "$count" -lt 50 ]; then
+              break
+            fi
+
+            page=$((page + 1))
+          done
+
+          printf '[]\n' > "$github_releases"
+
+          page=1
+          while true; do
+            page_file="$work/github-page-$page.json"
+
+            github_request \
+              "$github_api/releases?per_page=100&page=$page" \
+              > "$page_file"
+
+            count="$(jq -er 'length' "$page_file")"
+
+            jq -s '.[0] + .[1]' \
+              "$github_releases" \
+              "$page_file" \
+              > "$work/github-releases.next.json"
+
+            mv \
+              "$work/github-releases.next.json" \
+              "$github_releases"
+
+            if [ "$count" -lt 100 ]; then
+              break
+            fi
+
+            page=$((page + 1))
+          done
+
+          while IFS=$'\t' read -r release_id tag; do
+            if jq -e \
+              --arg tag "$tag" \
+              'any(.[]; .tag_name == $tag)' \
+              "$source_releases" \
+              >/dev/null
+            then
+              continue
+            fi
+
+            github_request \
+              --request DELETE \
+              "$github_api/releases/$release_id" \
+              >/dev/null
+
+            echo "Deleted GitHub release $tag"
+          done < <(
+            jq -r \
+              '.[] | [.id, .tag_name] | @tsv' \
+              "$github_releases"
+          )
+
+          release_number=0
+
+          while IFS= read -r source_release; do
+            release_number=$((release_number + 1))
+
+            source_release_file="$work/source-release-$release_number.json"
+            release_payload="$work/release-payload-$release_number.json"
+            github_release_file="$work/github-release-$release_number.json"
+            github_assets="$work/github-assets-$release_number.json"
+
+            printf '%s\n' "$source_release" > "$source_release_file"
+
+            tag="$(jq -er '.tag_name' "$source_release_file")"
+
+            jq '{
+              tag_name: .tag_name,
+              target_commitish: (.target_commitish // "master"),
+              name: (.name // .tag_name),
+              body: (.body // ""),
+              draft: (.draft // false),
+              prerelease: (.prerelease // false),
+              make_latest: "legacy"
+            }' \
+              "$source_release_file" \
+              > "$release_payload"
+
+            github_release_id="$({
+              jq -r \
+                --arg tag "$tag" \
+                '.[] | select(.tag_name == $tag) | .id' \
+                "$github_releases"
+            } | head -n 1)"
+
+            if [ -n "$github_release_id" ]; then
+              github_request \
+                --request PATCH \
+                --header 'Content-Type: application/json' \
+                --data-binary "@$release_payload" \
+                "$github_api/releases/$github_release_id" \
+                > "$github_release_file"
+
+              echo "Updated GitHub release $tag"
+            else
+              github_request \
+                --request POST \
+                --header 'Content-Type: application/json' \
+                --data-binary "@$release_payload" \
+                "$github_api/releases" \
+                > "$github_release_file"
+
+              github_release_id="$(jq -er '.id' "$github_release_file")"
+
+              echo "Created GitHub release $tag"
+            fi
+
+            github_request \
+              "$github_api/releases/$github_release_id/assets?per_page=100" \
+              > "$github_assets"
+
+            while IFS=$'\t' read -r asset_id asset_name; do
+              if jq -e \
+                --arg name "$asset_name" \
+                'any(.assets[]?; .name == $name)' \
+                "$source_release_file" \
+                >/dev/null
+              then
+                continue
+              fi
+
+              github_request \
+                --request DELETE \
+                "$github_api/releases/assets/$asset_id" \
+                >/dev/null
+
+              echo "Deleted $tag asset $asset_name"
+            done < <(
+              jq -r \
+                '.[] | [.id, .name] | @tsv' \
+                "$github_assets"
+            )
+
+            github_request \
+              "$github_api/releases/$github_release_id/assets?per_page=100" \
+              > "$github_assets"
+
+            asset_number=0
+
+            while IFS= read -r source_asset; do
+              asset_number=$((asset_number + 1))
+
+              source_asset_file="$work/source-asset-$release_number-$asset_number.json"
+              downloaded_asset="$work/asset-$release_number-$asset_number"
+
+              printf '%s\n' "$source_asset" > "$source_asset_file"
+
+              asset_name="$(jq -er '.name' "$source_asset_file")"
+              asset_url="$(jq -er '.browser_download_url' "$source_asset_file")"
+              content_type="$(
+                jq -r \
+                  '.content_type // "application/octet-stream"' \
+                  "$source_asset_file"
+              )"
+
+              forgejo_request \
+                --location \
+                "$asset_url" \
+                > "$downloaded_asset"
+
+              asset_size="$(wc -c < "$downloaded_asset" | tr -d ' ')"
+              asset_digest="sha256:$(sha256sum "$downloaded_asset" | cut -d ' ' -f 1)"
+
+              github_asset="$({
+                jq -c \
+                  --arg name "$asset_name" \
+                  '.[] | select(.name == $name)' \
+                  "$github_assets"
+              } | head -n 1)"
+
+              if [ -n "$github_asset" ]; then
+                github_asset_id="$(jq -er '.id' <<< "$github_asset")"
+                github_asset_size="$(jq -er '.size' <<< "$github_asset")"
+                github_asset_digest="$(jq -r '.digest // empty' <<< "$github_asset")"
+
+                if [ "$github_asset_size" = "$asset_size" ] && \
+                  { [ -z "$github_asset_digest" ] || [ "$github_asset_digest" = "$asset_digest" ]; }
+                then
+                  echo "Kept $tag asset $asset_name"
+                  continue
+                fi
+
+                github_request \
+                  --request DELETE \
+                  "$github_api/releases/assets/$github_asset_id" \
+                  >/dev/null
+              fi
+
+              encoded_name="$(
+                jq -rn \
+                  --arg name "$asset_name" \
+                  '$name | @uri'
+              )"
+
+              github_request \
+                --request POST \
+                --header "Content-Type: $content_type" \
+                --data-binary "@$downloaded_asset" \
+                "$github_uploads/releases/$github_release_id/assets?name=$encoded_name" \
+                >/dev/null
+
+              echo "Uploaded $tag asset $asset_name"
+            done < <(
+              jq -c '.assets[]?' "$source_release_file"
+            )
+          done < <(
+            jq -c '.[]' "$source_releases"
+          )

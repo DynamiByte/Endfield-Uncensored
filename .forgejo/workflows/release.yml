@@ -1,0 +1,324 @@
+name: Release EFU
+
+on:
+  push:
+    branches:
+      - master
+      - preview
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: efu-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: zig-0.16-alpine
+    timeout-minutes: 30
+
+    env:
+      RELEASE_BRANCH: ${{ forgejo.ref_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          github-server-url: https://git.dynamibyte.com
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check release commit
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f build.efu.zon
+          test -f README.md
+          test -f .forgejo/workflows/release-body.md
+
+          mapfile -t versions < <(
+            sed -nE \
+              's/^[[:space:]]*\.version[[:space:]]*=[[:space:]]*"([^"]+)"[[:space:]]*,[[:space:]]*$/\1/p' \
+              build.efu.zon
+          )
+
+          if [ "${#versions[@]}" -ne 1 ]; then
+            echo 'build.efu.zon needs one version' >&2
+            exit 1
+          fi
+
+          version="${versions[0]}"
+          subject="$(git log -1 --format=%s)"
+          event_name="${FORGEJO_EVENT_NAME:-${GITHUB_EVENT_NAME:-}}"
+          branch="${RELEASE_BRANCH:-${FORGEJO_REF_NAME:-${GITHUB_REF_NAME:-}}}"
+
+          if [ "$event_name" != 'workflow_dispatch' ]; then
+            if [[ ! "$subject" =~ ^Bump\ version\ to\ ([0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?)$ ]]; then
+              echo 'enabled=false' >> "$GITHUB_OUTPUT"
+              echo "skip: $subject"
+              exit 0
+            fi
+
+            if [ "${BASH_REMATCH[1]}" != "$version" ]; then
+              echo "commit says ${BASH_REMATCH[1]}, zon says $version" >&2
+              exit 1
+            fi
+          fi
+
+          if [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            if [ "$branch" != 'master' ]; then
+              echo 'stable releases need master' >&2
+              exit 1
+            fi
+
+            kind='stable'
+            release_name="Release $version"
+            prerelease='false'
+            badge_color='blue'
+          elif [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.0\.([1-9][0-9]*)$ ]]; then
+            if [ "$branch" != 'preview' ]; then
+              echo 'preview releases need preview' >&2
+              exit 1
+            fi
+
+            kind='preview'
+            preview_major="${BASH_REMATCH[1]}"
+            preview_minor="${BASH_REMATCH[2]}"
+            preview_patch='0'
+            preview_number="${BASH_REMATCH[3]}"
+            release_name="$preview_major.$preview_minor.$preview_patch Preview $preview_number"
+            prerelease='true'
+            badge_color='orange'
+          else
+            echo 'bad version' >&2
+            exit 1
+          fi
+
+          tag="v$version"
+
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            echo "$tag already exists" >&2
+            exit 1
+          fi
+
+          if [[ "$subject" =~ ^Bump\ version\ to\ [0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] && \
+            git rev-parse --verify HEAD^ >/dev/null 2>&1
+          then
+            changelog_end="$(git rev-parse HEAD^)"
+          else
+            changelog_end="$(git rev-parse HEAD)"
+          fi
+
+          mapfile -t merged_tags < <(
+            git tag \
+              --merged "$changelog_end" \
+              --sort=-version:refname
+          )
+
+          previous_tag=''
+
+          if [ "$kind" = 'preview' ]; then
+            for candidate in "${merged_tags[@]}"; do
+              if [[ "$candidate" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] && \
+                [ "${BASH_REMATCH[1]}" = "$preview_major" ] && \
+                [ "${BASH_REMATCH[2]}" = "$preview_minor" ] && \
+                [ "${BASH_REMATCH[3]}" = "$preview_patch" ] && \
+                [ "${BASH_REMATCH[4]}" -lt "$preview_number" ]
+              then
+                previous_tag="$candidate"
+                break
+              fi
+            done
+          fi
+
+          if [ -z "$previous_tag" ]; then
+            for candidate in "${merged_tags[@]}"; do
+              if [[ "$candidate" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                previous_tag="$candidate"
+                break
+              fi
+            done
+          fi
+
+          cp \
+            .forgejo/workflows/release-body.md \
+            release-body.generated.md
+
+          readme_url="https://github.com/DynamiByte/Endfield-Uncensored/blob/$tag/README.md"
+
+          sed -i \
+            -e "s|{{VERSION}}|$version|g" \
+            -e "s|{{BADGE_COLOR}}|$badge_color|g" \
+            -e "s|{{README_URL}}|$readme_url|g" \
+            release-body.generated.md
+
+          if [ -n "$previous_tag" ]; then
+            changelog_range="$previous_tag..$changelog_end"
+          else
+            changelog_range="$changelog_end"
+          fi
+
+          while IFS= read -r title; do
+            [ -n "$title" ] || continue
+            if [[ "$title" == 'Bump version to '* ]]; then
+              continue
+            fi
+            printf -- '- %s\n' "$title" >> release-body.generated.md
+          done < <(
+            git log \
+              --first-parent \
+              --reverse \
+              --format=%s \
+              "$changelog_range"
+          )
+
+          if [ -n "$previous_tag" ]; then
+            printf \
+              '\nAnd more, see a full diff [here](https://github.com/DynamiByte/Endfield-Uncensored/compare/%s...%s)\n' \
+              "$previous_tag" \
+              "$tag" \
+              >> release-body.generated.md
+          fi
+
+          {
+            echo 'enabled=true'
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "name=$release_name"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "release $tag"
+
+      - name: Build
+        if: steps.release.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test "$(zig version)" = '0.16.0'
+
+          rm -rf release zig-out
+          mkdir -p release
+
+          zig build -Doptimize=ReleaseSmall
+
+          test -f zig-out/bin/EFU.exe
+          install -m 0755 zig-out/bin/EFU.exe release/EFU.exe
+
+      - name: Publish release
+        if: steps.release.outputs.enabled == 'true'
+        shell: bash
+        env:
+          RELEASE_NAME: ${{ steps.release.outputs.name }}
+          RELEASE_PRERELEASE: ${{ steps.release.outputs.prerelease }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          : "${FORGEJO_REPOSITORY:?FORGEJO_REPOSITORY is missing}"
+          : "${FORGEJO_SHA:?FORGEJO_SHA is missing}"
+          : "${FORGEJO_TOKEN:?FORGEJO_TOKEN is missing}"
+
+          api="https://git.dynamibyte.com/api/v1/repos/$FORGEJO_REPOSITORY"
+          auth="Authorization: token $FORGEJO_TOKEN"
+          response="$(mktemp)"
+          payload="$(mktemp)"
+          trap 'rm -f "$response" "$payload"' EXIT
+
+          status="$(
+            curl \
+              --silent \
+              --show-error \
+              --output "$response" \
+              --write-out '%{http_code}' \
+              --header "$auth" \
+              --header 'Accept: application/json' \
+              "$api/releases/tags/$RELEASE_TAG"
+          )"
+
+          case "$status" in
+            404)
+              ;;
+            200)
+              echo "$RELEASE_TAG already exists" >&2
+              exit 1
+              ;;
+            *)
+              cat "$response" >&2
+              echo "release check: http $status" >&2
+              exit 1
+              ;;
+          esac
+
+          jq -n \
+            --arg tag "$RELEASE_TAG" \
+            --arg commit "$FORGEJO_SHA" \
+            --arg name "$RELEASE_NAME" \
+            --argjson prerelease "$RELEASE_PRERELEASE" \
+            --rawfile body release-body.generated.md \
+            '{
+              tag_name: $tag,
+              target_commitish: $commit,
+              name: $name,
+              body: $body,
+              draft: false,
+              prerelease: $prerelease
+            }' \
+            > "$payload"
+
+          status="$(
+            curl \
+              --silent \
+              --show-error \
+              --request POST \
+              --output "$response" \
+              --write-out '%{http_code}' \
+              --header "$auth" \
+              --header 'Accept: application/json' \
+              --header 'Content-Type: application/json' \
+              --data-binary "@$payload" \
+              "$api/releases"
+          )"
+
+          if [ "$status" != '201' ]; then
+            cat "$response" >&2
+            echo "create release: http $status" >&2
+            exit 1
+          fi
+
+          release_id="$(jq -er '.id' "$response")"
+          encoded_name="$(jq -rn --arg name 'EFU.exe' '$name | @uri')"
+
+          status="$(
+            curl \
+              --silent \
+              --show-error \
+              --request POST \
+              --output "$response" \
+              --write-out '%{http_code}' \
+              --header "$auth" \
+              --header 'Accept: application/json' \
+              --form 'attachment=@release/EFU.exe;type=application/octet-stream' \
+              "$api/releases/$release_id/assets?name=$encoded_name"
+          )"
+
+          case "$status" in
+            200|201)
+              echo "published $RELEASE_TAG"
+              ;;
+            *)
+              cat "$response" >&2
+              echo "upload EFU.exe: http $status" >&2
+              exit 1
+              ;;
+          esac
+
+  mirror:
+    needs: release
+    uses: ./.forgejo/workflows/mirror.yml
+    secrets: inherit
