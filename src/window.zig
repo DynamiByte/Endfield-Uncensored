@@ -545,9 +545,10 @@ fn setUpdateAvailable(version: update_checker.VersionNumber) void {
     g_update_version = version;
 }
 
-fn drainUpdateCheckResult() void {
-    const result = takeUpdateCheckResult() orelse return;
+fn drainUpdateCheckResult() bool {
+    const result = takeUpdateCheckResult() orelse return false;
     if (result.available) setUpdateAvailable(result.version);
+    return result.available;
 }
 
 fn darkerEfmiShadowColor(color: ByteVec4) ByteVec4 {
@@ -890,7 +891,7 @@ fn takeLoaderEvents() std.ArrayListUnmanaged(LoaderUiEvent) {
     return pending;
 }
 
-fn drainLoaderEvents() void {
+fn drainLoaderEvents() bool {
     var pending = takeLoaderEvents();
     defer pending.deinit(allocator);
 
@@ -916,6 +917,7 @@ fn drainLoaderEvents() void {
             },
         }
     }
+    return pending.items.len != 0;
 }
 
 fn clearLoaderEvents() void {
@@ -3395,6 +3397,12 @@ fn shutdownGUIApp() void {
     clearStatusLines();
 }
 
+fn guiAnimating() bool {
+    return g_update_available or g_window_anim.typ != .none or g_close_countdown.active or
+        g_output_scroll_animating or g_output_scroll_snap_pending or g_output_scroll_fast_settle_active or
+        g_output_drag_mode != .none or debugAutoscrollMode();
+}
+
 fn runGUI(config: cli.LaunchConfig) !u8 {
     g_version_display = try computeVersionDisplay(&g_version_display_buf);
     if (!initGUIApp(c.GetModuleHandleA(null), config)) {
@@ -3403,8 +3411,11 @@ fn runGUI(config: cli.LaunchConfig) !u8 {
     }
     defer shutdownGUIApp();
     var msg = std.mem.zeroes(c.MSG);
+    var redraw_until = c.GetTickCount64() + 1000;
     while (g_running) {
+        var had_message = false;
         while (c.PeekMessageW(&msg, null, 0, 0, c.PM_REMOVE) != c.FALSE) {
+            had_message = true;
             _ = c.TranslateMessage(&msg);
             _ = c.DispatchMessageW(&msg);
             if (msg.message == c.WM_QUIT) g_running = false;
@@ -3413,15 +3424,27 @@ fn runGUI(config: cli.LaunchConfig) !u8 {
 
         const io = ByteGUI.GetIO();
         const dt = @min(if (io.DeltaTime > 0.0) io.DeltaTime else 1.0 / 60.0, 1.0 / 30.0);
-        drainLoaderEvents();
-        drainUpdateCheckResult();
+        const had_loader_events = drainLoaderEvents();
+        const update_changed = drainUpdateCheckResult();
+        const launch_button_was_enabled = g_launch_btn_enabled;
         updateLaunchButtonState();
         updateHoverStates(dt);
         updateAnimations(dt);
         ByteGUI.DebugUpdateAutoscroll(dt, debugAutoscrollCallbacks());
         updateOutputSmoothScroll(dt);
         updateOutputDragFromCursor(dt);
+        if (had_message or had_loader_events or update_changed or launch_button_was_enabled != g_launch_btn_enabled) {
+            redraw_until = c.GetTickCount64() + 1000;
+        }
         if (!g_running or g_hwnd == null) break;
+        if (c.IsIconic(g_hwnd.?) != c.FALSE) {
+            c.Sleep(50);
+            continue;
+        }
+        if (c.GetTickCount64() >= redraw_until and !guiAnimating()) {
+            c.Sleep(16);
+            continue;
+        }
 
         bytegui.ByteGUI_ImplOpenGL_NewFrame();
         bytegui.ByteGUI_ImplWin32_NewFrame();
@@ -3433,7 +3456,7 @@ fn runGUI(config: cli.LaunchConfig) !u8 {
         _ = bytegui.ByteGUI_ImplOpenGL_BeginFrame(&clear_color);
         bytegui.ByteGUI_ImplOpenGL_RenderDrawData(ByteGUI.GetDrawData());
         _ = bytegui.ByteGUI_ImplOpenGL_Present();
-        c.Sleep(1);
+        c.Sleep(16);
     }
     return 0;
 }
