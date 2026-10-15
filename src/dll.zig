@@ -23,9 +23,13 @@ const KEY_DOWN_MASK: u16 = 0x8000;
 const POLL: DWORD = 25;
 const JUMP_SIZE: usize = 12;
 const MAX_STOLEN_BYTES: usize = 32;
+const launch_check_failure: c_int = 10100;
+const launch_status_prefix = "\"msg\":{\"code\":";
+const launch_error = "\"errorCode\":10100,";
 
 // Win32 and IL2CPP surface
 extern "kernel32" fn GetModuleHandleA(lpModuleName: ?[*:0]const u8) callconv(.winapi) ?HMODULE;
+extern "kernel32" fn LoadLibraryA(lpLibFileName: [*:0]const u8) callconv(.winapi) ?HMODULE;
 extern "kernel32" fn GetProcAddress(hModule: HMODULE, lpProcName: [*:0]const u8) callconv(.winapi) ?*anyopaque;
 extern "kernel32" fn Sleep(dwMilliseconds: DWORD) callconv(.winapi) void;
 extern "kernel32" fn GetCurrentProcess() callconv(.winapi) HANDLE;
@@ -54,6 +58,8 @@ const Il2CppAssemblyGetImageFn = *const fn (?*anyopaque) callconv(.c) ?*anyopaqu
 const Il2CppClassFromNameFn = *const fn (?*anyopaque, [*:0]const u8, [*:0]const u8) callconv(.c) ?*anyopaque;
 const Il2CppClassGetMethodFromNameFn = *const fn (?*anyopaque, [*:0]const u8, c_int) callconv(.c) ?*Il2CppMethodInfo;
 const InstanceVoidMethod = *const fn (?*anyopaque, ?*Il2CppMethodInfo) callconv(.c) void;
+const LaunchCheckFn = *const fn (?*anyopaque, [*:0]const u8) callconv(.winapi) c_int;
+const LaunchResultFn = *const fn () callconv(.winapi) ?[*:0]u8;
 
 const Il2CppMethodInfo = extern struct {
     address: usize,
@@ -74,6 +80,8 @@ const Hook = struct {
 var g_enabled = true;
 var g_force_clear_method: ?*Il2CppMethodInfo = null;
 var g_pitch_hook = Hook{};
+var g_launch_hook = Hook{};
+var g_launch_result: ?LaunchResultFn = null;
 
 // Hotkey and host process helpers
 fn winBool(value: bool) BOOL {
@@ -110,6 +118,29 @@ fn waitForModule(module_name: [*:0]const u8) HMODULE {
     }
     Sleep(2000);
     return handle.?;
+}
+
+// launch check
+fn launchCheckHook(context: ?*anyopaque, config: [*:0]const u8) callconv(.winapi) c_int {
+    const original: LaunchCheckFn = @ptrCast(g_launch_hook.trampoline orelse return launch_check_failure);
+    const result = original(context, config);
+    if (result != launch_check_failure) return result;
+
+    const get_result = g_launch_result orelse return result;
+    const json_ptr = get_result() orelse return result;
+    const json = std.mem.span(json_ptr);
+    const status = std.mem.indexOf(u8, json, launch_status_prefix ++ "1,") orelse return result;
+    const error_field = std.mem.indexOf(u8, json, launch_error) orelse return result;
+    json_ptr[status + launch_status_prefix.len] = '0';
+    @memset(json_ptr[error_field..][0..launch_error.len], ' ');
+    return 0;
+}
+
+fn patchDirectLaunchCheck() void {
+    const one_channel = LoadLibraryA("OneChannelLC.dll") orelse return;
+    const check = GetProcAddress(one_channel, @ptrFromInt(1)) orelse return;
+    g_launch_result = @ptrCast(GetProcAddress(one_channel, @ptrFromInt(2)) orelse return);
+    _ = installJumpHook(&g_launch_hook, @ptrCast(check), @intFromPtr(&launchCheckHook));
 }
 
 // x64 instruction decoding
@@ -294,6 +325,7 @@ fn cameraPitchHook(instance: ?*anyopaque, method_info: ?*Il2CppMethodInfo) callc
 }
 
 fn patchThread(_: ?*anyopaque) callconv(.winapi) DWORD {
+    patchDirectLaunchCheck();
     const targets = resolvePatchTargets() orelse return 0;
     g_force_clear_method = targets.force_clear;
     if (!installJumpHook(&g_pitch_hook, @ptrFromInt(targets.process_pitch.address), @intFromPtr(&cameraPitchHook))) return 0;
