@@ -14,6 +14,7 @@ const SIZE_T = windows.SIZE_T;
 const DLL_PROCESS_ATTACH: DWORD = 1;
 const MEM_COMMIT: DWORD = 0x00001000;
 const MEM_RESERVE: DWORD = 0x00002000;
+const MEM_FREE: DWORD = 0x00010000;
 const PAGE_EXECUTE_READWRITE: DWORD = 0x40;
 const VK_MENU: c_int = 0x12;
 const VK_F12: c_int = 0x7B;
@@ -21,7 +22,9 @@ const VK_LMENU: c_int = 0xA4;
 const VK_RMENU: c_int = 0xA5;
 const KEY_DOWN_MASK: u16 = 0x8000;
 const POLL: DWORD = 25;
-const JUMP_SIZE: usize = 12;
+const JUMP_SIZE: usize = 5;
+const ABSOLUTE_JUMP_SIZE: usize = 12;
+const ALLOCATION_GRANULARITY: usize = 0x10000;
 const MAX_STOLEN_BYTES: usize = 32;
 const launch_check_failure: c_int = 10100;
 const launch_status_prefix = "\"msg\":{\"code\":";
@@ -36,6 +39,7 @@ extern "kernel32" fn GetCurrentProcess() callconv(.winapi) HANDLE;
 extern "kernel32" fn GetCurrentProcessId() callconv(.winapi) DWORD;
 extern "kernel32" fn FlushInstructionCache(hProcess: HANDLE, lpBaseAddress: ?*const anyopaque, dwSize: SIZE_T) callconv(.winapi) BOOL;
 extern "kernel32" fn VirtualAlloc(lpAddress: ?LPVOID, dwSize: SIZE_T, flAllocationType: DWORD, flProtect: DWORD) callconv(.winapi) ?LPVOID;
+extern "kernel32" fn VirtualQuery(lpAddress: ?*const anyopaque, lpBuffer: *MemoryBasicInformation, dwLength: SIZE_T) callconv(.winapi) SIZE_T;
 extern "kernel32" fn VirtualProtect(lpAddress: LPVOID, dwSize: SIZE_T, flNewProtect: DWORD, lpflOldProtect: *DWORD) callconv(.winapi) BOOL;
 extern "kernel32" fn CloseHandle(hObject: HANDLE) callconv(.winapi) BOOL;
 extern "kernel32" fn CreateThread(
@@ -70,17 +74,21 @@ const PatchTargets = struct {
     force_clear: *Il2CppMethodInfo,
 };
 
-const Hook = struct {
-    target: ?*u8 = null,
-    trampoline: ?LPVOID = null,
-    original: [MAX_STOLEN_BYTES]u8 = [_]u8{0} ** MAX_STOLEN_BYTES,
-    len: usize = 0,
+const MemoryBasicInformation = extern struct {
+    base_address: ?LPVOID,
+    allocation_base: ?LPVOID,
+    allocation_protect: DWORD,
+    partition_id: u16,
+    region_size: SIZE_T,
+    state: DWORD,
+    protect: DWORD,
+    kind: DWORD,
 };
 
 var g_enabled = true;
 var g_force_clear_method: ?*Il2CppMethodInfo = null;
-var g_pitch_hook = Hook{};
-var g_launch_hook = Hook{};
+var g_pitch_trampoline: ?LPVOID = null;
+var g_launch_trampoline: ?LPVOID = null;
 var g_launch_result: ?LaunchResultFn = null;
 
 // Hotkey and host process helpers
@@ -122,7 +130,7 @@ fn waitForModule(module_name: [*:0]const u8) HMODULE {
 
 // launch check
 fn launchCheckHook(context: ?*anyopaque, config: [*:0]const u8) callconv(.winapi) c_int {
-    const original: LaunchCheckFn = @ptrCast(g_launch_hook.trampoline orelse return launch_check_failure);
+    const original: LaunchCheckFn = @ptrCast(g_launch_trampoline orelse return launch_check_failure);
     const result = original(context, config);
     if (result != launch_check_failure) return result;
 
@@ -140,7 +148,7 @@ fn patchDirectLaunchCheck() void {
     const one_channel = LoadLibraryA("OneChannelLC.dll") orelse return;
     const check = GetProcAddress(one_channel, @ptrFromInt(1)) orelse return;
     g_launch_result = @ptrCast(GetProcAddress(one_channel, @ptrFromInt(2)) orelse return);
-    _ = installJumpHook(&g_launch_hook, @ptrCast(check), @intFromPtr(&launchCheckHook));
+    _ = installJumpHook(&g_launch_trampoline, @ptrCast(check), @intFromPtr(&launchCheckHook));
 }
 
 // x64 instruction decoding
@@ -266,27 +274,64 @@ fn writeAbsoluteJump(dst: []u8, address: usize) void {
     dst[11] = 0xE0;
 }
 
-fn installJumpHook(hook: *Hook, target: *u8, replacement_addr: usize) bool {
+fn relativeJumpOffset(from: usize, to: usize) ?i32 {
+    const offset = @as(i128, @intCast(to)) - @as(i128, @intCast(from + JUMP_SIZE));
+    return std.math.cast(i32, offset);
+}
+
+fn writeRelativeJump(dst: []u8, from: usize, to: usize) void {
+    const offset: u32 = @bitCast(relativeJumpOffset(from, to).?);
+    dst[0] = 0xE9;
+    inline for (0..4) |i| dst[1 + i] = @truncate(offset >> (i * 8));
+}
+
+fn allocateNear(target: usize, stolen_len: usize) ?LPVOID {
+    const size = stolen_len + JUMP_SIZE + ABSOLUTE_JUMP_SIZE;
+    const lower = if (target > 0x70000000) target - 0x70000000 else ALLOCATION_GRANULARITY;
+    const upper = target + 0x70000000;
+    var cursor = lower;
+
+    while (cursor < upper) {
+        var info: MemoryBasicInformation = undefined;
+        if (VirtualQuery(@ptrFromInt(cursor), &info, @sizeOf(MemoryBasicInformation)) == 0) return null;
+        const region_start = @intFromPtr(info.base_address orelse return null);
+        const region_end = region_start + info.region_size;
+        if (region_end <= cursor) return null;
+
+        if (info.state == MEM_FREE) {
+            const candidate = (cursor + ALLOCATION_GRANULARITY - 1) & ~@as(usize, ALLOCATION_GRANULARITY - 1);
+            if (candidate + size <= @min(region_end, upper) and
+                relativeJumpOffset(target, candidate + stolen_len + JUMP_SIZE) != null and
+                relativeJumpOffset(candidate + stolen_len, target + stolen_len) != null)
+            {
+                if (VirtualAlloc(@ptrFromInt(candidate), size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE)) |memory| return memory;
+            }
+        }
+        cursor = region_end;
+    }
+    return null;
+}
+
+fn installJumpHook(trampoline_ptr: *?LPVOID, target: *u8, replacement_addr: usize) bool {
     const resolved_target = resolveThunk(target);
     const len = patchLen(resolved_target) orelse return false;
-    const trampoline = VirtualAlloc(null, len + JUMP_SIZE, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE) orelse return false;
+    const trampoline = allocateNear(@intFromPtr(resolved_target), len) orelse return false;
     const original_bytes = @as([*]const u8, @ptrCast(resolved_target))[0..len];
-    const trampoline_bytes = @as([*]u8, @ptrCast(trampoline))[0 .. len + JUMP_SIZE];
+    const trampoline_bytes = @as([*]u8, @ptrCast(trampoline))[0 .. len + JUMP_SIZE + ABSOLUTE_JUMP_SIZE];
+    const relay_addr = @intFromPtr(trampoline) + len + JUMP_SIZE;
 
-    @memcpy(hook.original[0..len], original_bytes);
     @memcpy(trampoline_bytes[0..len], original_bytes);
-    writeAbsoluteJump(trampoline_bytes[len .. len + JUMP_SIZE], @intFromPtr(resolved_target) + len);
-
-    hook.target = resolved_target;
-    hook.trampoline = trampoline;
-    hook.len = len;
+    writeRelativeJump(trampoline_bytes[len .. len + JUMP_SIZE], @intFromPtr(trampoline) + len, @intFromPtr(resolved_target) + len);
+    writeAbsoluteJump(trampoline_bytes[len + JUMP_SIZE ..], replacement_addr);
 
     var old_protect: DWORD = 0;
     if (VirtualProtect(resolved_target, len, PAGE_EXECUTE_READWRITE, &old_protect) == winBool(false)) return false;
 
+    trampoline_ptr.* = trampoline;
     const target_bytes = @as([*]u8, @ptrCast(resolved_target))[0..len];
-    writeAbsoluteJump(target_bytes[0..JUMP_SIZE], replacement_addr);
+    writeRelativeJump(target_bytes[0..JUMP_SIZE], @intFromPtr(resolved_target), relay_addr);
     if (len > JUMP_SIZE) @memset(target_bytes[JUMP_SIZE..len], 0x90);
+    _ = FlushInstructionCache(GetCurrentProcess(), trampoline, trampoline_bytes.len);
     _ = FlushInstructionCache(GetCurrentProcess(), resolved_target, len);
     _ = VirtualProtect(resolved_target, len, old_protect, &old_protect);
     return true;
@@ -314,7 +359,7 @@ fn resolvePatchTargets() ?PatchTargets {
 }
 
 fn cameraPitchHook(instance: ?*anyopaque, method_info: ?*Il2CppMethodInfo) callconv(.c) void {
-    const trampoline = g_pitch_hook.trampoline orelse return;
+    const trampoline = g_pitch_trampoline orelse return;
     const original: InstanceVoidMethod = @ptrCast(trampoline);
     original(instance, method_info);
 
@@ -328,7 +373,7 @@ fn patchThread(_: ?*anyopaque) callconv(.winapi) DWORD {
     patchDirectLaunchCheck();
     const targets = resolvePatchTargets() orelse return 0;
     g_force_clear_method = targets.force_clear;
-    if (!installJumpHook(&g_pitch_hook, @ptrFromInt(targets.process_pitch.address), @intFromPtr(&cameraPitchHook))) return 0;
+    if (!installJumpHook(&g_pitch_trampoline, @ptrFromInt(targets.process_pitch.address), @intFromPtr(&cameraPitchHook))) return 0;
 
     var was_combo_down = altDown() and keyDown(VK_F12);
     while (true) {
